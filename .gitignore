@@ -1,0 +1,50 @@
+# Python bytecode / caches
+__pycache__/
+*.py[cod]
+*$py.class
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.pyre/
+.coverage
+coverage.xml
+htmlcov/
+
+# Packaging / build outputs
+*.egg-info/
+.eggs/
+build/
+dist/
+wheelhouse/
+
+# Virtual environments
+.venv/
+venv/
+env/
+ENV/
+
+# Local environment files
+.env
+.env.*
+!.env.example
+
+# Runtime logs and local process files
+*.log
+nohup.out
+.uvicorn.log
+.uvicorn.pid
+
+# Local data snapshots
+data/*.json
+data/*.tmp
+data/*.tmp.*
+!data/.gitkeep
+
+# OS / editor files
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
+*.swp
+*.swo
+

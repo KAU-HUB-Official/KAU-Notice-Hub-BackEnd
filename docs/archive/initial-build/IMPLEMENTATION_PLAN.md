@@ -13,10 +13,10 @@
 
 관련 문서:
 
-- [ERD.md](ERD.md)
-- [API_SPEC.md](API_SPEC.md)
-- [CRAWLING_UPDATE.md](CRAWLING_UPDATE.md)
-- [DEPLOYMENT.md](DEPLOYMENT.md)
+- [ERD.md](../../ERD.md)
+- [API_SPEC.md](../../API_SPEC.md)
+- [CRAWLING_UPDATE.md](../../CRAWLING_UPDATE.md)
+- [DEPLOYMENT.md](../../DEPLOYMENT.md)
 
 ## MVP 구현 원칙
 - 단순한 파일 구조로 시작한다.
@@ -91,7 +91,7 @@ BackEnd
 
 완료 기준:
 
-- [API_SPEC.md](API_SPEC.md)의 응답 shape과 필드명이 일치한다.
+- [API_SPEC.md](../../API_SPEC.md)의 응답 shape과 필드명이 일치한다.
 - API 응답은 camelCase를 유지한다.
 - `tags`, `attachments`는 항상 배열로 내려간다.
 
@@ -221,7 +221,7 @@ class NoticeRepository:
 
 완료 기준:
 
-- [API_SPEC.md](API_SPEC.md)의 `GET /api/notices` 동작과 일치한다.
+- [API_SPEC.md](../../API_SPEC.md)의 `GET /api/notices` 동작과 일치한다.
 - 지원하지 않는 `source` 또는 `group` query는 에러가 아니라 무시된다.
 - `page`, `pageSize` 보정이 동작한다.
 
@@ -272,7 +272,7 @@ class NoticeRepository:
 - 증분 수집 결과가 기존 전체 스냅샷과 병합된다.
 - 최신 파일 교체 후 API가 다음 요청에서 변경을 감지한다.
 
-상세 정책은 [CRAWLING_UPDATE.md](CRAWLING_UPDATE.md)를 따른다.
+상세 정책은 [CRAWLING_UPDATE.md](../../CRAWLING_UPDATE.md)를 따른다.
 
 ### 11단계: Docker 배포 파일
 작업:
@@ -289,7 +289,7 @@ class NoticeRepository:
 - `/data/kau_official_posts.json`을 volume으로 공유할 수 있다.
 - `/health`와 `/api/notices`가 container 환경에서 동작한다.
 
-상세 정책은 [DEPLOYMENT.md](DEPLOYMENT.md)를 따른다.
+상세 정책은 [DEPLOYMENT.md](../../DEPLOYMENT.md)를 따른다.
 
 ### 12단계: 프론트 연결 전환
 작업:
@@ -305,7 +305,7 @@ class NoticeRepository:
 - audience/group/source/q/page 상태 동기화가 유지된다.
 - 기존 UI 컴포넌트의 대규모 수정 없이 동작한다.
 
-프론트 배포 상세는 [MVP/docs/DEPLOYMENT.md](../../MVP/docs/DEPLOYMENT.md)를 따른다.
+프론트 배포 상세는 [MVP/docs/DEPLOYMENT.md](../../../../MVP/docs/DEPLOYMENT.md)를 따른다.
 
 ## 테스트 계획
 ### 단위 테스트

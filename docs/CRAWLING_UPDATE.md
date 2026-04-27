@@ -1,9 +1,9 @@
-# 주기 크롤링 및 공지 데이터 갱신 계획
+# 주기 크롤링 및 공지 데이터 갱신
 
 ## 범위
 이 문서는 백엔드 서버가 실행 중인 동안 크롤러를 주기적으로 실행하고, 최신 공지 데이터를 API에 반영하는 방식을 정의한다.
 
-초기 MVP에서는 구조를 복잡하게 만들지 않는다.
+현재 MVP에서는 구조를 복잡하게 만들지 않는다.
 
 - FastAPI 서버는 공지 조회 API를 안정적으로 제공한다.
 - 크롤러는 별도 프로세스 또는 별도 컨테이너에서 주기 실행한다.
@@ -11,7 +11,7 @@
 - 백엔드는 JSON 파일 변경을 감지해 최신 데이터를 다시 읽는다.
 - Redis, Celery, 별도 queue, 복잡한 worker는 MVP에서 사용하지 않는다.
 
-## 권장 MVP 구조
+## 현재 MVP 구조
 ```text
 Scheduler(cron/systemd/Docker scheduler)
   -> Crawler 실행
@@ -66,30 +66,31 @@ FastAPI 내부에 APScheduler 같은 스케줄러를 넣을 수도 있지만, MV
 ## 파일 갱신 방식
 크롤러는 결과 파일을 직접 덮어쓰지 않는다.
 
-권장 방식:
+구현된 게시 스크립트는 [../scripts/run_incremental_crawl_publish.sh](../scripts/run_incremental_crawl_publish.sh)다.
+
+스크립트는 아래 방식으로 동작한다.
 
 ```text
 1. 기존 NOTICE_JSON_PATH를 읽어 현재 스냅샷 확보
-2. 증분 수집 결과와 기존 스냅샷 병합
-3. 병합된 전체 결과를 crawler_output.tmp.json에 저장
-4. JSON 파싱 검증
-5. 최상위 타입이 배열인지 검증
-6. 최소 레코드 수 또는 필수 필드 품질 확인
-7. 검증 성공 시 os.replace로 최종 파일 교체
-8. 검증 실패 시 기존 NOTICE_JSON_PATH 유지
+2. 같은 디렉터리에 임시 작업 파일 생성
+3. CRAWLER_COMMAND를 실행하고 CRAWLER_OUTPUT_PATH를 임시 작업 파일로 전달
+4. 크롤러는 임시 작업 파일에 병합된 전체 결과 JSON을 저장
+5. JSON 파싱, 최상위 배열, 최소 레코드 수, 레코드 급감 여부 검증
+6. 검증 성공 시 mv로 최종 파일 교체
+7. 검증 실패 시 기존 NOTICE_JSON_PATH 유지
 ```
 
 예시:
 
 ```text
 NOTICE_JSON_PATH=/data/kau_official_posts.json
-임시 파일=/data/kau_official_posts.tmp.json
+임시 파일=/data/.kau_official_posts.json.tmp.XXXXXX
 ```
 
 이 방식은 백엔드가 파일을 읽는 도중 크롤러가 같은 파일을 쓰면서 깨진 JSON을 읽는 문제를 줄인다.
 
 ## 백엔드 JSON 재로드 정책
-`JsonNoticeRepository`는 파일의 `mtimeMs` 또는 유사한 수정 시각을 기준으로 캐시를 관리한다.
+`JsonNoticeRepository`는 파일의 `st_mtime_ns` 수정 시각을 기준으로 캐시를 관리한다.
 
 동작:
 
@@ -137,8 +138,10 @@ NOTICE_JSON_PATH=/data/kau_official_posts.json
 개발 중에는 수동 실행이 가장 단순하다.
 
 ```bash
-cd Crawler
-python crawler/main.py --output ../BackEnd/data/kau_official_posts.json
+cd BackEnd
+NOTICE_JSON_PATH=./data/kau_official_posts.json \
+CRAWLER_COMMAND='cd ../Crawler && python crawler/main.py --output "$CRAWLER_OUTPUT_PATH"' \
+bash scripts/run_incremental_crawl_publish.sh
 ```
 
 백엔드:
@@ -154,18 +157,17 @@ NOTICE_JSON_PATH=./data/kau_official_posts.json uvicorn app.main:app --reload --
 예시:
 
 ```cron
-*/60 * * * * /app/BackEnd/scripts/run_incremental_crawl_publish.sh
+*/60 * * * * cd /opt/kau-notice-backend && NOTICE_JSON_PATH=/data/kau_official_posts.json CRAWLER_COMMAND='cd ../Crawler && python crawler/main.py --output "$CRAWLER_OUTPUT_PATH"' bash scripts/run_incremental_crawl_publish.sh
 ```
 
-`run_incremental_crawl_publish.sh`는 아래 책임을 가진다.
+필수 환경변수:
 
-```text
-1. 현재 /data/kau_official_posts.json을 작업 파일로 복사
-2. 크롤러를 작업 파일 기준으로 실행해 기존 데이터와 신규 데이터를 병합
-3. 작업 파일 JSON 검증
-4. 검증 성공 시 os.replace 또는 mv로 최종 파일 교체
-5. 실패 시 작업 파일 폐기 및 기존 최종 파일 유지
-```
+| 이름 | 기본값 | 설명 |
+| --- | --- | --- |
+| `NOTICE_JSON_PATH` | `./data/kau_official_posts.json` | API가 읽는 최종 전체 스냅샷 |
+| `CRAWLER_COMMAND` | 없음 | `$CRAWLER_OUTPUT_PATH`에 전체 JSON을 쓰는 크롤러 명령 |
+| `MIN_RECORDS` | `1` | 게시 허용 최소 레코드 수 |
+| `MIN_RETAIN_RATIO` | `0.5` | 기존 개수 대비 급감 방어 비율 |
 
 현재 크롤러가 `--output` 파일을 기존 결과로 읽고 병합하는 방식이라면, 최종 파일을 직접 쓰지 말고 “작업 파일 복사본”을 output으로 넘긴 뒤 검증 후 최종 파일로 교체한다.
 

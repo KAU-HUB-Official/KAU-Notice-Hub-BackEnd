@@ -20,7 +20,7 @@
 | 첨부파일 | 원본 공지에 연결된 파일 |
 
 ## 분류 필드
-분류 기준은 `MVP/docs/CLASSIFICATION.md`를 따른다.
+분류 기준은 [CLASSIFICATION.md](CLASSIFICATION.md)를 따른다.
 
 | 필드 | 의미 | MVP JSON 저장 여부 | PostgreSQL 저장 여부 |
 | --- | --- | --- | --- |

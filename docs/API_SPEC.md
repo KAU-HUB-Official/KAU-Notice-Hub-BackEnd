@@ -1,16 +1,17 @@
 # API 명세서
 
 ## 범위
-이 문서는 KAU Notice Hub 독립 백엔드의 MVP API 계약을 정의한다.
+이 문서는 KAU Notice Hub FastAPI 백엔드의 현재 MVP API 계약을 정의한다.
 
-초기 백엔드는 단순하게 시작한다.
+현재 백엔드는 아래 구성을 기준으로 한다.
 
 - FastAPI 서버
 - JSON 파일 저장소
-- 현재 Next.js MVP API와 최대한 같은 동작
+- 기존 Next.js MVP API와 호환되는 응답 shape
+- Swagger UI 기반 API 명세 확인
 - PostgreSQL은 추후 저장소 구현체로 추가
 
-첫 MVP에서는 API 버전 관리, 인증, 관리자 API, 큐, 별도 검색엔진을 추가하지 않는다.
+MVP에서는 API 버전 관리, 인증, 관리자 API, 큐, 별도 검색엔진을 추가하지 않는다.
 
 크롤러 주기 실행과 JSON 갱신 방식은 [CRAWLING_UPDATE.md](CRAWLING_UPDATE.md)를 따른다.
 
@@ -26,6 +27,15 @@ http://localhost:8000
 ```env
 NEXT_PUBLIC_API_BASE_URL=http://localhost:8000
 ```
+
+## API 문서 UI
+FastAPI가 OpenAPI 문서를 자동 생성한다.
+
+| URL | 용도 |
+| --- | --- |
+| `http://localhost:8000/docs` | Swagger UI. 브라우저에서 API 명세 확인 및 요청 테스트 |
+| `http://localhost:8000/redoc` | ReDoc 문서 |
+| `http://localhost:8000/openapi.json` | OpenAPI JSON |
 
 ## 공통 규칙
 ### 콘텐츠 타입
@@ -88,7 +98,7 @@ Content-Type: application/json
 | `pageSize > 100` | `100` 사용 |
 
 ### 분류 규칙
-분류 기준 문서는 `MVP/docs/CLASSIFICATION.md`다.
+분류 기준 문서는 [CLASSIFICATION.md](CLASSIFICATION.md)다.
 
 중요 동작:
 
@@ -221,8 +231,8 @@ MVP는 `status`만 반환해도 된다.
 | `q` | string | 아니오 | 검색어 |
 | `category` | string | 아니오 | category 필터 |
 | `department` | string | 아니오 | department 필터 |
-| `page` | integer | 아니오 | 페이지 번호. 기본값 `1` |
-| `pageSize` | integer | 아니오 | 페이지 크기. 기본값 `20`, 최대 `100` |
+| `page` | string/integer | 아니오 | 페이지 번호. 잘못된 값은 `1`로 보정 |
+| `pageSize` | string/integer | 아니오 | 페이지 크기. 잘못된 값은 `20`으로 보정, 최대 `100` |
 
 #### 필터 적용 순서
 1. 전체 공지 로드
@@ -358,7 +368,7 @@ GET /api/notices/notice-001
 #### 응답 `404`
 ```json
 {
-  "error": "공지를 찾을 수 없습니다."
+  "error": "공지 항목을 찾을 수 없습니다."
 }
 ```
 
@@ -375,7 +385,8 @@ GET /api/notices/notice-001
 MVP 기준:
 
 - `GET /api/notices`와 같은 필터/검색 로직을 사용한다.
-- OpenAI 설정이 없으면 local fallback 답변과 근거 목록을 반환한다.
+- 현재 구현은 local fallback 답변과 근거 목록을 반환한다.
+- `OPENAI_API_KEY`, `OPENAI_MODEL`은 향후 OpenAI 연동용 예약 환경변수다.
 - 벡터 검색 기반의 완전한 RAG는 아직 구현하지 않는다.
 
 #### 요청 본문
@@ -438,7 +449,7 @@ interface ChatAnswer {
 #### 응답 `400`
 ```json
 {
-  "error": "질문을 입력해 주세요."
+  "error": "question 필드는 필수입니다."
 }
 ```
 
@@ -465,9 +476,9 @@ BACKEND_CORS_ORIGINS=http://localhost:3000
 ## 환경변수
 | 이름 | 필수 | 기본값 | 설명 |
 | --- | --- | --- | --- |
-| `NOTICE_JSON_PATH` | 아니오 | `kau_official_posts.json` | 크롤러 JSON 파일 경로 |
-| `OPENAI_API_KEY` | 아니오 | empty | OpenAI 챗봇 응답 활성화 |
-| `OPENAI_MODEL` | 아니오 | `gpt-4.1-mini` | 챗봇 모델명 |
+| `NOTICE_JSON_PATH` | 아니오 | `./data/kau_official_posts.json` | 크롤러 JSON 파일 경로 |
+| `OPENAI_API_KEY` | 아니오 | empty | 예약값. 현재 챗봇은 local fallback 사용 |
+| `OPENAI_MODEL` | 아니오 | `gpt-4.1-mini` | 예약값. 향후 OpenAI 연동 모델명 |
 | `BACKEND_CORS_ORIGINS` | 아니오 | `http://localhost:3000` | 쉼표 구분 CORS origin 목록 |
 
 ## MVP 비목표

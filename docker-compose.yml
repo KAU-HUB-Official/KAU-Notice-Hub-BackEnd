@@ -1,0 +1,52 @@
+services:
+  api:
+    build:
+      context: .
+    environment:
+      NOTICE_JSON_PATH: /data/kau_official_posts.json
+      BACKEND_CORS_ORIGINS: ${BACKEND_CORS_ORIGINS:-http://localhost:3000}
+      OPENAI_MODEL: ${OPENAI_MODEL:-gpt-4.1-mini}
+      LOG_LEVEL: ${LOG_LEVEL:-INFO}
+    volumes:
+      - notice_data:/data
+    ports:
+      - "${BACKEND_PORT:-8000}:8000"
+    restart: unless-stopped
+
+  crawler:
+    build:
+      context: .
+    profiles:
+      - tools
+    environment:
+      NOTICE_JSON_PATH: /data/kau_official_posts.json
+      CRAWLER_COMMAND: ${CRAWLER_COMMAND:-cd /crawler && python crawler/main.py --output "$CRAWLER_OUTPUT_PATH"}
+      MIN_RECORDS: ${MIN_RECORDS:-1}
+      MIN_RETAIN_RATIO: ${MIN_RETAIN_RATIO:-0.5}
+    volumes:
+      - notice_data:/data
+      - ../Crawler:/crawler:ro
+    command: ["bash", "scripts/run_incremental_crawl_publish.sh"]
+
+  caddy:
+    image: caddy:2
+    profiles:
+      - proxy
+    environment:
+      API_DOMAIN: ${API_DOMAIN:-:80}
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    depends_on:
+      - api
+    restart: unless-stopped
+
+volumes:
+  notice_data:
+  caddy_data:
+  caddy_config:
+

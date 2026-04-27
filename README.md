@@ -38,5 +38,3 @@ bash scripts/run_incremental_crawl_publish.sh
 docker compose up -d --build api
 docker compose --profile proxy up -d --build
 ```
-
-# KAU-Notice-Hub-BackEnd

@@ -6,7 +6,7 @@
 현재 MVP에서는 구조를 복잡하게 만들지 않는다.
 
 - FastAPI 서버는 공지 조회 API를 안정적으로 제공한다.
-- 크롤러는 별도 프로세스 또는 별도 컨테이너에서 주기 실행한다.
+- 크롤러 코드는 `app/crawler`에 포함하고, 실행은 별도 프로세스 또는 별도 컨테이너에서 주기 실행한다.
 - 크롤러 결과는 JSON 파일로 저장한다.
 - 백엔드는 JSON 파일 변경을 감지해 최신 데이터를 다시 읽는다.
 - Redis, Celery, 별도 queue, 복잡한 worker는 MVP에서 사용하지 않는다.
@@ -14,7 +14,7 @@
 ## 현재 MVP 구조
 ```text
 Scheduler(cron/systemd/Docker scheduler)
-  -> Crawler 실행
+  -> app/crawler 실행
   -> 기존 스냅샷 기준 증분 수집
   -> 기존 데이터와 신규/수정 데이터 병합
   -> 다음 전체 스냅샷을 임시 JSON 파일로 생성
@@ -140,7 +140,6 @@ NOTICE_JSON_PATH=/data/kau_official_posts.json
 ```bash
 cd BackEnd
 NOTICE_JSON_PATH=./data/kau_official_posts.json \
-CRAWLER_COMMAND='cd ../Crawler && python crawler/main.py --output "$CRAWLER_OUTPUT_PATH"' \
 bash scripts/run_incremental_crawl_publish.sh
 ```
 
@@ -157,7 +156,7 @@ NOTICE_JSON_PATH=./data/kau_official_posts.json uvicorn app.main:app --reload --
 예시:
 
 ```cron
-*/60 * * * * cd /opt/kau-notice-backend && NOTICE_JSON_PATH=/data/kau_official_posts.json CRAWLER_COMMAND='cd ../Crawler && python crawler/main.py --output "$CRAWLER_OUTPUT_PATH"' bash scripts/run_incremental_crawl_publish.sh
+*/60 * * * * cd /opt/kau-notice-backend && NOTICE_JSON_PATH=/data/kau_official_posts.json bash scripts/run_incremental_crawl_publish.sh
 ```
 
 필수 환경변수:
@@ -165,7 +164,7 @@ NOTICE_JSON_PATH=./data/kau_official_posts.json uvicorn app.main:app --reload --
 | 이름 | 기본값 | 설명 |
 | --- | --- | --- |
 | `NOTICE_JSON_PATH` | `./data/kau_official_posts.json` | API가 읽는 최종 전체 스냅샷 |
-| `CRAWLER_COMMAND` | 없음 | `$CRAWLER_OUTPUT_PATH`에 전체 JSON을 쓰는 크롤러 명령 |
+| `CRAWLER_COMMAND` | `python3 -m app.crawler.main --output "$CRAWLER_OUTPUT_PATH"` | `$CRAWLER_OUTPUT_PATH`에 전체 JSON을 쓰는 크롤러 명령 |
 | `MIN_RECORDS` | `1` | 게시 허용 최소 레코드 수 |
 | `MIN_RETAIN_RATIO` | `0.5` | 기존 개수 대비 급감 방어 비율 |
 
@@ -188,7 +187,7 @@ MVP 운영에서 가장 현실적인 구조다.
 PostgreSQL 도입 후에는 크롤러가 JSON 파일만 만들지 않고, ingestion job이 DB에 upsert한다.
 
 ```text
-Crawler
+app/crawler
   -> raw JSON 생성
   -> Ingestion job
   -> PostgreSQL upsert

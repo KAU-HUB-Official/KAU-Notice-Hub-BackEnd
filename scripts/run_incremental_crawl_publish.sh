@@ -2,15 +2,9 @@
 set -euo pipefail
 
 NOTICE_JSON_PATH="${NOTICE_JSON_PATH:-./data/kau_official_posts.json}"
-CRAWLER_COMMAND="${CRAWLER_COMMAND:-}"
+CRAWLER_COMMAND="${CRAWLER_COMMAND:-python3 -m app.crawler.main --output \"\$CRAWLER_OUTPUT_PATH\"}"
 MIN_RECORDS="${MIN_RECORDS:-1}"
 MIN_RETAIN_RATIO="${MIN_RETAIN_RATIO:-0.5}"
-
-if [[ -z "$CRAWLER_COMMAND" ]]; then
-  echo "CRAWLER_COMMAND is required." >&2
-  echo 'Example: CRAWLER_COMMAND='\''cd ../Crawler && python crawler/main.py --output "$CRAWLER_OUTPUT_PATH"'\''' >&2
-  exit 2
-fi
 
 final_path="$(python3 -c 'from pathlib import Path; import sys; print(Path(sys.argv[1]).expanduser().resolve())' "$NOTICE_JSON_PATH")"
 final_dir="$(dirname "$final_path")"
@@ -77,4 +71,3 @@ PY
 mv -f "$tmp_file" "$final_path"
 tmp_file=""
 echo "Published notice JSON: $final_path"
-

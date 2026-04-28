@@ -5,8 +5,10 @@ description = "FastAPI backend for KAU Notice Hub"
 requires-python = ">=3.11"
 dependencies = [
   "fastapi>=0.115.0",
+  "beautifulsoup4>=4.12.0",
   "pydantic>=2.8.0",
   "pydantic-settings>=2.4.0",
+  "requests>=2.32.0",
   "uvicorn[standard]>=0.30.0"
 ]
 

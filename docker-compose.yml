@@ -20,12 +20,11 @@ services:
       - tools
     environment:
       NOTICE_JSON_PATH: /data/kau_official_posts.json
-      CRAWLER_COMMAND: ${CRAWLER_COMMAND:-cd /crawler && python crawler/main.py --output "$CRAWLER_OUTPUT_PATH"}
+      CRAWLER_COMMAND: ${CRAWLER_COMMAND:-python3 -m app.crawler.main --output "$$CRAWLER_OUTPUT_PATH"}
       MIN_RECORDS: ${MIN_RECORDS:-1}
       MIN_RETAIN_RATIO: ${MIN_RETAIN_RATIO:-0.5}
     volumes:
       - notice_data:/data
-      - ../Crawler:/crawler:ro
     command: ["bash", "scripts/run_incremental_crawl_publish.sh"]
 
   caddy:
@@ -49,4 +48,3 @@ volumes:
   notice_data:
   caddy_data:
   caddy_config:
-

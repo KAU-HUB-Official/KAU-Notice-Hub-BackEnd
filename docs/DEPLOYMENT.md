@@ -7,7 +7,7 @@
 
 - FastAPI API 서버
 - JSON 파일 저장소
-- 외부 크롤러 프로세스 또는 crawler container
+- `app/crawler`에 포함된 크롤러와 별도 실행 프로세스 또는 crawler container
 - 공유 데이터 volume의 `/data/kau_official_posts.json`
 - 선택적 Caddy reverse proxy
 
@@ -22,7 +22,6 @@ python3 -m pip install -e '.[dev]'
 서버 실행:
 
 ```bash
-NOTICE_JSON_PATH=../MVP/kau_official_posts.json \
 uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
 ```
 
@@ -91,7 +90,7 @@ api
 crawler
   -> runs scripts/run_incremental_crawl_publish.sh
   -> writes /data/kau_official_posts.json atomically
-  -> mounts ../Crawler at /crawler
+  -> runs bundled app/crawler package
 
 caddy
   -> reverse_proxy api:8000
@@ -112,7 +111,7 @@ Docker volume을 사용할 때는 crawler를 한 번 실행하거나, 운영 서
 
 ## 크롤러 주기 실행
 
-크롤러는 API 서버 내부에서 실행하지 않는다. cron, systemd timer, Docker scheduler 중 하나가 `scripts/run_incremental_crawl_publish.sh`를 주기 실행한다.
+크롤러는 API 요청 처리 경로에서 실행하지 않는다. cron, systemd timer, Docker scheduler 중 하나가 `scripts/run_incremental_crawl_publish.sh`를 주기 실행한다.
 
 cron 예시:
 
@@ -187,4 +186,3 @@ FastAPI
 ```
 
 그 전까지 API 계약은 JSON 저장소 기준으로 유지한다.
-

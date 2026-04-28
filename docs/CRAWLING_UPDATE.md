@@ -6,14 +6,15 @@
 현재 MVP에서는 구조를 복잡하게 만들지 않는다.
 
 - FastAPI 서버는 공지 조회 API를 안정적으로 제공한다.
-- 크롤러 코드는 `app/crawler`에 포함하고, 실행은 별도 프로세스 또는 별도 컨테이너에서 주기 실행한다.
+- 크롤러 코드는 `app/crawler`에 포함하고, FastAPI lifespan에서 시작한 백그라운드 task가 주기 실행한다.
 - 크롤러 결과는 JSON 파일로 저장한다.
 - 백엔드는 JSON 파일 변경을 감지해 최신 데이터를 다시 읽는다.
 - Redis, Celery, 별도 queue, 복잡한 worker는 MVP에서 사용하지 않는다.
 
 ## 현재 MVP 구조
 ```text
-Scheduler(cron/systemd/Docker scheduler)
+FastAPI app startup
+  -> crawler scheduler task 시작
   -> app/crawler 실행
   -> 기존 스냅샷 기준 증분 수집
   -> 기존 데이터와 신규/수정 데이터 병합
@@ -25,7 +26,7 @@ Scheduler(cron/systemd/Docker scheduler)
   -> 최신 공지 API 응답
 ```
 
-핵심은 **크롤링 실행 책임과 API 요청 처리 책임을 분리**하는 것이다.
+핵심은 **크롤링 실행을 API 요청 처리 경로 밖의 백그라운드 task로 분리**하는 것이다.
 
 ## 증분 수집과 JSON 스냅샷
 증분 수집을 사용해도 MVP JSON 저장소에서는 최종 게시 파일을 **전체 스냅샷**으로 유지한다.
@@ -51,29 +52,35 @@ MVP 기준 권장 흐름:
 - delta 파일을 따로 남기고 싶다면 `crawler_runs` 또는 `deltas` 용도로 별도 저장하고, API가 읽는 파일과 분리한다.
 - PostgreSQL 전환 이후에는 전체 스냅샷 파일 대신 신규/수정 공지를 DB에 upsert하는 방식으로 바꿀 수 있다.
 
-## 왜 API 서버 내부 스케줄러를 MVP에서 피하는가
-FastAPI 내부에 APScheduler 같은 스케줄러를 넣을 수도 있지만, MVP에서는 권장하지 않는다.
+## API 서버 내부 스케줄러 운영 기준
+현재 구현은 APScheduler 같은 외부 scheduler 라이브러리 없이 FastAPI lifespan에서 `asyncio` background task를 시작한다.
 
-이유:
+주의점:
 
 - 운영에서 Uvicorn/Gunicorn worker가 여러 개면 크롤링이 중복 실행될 수 있다.
-- 크롤링이 오래 걸리거나 실패하면 API 서버 프로세스 안정성에 영향을 줄 수 있다.
+- 크롤링은 오래 걸릴 수 있으므로 요청 처리 함수 안에서 실행하면 안 된다.
 - 크롤러와 API 서버의 로그/장애 원인이 섞인다.
-- 배포 환경이 바뀔 때 스케줄러 중복 실행 방지 장치가 필요해진다.
+- 배포 환경이 바뀔 때 스케줄러 중복 실행 방지 장치가 필요하다.
 
-따라서 초기에는 API 서버 밖에서 크롤러를 주기 실행하는 방식이 더 단순하고 안전하다.
+이를 위해 현재 구현은 아래 방식을 사용한다.
+
+- `CRAWLER_SCHEDULER_ENABLED=true`일 때만 서버 내장 스케줄러를 켠다.
+- Docker Compose의 `api` 서비스는 기본값으로 스케줄러를 켠다.
+- 크롤링은 `asyncio.to_thread()`로 실행해 event loop를 막지 않는다.
+- 같은 JSON 디렉터리의 `.crawler.lock` 파일로 중복 실행을 방지한다.
+- 결과는 임시 파일에 쓴 뒤 검증 성공 시 `os.replace()`로 atomic 교체한다.
 
 ## 파일 갱신 방식
 크롤러는 결과 파일을 직접 덮어쓰지 않는다.
 
-구현된 게시 스크립트는 [../scripts/run_incremental_crawl_publish.sh](../scripts/run_incremental_crawl_publish.sh)다.
+서버 내장 구현은 [../app/crawler_scheduler.py](../app/crawler_scheduler.py)다. 수동 1회 실행용 스크립트는 [../scripts/run_incremental_crawl_publish.sh](../scripts/run_incremental_crawl_publish.sh)다.
 
 스크립트는 아래 방식으로 동작한다.
 
 ```text
 1. 기존 NOTICE_JSON_PATH를 읽어 현재 스냅샷 확보
 2. 같은 디렉터리에 임시 작업 파일 생성
-3. CRAWLER_COMMAND를 실행하고 CRAWLER_OUTPUT_PATH를 임시 작업 파일로 전달
+3. `app.crawler.main.crawl_all_notices()`를 임시 작업 파일 경로로 실행
 4. 크롤러는 임시 작업 파일에 병합된 전체 결과 JSON을 저장
 5. JSON 파싱, 최상위 배열, 최소 레코드 수, 레코드 급감 여부 검증
 6. 검증 성공 시 mv로 최종 파일 교체
@@ -119,19 +126,21 @@ NOTICE_JSON_PATH=/data/kau_official_posts.json
 권장 기본값:
 
 ```text
-개발 환경: 수동 실행
-MVP 운영 환경: 30분 또는 1시간 간격
+개발 환경: 수동 실행 또는 `CRAWLER_SCHEDULER_ENABLED=true`
+MVP 운영 환경: 3시간 간격
 입시/수강신청 등 민감 기간: 10분~15분 간격 검토
 ```
 
 크롤링 주기는 환경변수로 관리한다.
 
 ```env
-CRAWLER_INTERVAL_MINUTES=60
 NOTICE_JSON_PATH=/data/kau_official_posts.json
+CRAWLER_SCHEDULER_ENABLED=true
+CRAWLER_INTERVAL_SECONDS=10800
+CRAWLER_RUN_ON_STARTUP=true
 ```
 
-단, MVP에서는 백엔드가 이 값을 직접 사용할 필요는 없다. 외부 스케줄러가 이 값을 참조하거나 배포 설정에서 주기를 관리해도 된다.
+`CRAWLER_INTERVAL_SECONDS=10800`은 3시간이다.
 
 ## 실행 방식 선택지
 ### 1. 로컬 개발
@@ -150,35 +159,39 @@ cd BackEnd
 NOTICE_JSON_PATH=./data/kau_official_posts.json uvicorn app.main:app --reload --port 8000
 ```
 
-### 2. 서버 cron
-단일 서버 배포에서는 cron이 가장 단순하다.
+서버 내장 스케줄러까지 켜서 확인하려면:
 
-예시:
-
-```cron
-*/60 * * * * cd /opt/kau-notice-backend && NOTICE_JSON_PATH=/data/kau_official_posts.json bash scripts/run_incremental_crawl_publish.sh
+```bash
+CRAWLER_SCHEDULER_ENABLED=true \
+CRAWLER_INTERVAL_SECONDS=10800 \
+NOTICE_JSON_PATH=./data/kau_official_posts.json \
+uvicorn app.main:app --reload --port 8000
 ```
 
-필수 환경변수:
+### 2. 서버 내장 스케줄러
+배포 기본 방식이다.
 
 | 이름 | 기본값 | 설명 |
 | --- | --- | --- |
 | `NOTICE_JSON_PATH` | `./data/kau_official_posts.json` | API가 읽는 최종 전체 스냅샷 |
-| `CRAWLER_COMMAND` | `python3 -m app.crawler.main --output "$CRAWLER_OUTPUT_PATH"` | `$CRAWLER_OUTPUT_PATH`에 전체 JSON을 쓰는 크롤러 명령 |
-| `MIN_RECORDS` | `1` | 게시 허용 최소 레코드 수 |
-| `MIN_RETAIN_RATIO` | `0.5` | 기존 개수 대비 급감 방어 비율 |
+| `CRAWLER_SCHEDULER_ENABLED` | `false` | 서버 내장 크롤러 스케줄러 활성화 |
+| `CRAWLER_INTERVAL_SECONDS` | `10800` | 크롤링 주기. 3시간 |
+| `CRAWLER_RUN_ON_STARTUP` | `true` | 서버 시작 직후 1회 실행 |
+| `CRAWLER_MAX_PAGES` | `0` | 게시판별 목록 페이지 상한 |
+| `CRAWLER_MIN_RECORDS` | `1` | 게시 허용 최소 레코드 수 |
+| `CRAWLER_MIN_RETAIN_RATIO` | `0.5` | 기존 개수 대비 급감 방어 비율 |
+| `CRAWLER_LOCK_PATH` | 없음 | 지정하지 않으면 JSON 디렉터리의 `.crawler.lock` 사용 |
 
 현재 크롤러가 `--output` 파일을 기존 결과로 읽고 병합하는 방식이라면, 최종 파일을 직접 쓰지 말고 “작업 파일 복사본”을 output으로 넘긴 뒤 검증 후 최종 파일로 교체한다.
 
 ### 3. Docker Compose
-API 컨테이너와 crawler 컨테이너가 같은 volume을 공유한다.
+API 컨테이너가 같은 volume 안의 JSON을 읽고, 내장 스케줄러가 같은 파일을 atomic 교체한다.
 
 ```text
 api container
   - reads /data/kau_official_posts.json
-
-crawler container
-  - periodically writes /data/kau_official_posts.json atomically
+  - starts crawler scheduler on app startup
+  - writes /data/kau_official_posts.json atomically every 3 hours
 ```
 
 MVP 운영에서 가장 현실적인 구조다.
@@ -238,8 +251,9 @@ FastAPI API 서버
   - mtime 기반 캐시
   - 요청 시 최신 파일 감지
 
-외부 크롤링 작업
-  - cron 또는 별도 컨테이너에서 주기 실행
+내장 크롤링 작업
+  - FastAPI lifespan 백그라운드 task에서 3시간마다 실행
+  - 중복 실행 방지를 위해 JSON 디렉터리의 .crawler.lock 사용
   - 기존 스냅샷과 증분 수집 결과를 병합
   - 병합된 전체 스냅샷을 임시 파일에 저장
   - 검증 후 atomic 교체

@@ -7,7 +7,7 @@
 
 - FastAPI API 서버
 - JSON 파일 저장소
-- `app/crawler`에 포함된 크롤러와 별도 실행 프로세스 또는 crawler container
+- `app/crawler`에 포함된 크롤러와 API 프로세스 내 백그라운드 스케줄러
 - 공유 데이터 volume의 `/data/kau_official_posts.json`
 - 선택적 Caddy reverse proxy
 
@@ -49,6 +49,12 @@ http://localhost:8000/openapi.json
 | `OPENAI_API_KEY` | `sk-...` | 예약값. 현재 챗봇은 local fallback 사용 |
 | `OPENAI_MODEL` | `gpt-4.1-mini` | 예약값. 향후 OpenAI 연동 모델명 |
 | `LOG_LEVEL` | `INFO` | 로그 레벨 |
+| `CRAWLER_SCHEDULER_ENABLED` | `true` | API 프로세스 내 크롤러 스케줄러 활성화 |
+| `CRAWLER_INTERVAL_SECONDS` | `10800` | 크롤링 주기. 기본 3시간 |
+| `CRAWLER_RUN_ON_STARTUP` | `true` | 서버 시작 직후 1회 크롤링 |
+| `CRAWLER_MAX_PAGES` | `0` | 게시판별 목록 페이지 상한. 0이면 최근성 정책으로 자동 중단 |
+| `CRAWLER_MIN_RECORDS` | `1` | 게시 허용 최소 레코드 수 |
+| `CRAWLER_MIN_RETAIN_RATIO` | `0.5` | 기존 개수 대비 급감 방어 비율 |
 
 로컬 예시:
 
@@ -57,6 +63,9 @@ NOTICE_JSON_PATH=./data/kau_official_posts.json
 BACKEND_CORS_ORIGINS=http://localhost:3000
 OPENAI_MODEL=gpt-4.1-mini
 LOG_LEVEL=INFO
+CRAWLER_SCHEDULER_ENABLED=false
+CRAWLER_INTERVAL_SECONDS=10800
+CRAWLER_RUN_ON_STARTUP=true
 ```
 
 ## Docker Compose
@@ -75,6 +84,18 @@ API와 Caddy reverse proxy 실행:
 docker compose --profile proxy up -d --build
 ```
 
+Docker Compose 서비스 종료:
+
+```bash
+docker compose down
+```
+
+로컬에서 `uvicorn`을 직접 실행 중이면 해당 터미널에서 `Ctrl+C`로 종료한다. 백그라운드 실행 중인 로컬 서버는 아래 명령으로 종료할 수 있다.
+
+```bash
+pkill -f "uvicorn app.main:app"
+```
+
 크롤러 1회 실행:
 
 ```bash
@@ -86,8 +107,11 @@ docker compose --profile tools run --rm crawler
 ```text
 api
   -> reads /data/kau_official_posts.json
+  -> runs bundled app/crawler scheduler every 10800 seconds
+  -> writes /data/kau_official_posts.json atomically
 
 crawler
+  -> optional one-off/manual tool profile
   -> runs scripts/run_incremental_crawl_publish.sh
   -> writes /data/kau_official_posts.json atomically
   -> runs bundled app/crawler package
@@ -98,7 +122,7 @@ caddy
 
 ## 데이터 파일 준비
 
-초기 실행 전 `NOTICE_JSON_PATH`에 JSON 배열 파일이 있어야 한다.
+스케줄러가 활성화되어 있으면 API 컨테이너 시작 직후 1회 크롤링해 `NOTICE_JSON_PATH`를 만든다. 첫 크롤링이 끝나기 전 목록 API는 JSON 파일이 없어 500을 반환할 수 있으므로, 배포 직후에는 로그에서 첫 publish 완료를 확인한다.
 
 로컬:
 
@@ -107,16 +131,16 @@ mkdir -p data
 cp ../MVP/kau_official_posts.json data/kau_official_posts.json
 ```
 
-Docker volume을 사용할 때는 crawler를 한 번 실행하거나, 운영 서버에서 volume 내부에 초기 JSON을 넣는다.
+Docker volume을 미리 채우고 싶다면 crawler tool profile을 한 번 실행하거나, 운영 서버에서 volume 내부에 초기 JSON을 넣는다.
 
 ## 크롤러 주기 실행
 
-크롤러는 API 요청 처리 경로에서 실행하지 않는다. cron, systemd timer, Docker scheduler 중 하나가 `scripts/run_incremental_crawl_publish.sh`를 주기 실행한다.
+크롤러는 API 요청 처리 경로에서 실행하지 않고, FastAPI lifespan에서 시작한 백그라운드 task가 주기 실행한다. 기본 Docker Compose 설정은 3시간마다 실행한다.
 
-cron 예시:
+수동 1회 실행이 필요할 때:
 
-```cron
-*/60 * * * * cd /opt/kau-notice-backend && docker compose --profile tools run --rm crawler
+```bash
+docker compose --profile tools run --rm crawler
 ```
 
 스크립트 상세 정책은 [CRAWLING_UPDATE.md](CRAWLING_UPDATE.md)를 따른다.
@@ -133,7 +157,7 @@ cron 예시:
 8. Swagger UI `/docs` 확인
 9. Caddy 또는 외부 reverse proxy 연결
 10. frontend의 API base URL 전환
-11. crawler scheduler 등록
+11. `docker compose logs -f api`에서 crawler publish 완료 확인
 
 ## 운영 확인
 
@@ -156,7 +180,6 @@ https://api.kau-notice.example.com/openapi.json
 
 ```bash
 docker compose logs -f api
-docker compose logs -f crawler
 docker compose logs -f caddy
 ```
 
@@ -166,9 +189,9 @@ docker compose logs -f caddy
 | --- | --- |
 | API 서버 다운 | `docker compose ps`, `docker compose logs api` |
 | JSON 파싱 실패 | crawler tmp 검증 로그, API 이전 정상 캐시 유지 여부 |
-| 크롤링 실패 | `docker compose logs crawler`, 기존 JSON 유지 여부 |
+| 크롤링 실패 | `docker compose logs api`, 기존 JSON 유지 여부 |
 | CORS 에러 | `BACKEND_CORS_ORIGINS`와 frontend origin |
-| 데이터 미갱신 | scheduler 실행 여부, JSON mtime, API repository reload |
+| 데이터 미갱신 | `CRAWLER_SCHEDULER_ENABLED`, JSON mtime, API repository reload |
 | Swagger 미노출 | `/docs`, `/openapi.json` 응답 상태 |
 
 ## PostgreSQL 전환 후

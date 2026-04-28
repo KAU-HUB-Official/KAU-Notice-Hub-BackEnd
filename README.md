@@ -20,6 +20,22 @@ python3 -m pip install -e '.[dev]'
 uvicorn app.main:app --reload --port 8000
 ```
 
+## 서버 종료
+
+터미널에서 직접 실행 중이면 `Ctrl+C`로 종료한다.
+
+백그라운드 실행 중인 로컬 서버를 종료할 때:
+
+```bash
+pkill -f "uvicorn app.main:app"
+```
+
+`screen` 세션으로 실행한 서버를 종료할 때:
+
+```bash
+screen -S kau-notice-backend -X quit
+```
+
 확인:
 
 ```bash
@@ -50,9 +66,25 @@ NOTICE_JSON_PATH=./data/kau_official_posts.json \
 bash scripts/run_incremental_crawl_publish.sh
 ```
 
+## 내장 크롤러 스케줄러
+
+Docker Compose 배포에서는 API 컨테이너가 시작 직후 1회 크롤링하고, 이후 3시간마다 백그라운드에서 JSON을 갱신한다.
+
+```env
+CRAWLER_SCHEDULER_ENABLED=true
+CRAWLER_INTERVAL_SECONDS=10800
+CRAWLER_RUN_ON_STARTUP=true
+```
+
 ## Docker
 
 ```bash
 docker compose up -d --build api
 docker compose --profile proxy up -d --build
+```
+
+Docker Compose 서버 종료:
+
+```bash
+docker compose down
 ```

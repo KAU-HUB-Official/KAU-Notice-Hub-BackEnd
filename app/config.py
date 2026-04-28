@@ -10,6 +10,13 @@ class Settings(BaseSettings):
     openai_api_key: str | None = None
     openai_model: str = "gpt-4.1-mini"
     log_level: str = "INFO"
+    crawler_scheduler_enabled: bool = False
+    crawler_interval_seconds: int = 3 * 60 * 60
+    crawler_run_on_startup: bool = True
+    crawler_max_pages: int = 0
+    crawler_min_records: int = 1
+    crawler_min_retain_ratio: float = 0.5
+    crawler_lock_path: Path | None = None
 
     model_config = SettingsConfigDict(
         env_file=".env",
@@ -26,4 +33,3 @@ class Settings(BaseSettings):
 @lru_cache
 def get_settings() -> Settings:
     return Settings()
-

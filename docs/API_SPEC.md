@@ -480,6 +480,13 @@ BACKEND_CORS_ORIGINS=http://localhost:3000
 | `OPENAI_API_KEY` | 아니오 | empty | 예약값. 현재 챗봇은 local fallback 사용 |
 | `OPENAI_MODEL` | 아니오 | `gpt-4.1-mini` | 예약값. 향후 OpenAI 연동 모델명 |
 | `BACKEND_CORS_ORIGINS` | 아니오 | `http://localhost:3000` | 쉼표 구분 CORS origin 목록 |
+| `CRAWLER_SCHEDULER_ENABLED` | 아니오 | `false` | API 프로세스 내 크롤러 스케줄러 활성화 |
+| `CRAWLER_INTERVAL_SECONDS` | 아니오 | `10800` | 크롤링 주기. 기본 3시간 |
+| `CRAWLER_RUN_ON_STARTUP` | 아니오 | `true` | 서버 시작 직후 1회 크롤링 |
+| `CRAWLER_MAX_PAGES` | 아니오 | `0` | 게시판별 목록 페이지 상한. 0이면 최근성 정책으로 자동 중단 |
+| `CRAWLER_MIN_RECORDS` | 아니오 | `1` | 게시 허용 최소 레코드 수 |
+| `CRAWLER_MIN_RETAIN_RATIO` | 아니오 | `0.5` | 기존 개수 대비 급감 방어 비율 |
+| `CRAWLER_LOCK_PATH` | 아니오 | empty | 크롤러 중복 실행 방지 lock 파일 경로. 미지정 시 JSON 디렉터리의 `.crawler.lock` 사용 |
 
 ## MVP 비목표
 초기 백엔드 버전에서는 아래 기능을 구현하지 않는다.
@@ -488,7 +495,7 @@ BACKEND_CORS_ORIGINS=http://localhost:3000
 - 관리자 대시보드 API
 - PostgreSQL 저장소 구현체
 - Alembic migration
-- Redis/Celery/background worker
+- Redis/Celery/별도 작업 큐
 - 벡터 검색
 - 별도 검색엔진
 - 복잡한 API 버전 관리

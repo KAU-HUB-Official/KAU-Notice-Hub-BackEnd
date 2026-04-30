@@ -11,7 +11,7 @@ FastAPI 기반 공지 API 서버다. MVP 저장소는 JSON 파일이며, `app/cr
 | [docs/CRAWLING_UPDATE.md](docs/CRAWLING_UPDATE.md) | 크롤러 JSON 게시 정책 |
 | [docs/crawler/README.md](docs/crawler/README.md) | 통합 크롤러 구조와 운영 문서 |
 | [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md) | 로컬 실행과 Docker Compose 배포 |
-| [docs/ERD.md](docs/ERD.md) | JSON 논리 모델과 PostgreSQL 전환 모델 |
+| [docs/ERD.md](docs/ERD.md) | JSON 논리 모델 |
 
 ## 로컬 실행
 

@@ -8,7 +8,7 @@
 - 크롤러 원천 데이터와 프론트 응답 모델을 분리한다.
 - `source_name` 단일값/배열을 모두 보존해 여러 홈페이지에 동시에 걸리는 공지를 지원한다.
 - 분류 규칙은 API, 검색, 챗봇이 같은 기준을 쓰도록 단일 도메인 계층에서 관리한다.
-- MVP 단계에서는 JSON 파일 저장소를 유지하되, 동일한 서비스 인터페이스로 DB 전환이 가능하게 둔다.
+- MVP 단계에서는 JSON 파일 저장소를 유지한다.
 
 ## 현재 전제
 현재 MVP 백엔드는 Next.js Route Handler 기반이다.
@@ -45,7 +45,7 @@ Crawler JSON
 6. API는 프론트가 필요한 `items`, `facets`, `pagination`을 반환한다.
 
 ## 권장 백엔드 모듈 구조
-현재 파일을 한 번에 크게 옮기기보다, 기능 경계를 아래처럼 정리하는 방향으로 확장한다.
+현재 파일을 한 번에 크게 옮기기보다, 기능 경계를 아래처럼 정리한다.
 
 ```text
 src/server/notices
@@ -54,15 +54,9 @@ src/server/notices
 │   ├── notice-classification.ts
 │   ├── notice-filter.ts
 │   └── notice-search.ts
-├── ingestion
-│   ├── raw-notice-reader.ts
-│   ├── normalize-notice.ts
-│   ├── validate-raw-notice.ts
-│   └── enrich-classification.ts
 ├── repositories
 │   ├── notice-repository.ts
-│   ├── json-notice-repository.ts
-│   └── db-notice-repository.ts
+│   └── json-notice-repository.ts
 ├── services
 │   ├── notice-query-service.ts
 │   ├── notice-detail-service.ts
@@ -105,7 +99,7 @@ interface Notice {
 - `source`: 대표 홈페이지
 - `sources`: 모든 홈페이지 배열
 
-JSON MVP에서는 요청 시점에 파생 필드를 계산한다. DB 전환 시에는 조회 성능을 위해 `notice_classifications` 또는 materialized column으로 저장할 수 있다.
+JSON MVP에서는 요청 시점에 파생 필드를 계산한다.
 
 ## 분류 계층 설계
 분류 계층은 `CLASSIFICATION.md`의 규칙을 코드로 표현하는 단일 진입점을 가진다.
@@ -159,42 +153,6 @@ JsonNoticeRepository
 - 크롤러가 결과 파일을 쓰는 동안 API가 읽지 않도록 atomic write가 필요하다.
 - JSON 파싱 실패 시 마지막 정상 캐시를 유지하는 fallback 정책을 둘 수 있다.
 - `그 외` 비율, 빈 title/content, 잘못된 URL 같은 데이터 품질 지표를 로그로 남긴다.
-
-### 확장: DB 저장소
-데이터가 커지거나 운영 이력이 필요해지면 `NoticeRepository` 구현만 교체한다.
-
-권장 테이블:
-
-```text
-notices
-  id
-  title
-  content
-  summary
-  url
-  category
-  department
-  published_at
-  crawled_at
-  searchable_text
-
-notice_sources
-  notice_id
-  source_name
-  source_order
-
-notice_source_groups
-  notice_id
-  audience_group
-  source_group
-
-notice_attachments
-  notice_id
-  name
-  url
-```
-
-DB에서도 API 응답 인터페이스는 바꾸지 않는다. 프론트는 저장소가 JSON인지 DB인지 몰라야 한다.
 
 ## 서비스 계층 설계
 `NoticeService`는 프론트 탐색 흐름과 같은 순서로 필터를 적용한다.
@@ -395,21 +353,9 @@ MVP 검색은 규칙 기반 텍스트 검색이다.
 - 프론트는 UI 상수와 label helper만 import한다.
 - 백엔드는 분류/검색 도메인 함수를 직접 사용한다.
 
-### 3단계: 색인 계층 추가
-- JSON 로드 후 `audienceGroup`, `sourceGroups`, `searchableText`, `dateTimestamp`를 미리 계산한 in-memory index를 만든다.
-- 요청마다 반복되는 분류 계산을 줄인다.
-- 캐시는 파일 `mtimeMs`가 바뀔 때만 재생성한다.
-
-### 4단계: DB 전환 준비
-- `NoticeRepository` 인터페이스를 목록 조회, 상세 조회, facet 조회 기준으로 확장한다.
-- `JsonNoticeRepository`와 `DbNoticeRepository`가 같은 `NoticeService`를 사용하게 한다.
-- 크롤러 산출물을 DB upsert하는 ingestion job을 추가한다.
-
 ## 최종 기준
 백엔드 구조가 완료되었다고 판단하는 기준은 아래와 같다.
 
 - 프론트는 `audience`, `group`, `source`, `q`, `page`, `pageSize`만으로 전체 탐색을 수행한다.
 - API 응답의 facet은 `CLASSIFICATION.md`의 노출 규칙과 일치한다.
-- 크롤러가 source를 추가해도 분류 규칙만 갱신하면 UI 구조가 깨지지 않는다.
-- JSON 저장소에서 DB 저장소로 바꿔도 API 계약은 유지된다.
 - 챗봇과 목록 검색이 같은 분류/필터 규칙을 공유한다.

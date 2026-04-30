@@ -11,15 +11,13 @@
 4. [아키텍처](./04_architecture.md)
 5. [파싱 규칙과 셀렉터](./05_parsing_and_selectors.md)
 6. [운영/장애 대응](./06_operations_and_failure.md)
-7. [확장 가이드](./07_extension_guide.md)
-8. [크롤링 규칙 상세](./08_crawling_rules.md)
+7. [크롤링 규칙 상세](./08_crawling_rules.md)
 
 ## 권장 읽기 순서
 
 - 처음 파악할 때: `01 -> 02 -> 03`
 - 구조/코드 매핑이 필요할 때: `04 -> 05`
 - 운영 모니터링/장애 대응: `06 -> 08`
-- 신규 사이트/보드 추가 개발: `07`
 
 ## 관련 경로
 

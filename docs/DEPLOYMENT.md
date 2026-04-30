@@ -47,7 +47,7 @@ http://localhost:8000/openapi.json
 | `NOTICE_JSON_PATH` | `/data/kau_official_posts.json` | API 서버가 읽는 전체 공지 JSON 스냅샷 |
 | `BACKEND_CORS_ORIGINS` | `https://kau-notice.example.com` | 쉼표로 구분한 허용 frontend origin |
 | `OPENAI_API_KEY` | `sk-...` | 예약값. 현재 챗봇은 local fallback 사용 |
-| `OPENAI_MODEL` | `gpt-4.1-mini` | 예약값. 향후 OpenAI 연동 모델명 |
+| `OPENAI_MODEL` | `gpt-4.1-mini` | 예약값. 현재 챗봇은 local fallback 사용 |
 | `LOG_LEVEL` | `INFO` | 로그 레벨 |
 | `CRAWLER_SCHEDULER_ENABLED` | `true` | API 프로세스 내 크롤러 스케줄러 활성화 |
 | `CRAWLER_INTERVAL_SECONDS` | `10800` | 크롤링 주기. 기본 3시간 |
@@ -193,19 +193,3 @@ docker compose logs -f caddy
 | CORS 에러 | `BACKEND_CORS_ORIGINS`와 frontend origin |
 | 데이터 미갱신 | `CRAWLER_SCHEDULER_ENABLED`, JSON mtime, API repository reload |
 | Swagger 미노출 | `/docs`, `/openapi.json` 응답 상태 |
-
-## PostgreSQL 전환 후
-
-PostgreSQL 도입 후에는 JSON 공유 volume 의존도를 줄이고, 크롤러 또는 ingestion job이 DB에 upsert한다.
-
-```text
-Crawler scheduler
-  -> 신규/수정 공지 수집
-  -> DB upsert
-
-FastAPI
-  -> PostgreSQL 조회
-  -> API 응답
-```
-
-그 전까지 API 계약은 JSON 저장소 기준으로 유지한다.

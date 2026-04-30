@@ -9,7 +9,6 @@
 - JSON 파일 저장소
 - 기존 Next.js MVP API와 호환되는 응답 shape
 - Swagger UI 기반 API 명세 확인
-- PostgreSQL은 추후 저장소 구현체로 추가
 
 MVP에서는 API 버전 관리, 인증, 관리자 API, 큐, 별도 검색엔진을 추가하지 않는다.
 
@@ -203,20 +202,7 @@ MVP에서는 에러 응답을 단순하게 유지한다. 내부 상세 원인은
 }
 ```
 
-추후 확장 가능 응답:
-
-```json
-{
-  "status": "ok",
-  "noticeCount": 1250,
-  "storage": "json",
-  "lastLoadedAt": "2026-04-27T10:20:30+09:00"
-}
-```
-
 MVP는 `status`만 반환해도 된다.
-
-공지 데이터 갱신 시각을 노출해야 하면 `CRAWLING_UPDATE.md`의 데이터 신선도 표시 정책에 따라 `noticeCount`, `lastLoadedAt`, `sourceUpdatedAt` 등을 추가한다.
 
 ### `GET /api/notices`
 페이지네이션된 공지 목록과 필터 후보(facet)를 반환한다.
@@ -386,7 +372,6 @@ MVP 기준:
 
 - `GET /api/notices`와 같은 필터/검색 로직을 사용한다.
 - 현재 구현은 local fallback 답변과 근거 목록을 반환한다.
-- `OPENAI_API_KEY`, `OPENAI_MODEL`은 향후 OpenAI 연동용 예약 환경변수다.
 - 벡터 검색 기반의 완전한 RAG는 아직 구현하지 않는다.
 
 #### 요청 본문
@@ -478,7 +463,7 @@ BACKEND_CORS_ORIGINS=http://localhost:3000
 | --- | --- | --- | --- |
 | `NOTICE_JSON_PATH` | 아니오 | `./data/kau_official_posts.json` | 크롤러 JSON 파일 경로 |
 | `OPENAI_API_KEY` | 아니오 | empty | 예약값. 현재 챗봇은 local fallback 사용 |
-| `OPENAI_MODEL` | 아니오 | `gpt-4.1-mini` | 예약값. 향후 OpenAI 연동 모델명 |
+| `OPENAI_MODEL` | 아니오 | `gpt-4.1-mini` | 예약값. 현재 챗봇은 local fallback 사용 |
 | `BACKEND_CORS_ORIGINS` | 아니오 | `http://localhost:3000` | 쉼표 구분 CORS origin 목록 |
 | `CRAWLER_SCHEDULER_ENABLED` | 아니오 | `false` | API 프로세스 내 크롤러 스케줄러 활성화 |
 | `CRAWLER_INTERVAL_SECONDS` | 아니오 | `10800` | 크롤링 주기. 기본 3시간 |
@@ -493,22 +478,8 @@ BACKEND_CORS_ORIGINS=http://localhost:3000
 
 - 인증
 - 관리자 대시보드 API
-- PostgreSQL 저장소 구현체
 - Alembic migration
 - Redis/Celery/별도 작업 큐
 - 벡터 검색
 - 별도 검색엔진
 - 복잡한 API 버전 관리
-
-코드에는 확장 지점을 남기되, 실행 가능한 MVP는 작게 유지한다.
-
-## 향후 API 후보
-아래 API는 MVP 계약에 포함하지 않는다.
-
-```text
-POST /api/admin/import/crawler-json
-GET  /api/admin/metrics/notices
-POST /api/admin/reclassify
-```
-
-공지 목록/상세/챗봇 API가 안정화된 뒤 추가한다.

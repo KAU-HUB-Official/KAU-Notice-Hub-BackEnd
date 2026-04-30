@@ -53,7 +53,6 @@ MVP 기준 권장 흐름:
 - 증분 수집 후 오래된 일반공지는 최종 전체 스냅샷에서 제거한다. 상시공지는 게시일과 무관하게 보존하고, 게시일을 파싱할 수 없는 항목은 1년 초과 여부를 확정할 수 없으므로 삭제하지 않는다.
 - 레코드 급감 검증은 오래된 일반공지를 제외한 기존 보존 대상 건수를 기준으로 수행한다. 의도된 stale 삭제가 `MIN_RETAIN_RATIO`/`CRAWLER_MIN_RETAIN_RATIO`에 막히지 않도록 하기 위함이다.
 - delta 파일을 따로 남기고 싶다면 `crawler_runs` 또는 `deltas` 용도로 별도 저장하고, API가 읽는 파일과 분리한다.
-- PostgreSQL 전환 이후에는 전체 스냅샷 파일 대신 신규/수정 공지를 DB에 upsert하는 방식으로 바꿀 수 있다.
 
 ## API 서버 내부 스케줄러 운영 기준
 현재 구현은 APScheduler 같은 외부 scheduler 라이브러리 없이 FastAPI lifespan에서 `asyncio` background task를 시작한다.
@@ -200,20 +199,6 @@ api container
 
 MVP 운영에서 가장 현실적인 구조다.
 
-### 4. 향후 DB 전환 이후
-PostgreSQL 도입 후에는 크롤러가 JSON 파일만 만들지 않고, ingestion job이 DB에 upsert한다.
-
-```text
-app/crawler
-  -> raw JSON 생성
-  -> Ingestion job
-  -> PostgreSQL upsert
-  -> classification cache 갱신
-  -> API는 DB 조회
-```
-
-이 단계에서 Celery, RQ, APScheduler, managed scheduler 등을 검토한다.
-
 ## 실패 처리
 크롤링 실패 시 기존 공지 데이터는 유지한다.
 
@@ -228,23 +213,6 @@ app/crawler
 | 백엔드 재로드 실패 | 이전 정상 캐시 유지 |
 
 MVP에서는 “전체 결과 JSON이 정상일 때만 교체”를 기본 정책으로 둔다.
-
-## 데이터 신선도 표시
-프론트나 운영 모니터링에서 최신 갱신 시각을 확인할 수 있도록 `/health` 응답을 확장할 수 있다.
-
-예상 응답:
-
-```json
-{
-  "status": "ok",
-  "storage": "json",
-  "noticeCount": 1250,
-  "lastLoadedAt": "2026-04-27T10:20:30+09:00",
-  "sourceUpdatedAt": "2026-04-27T10:18:02+09:00"
-}
-```
-
-MVP 초기에는 `status`만 반환하고, 운영 필요성이 생기면 추가한다.
 
 ## MVP 결정
 초기 백엔드에서는 아래 구조를 기준으로 한다.
@@ -262,5 +230,3 @@ FastAPI API 서버
   - 병합된 전체 스냅샷을 임시 파일에 저장
   - 검증 후 atomic 교체
 ```
-
-이 구조는 단순하면서도 나중에 PostgreSQL ingestion job으로 자연스럽게 확장할 수 있다.

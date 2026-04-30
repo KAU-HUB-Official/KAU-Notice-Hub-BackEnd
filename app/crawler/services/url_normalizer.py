@@ -160,15 +160,6 @@ def canonicalize_original_url(url: str) -> str:
             normalized_query = urlencode(compact_query)
             return urlunparse((scheme, netloc, path, "", normalized_query, ""))
 
-    # eslscat 공지 상세 URL:
-    #   /class/student/help/notice_view.asp?id=NNN
-    if host.endswith("eslscat.com") and path.endswith("/class/student/help/notice_view.asp"):
-        query = parse_qs(parsed.query, keep_blank_values=True)
-        if query.get("id"):
-            compact_query = {"id": query["id"][-1]}
-            normalized_query = urlencode(compact_query)
-            return urlunparse((scheme, netloc, path, "", normalized_query, ""))
-
     # amtc.kau.ac.kr 공지 상세 URL:
     #   /bbs/board.php?bo_table=notice&wr_id=NNN[&...]
     # bo_table, wr_id만 유지한다.

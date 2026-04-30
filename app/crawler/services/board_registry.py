@@ -11,7 +11,6 @@ from ..clients.kau_career_client import KAUCareerClient
 from ..clients.kau_college_client import KAUCollegeClient
 from ..clients.kau_community_php_client import KAUCommunityPHPClient
 from ..clients.kau_ctl_client import KAUCTLClient
-from ..clients.kau_eslscat_client import KAUESLSCATClient
 from ..clients.kau_ftc_client import KAUFTCClient
 from ..clients.kau_library_client import KAULibraryClient
 from ..clients.kau_lms_client import KAULMSClient
@@ -25,8 +24,6 @@ from ..config import (
     ASBT_BASE_URL,
     ASBT_NOTICE_LIST_URL,
     DEFAULT_POSTS_PER_BOARD,
-    ESLSCAT_BASE_URL,
-    ESLSCAT_NOTICE_LIST_URL,
     FSC_BASE_URL,
     FSC_NOTICE_LIST_URL,
     FTC_BASE_URL,
@@ -45,7 +42,6 @@ from ..parsers.kau_card_notice_parser import KAUCardNoticeParser
 from ..parsers.kau_career_parser import KAUCareerParser
 from ..parsers.kau_college_parser import KAUCollegeParser
 from ..parsers.kau_ctl_parser import KAUCTLParser
-from ..parsers.kau_eslscat_parser import KAUESLSCATParser
 from ..parsers.kau_ftc_parser import KAUFTCParser
 from ..parsers.kau_library_parser import KAULibraryParser
 from ..parsers.kau_lms_parser import KAULMSParser
@@ -68,7 +64,6 @@ class ClientRegistry:
     community_php: dict[str, KAUCommunityPHPClient]
     lms: KAULMSClient
     asbt: KAUASBTClient
-    eslscat: KAUESLSCATClient
 
     def close(self) -> None:
         for client in (
@@ -83,7 +78,6 @@ class ClientRegistry:
             self.amtc,
             self.lms,
             self.asbt,
-            self.eslscat,
         ):
             client.session.close()
         for client in self.community_php.values():
@@ -127,10 +121,6 @@ def build_clients() -> ClientRegistry:
             base_url=ASBT_BASE_URL,
             notice_list_url=ASBT_NOTICE_LIST_URL,
         ),
-        eslscat=KAUESLSCATClient(
-            base_url=ESLSCAT_BASE_URL,
-            notice_list_url=ESLSCAT_NOTICE_LIST_URL,
-        ),
     )
 
 
@@ -173,20 +163,6 @@ def _resolve_community_client(
         )
         clients.community_php[base_url] = client
     return client
-
-
-def _fetch_eslscat_detail(
-    detail_url: str,
-    *,
-    client: KAUESLSCATClient,
-) -> DetailFetchResult:
-    query = parse_qs(urlparse(detail_url).query)
-    notice_id = (query.get("id") or [""])[-1]
-    if not notice_id:
-        return DetailFetchResult(html=None, failure_reason="missing_notice_id")
-
-    html = client.fetch_notice_detail(notice_id=notice_id)
-    return DetailFetchResult(html=html, failure_reason="request_failed")
 
 
 def build_board_adapters(clients: ClientRegistry) -> dict[str, BoardAdapter]:
@@ -420,22 +396,6 @@ def build_board_adapters(clients: ClientRegistry) -> dict[str, BoardAdapter]:
                 html=clients.lms.fetch_notice_detail(detail_url),
                 failure_reason="request_failed",
             ),
-        ),
-        "kau_eslscat": BoardAdapter(
-            parser_factory=lambda board: KAUESLSCATParser(
-                source_name=board["source_name"],
-                source_type=board["source_type"],
-                category_fallback=board.get("name"),
-            ),
-            build_list_page_url=lambda board, page: clients.eslscat.build_notice_list_url(page=page),
-            fetch_list_html=lambda board, page: clients.eslscat.fetch_notice_list(page=page),
-            fetch_detail=lambda board, detail_url: _fetch_eslscat_detail(
-                detail_url,
-                client=clients.eslscat,
-            ),
-            can_fetch=clients.eslscat.can_fetch,
-            check_robots_on_list=True,
-            check_robots_on_detail=True,
         ),
         "kau_asbt": BoardAdapter(
             parser_factory=lambda board: KAUASBTParser(

@@ -2,7 +2,9 @@ from __future__ import annotations
 
 import re
 from dataclasses import dataclass
+from datetime import date
 
+from ..policies.notice_policy import should_prune_stale_notice
 from ..services.url_normalizer import canonicalize_original_url
 from ..utils.logger import get_logger
 
@@ -20,6 +22,12 @@ class MergeResult:
     posts: list[dict]
     url_dedup_removed: int
     title_dedup_removed: int
+
+
+@dataclass(frozen=True)
+class RetentionPruneResult:
+    posts: list[dict]
+    stale_pruned: int
 
 
 def normalize_title_for_dedup(title: str | None) -> str:
@@ -56,6 +64,7 @@ def _build_source_meta_entry(post: dict) -> dict:
         "original_url": post.get("original_url"),
         "published_at": post.get("published_at"),
         "crawled_at": post.get("crawled_at"),
+        "is_permanent_notice": bool(post.get("is_permanent_notice")),
     }
 
 
@@ -125,22 +134,31 @@ def _merge_title_duplicate(existing_post: dict, duplicate_post: dict) -> None:
         )
         existing_post[field] = merged
 
+    existing_post["is_permanent_notice"] = bool(
+        existing_post.get("is_permanent_notice")
+        or duplicate_post.get("is_permanent_notice")
+    )
     existing_post["source_meta"] = source_meta_list
     _merge_attachments(existing_post, duplicate_post)
 
 
 def merge_posts_with_dedup(existing_posts: list[dict], new_posts: list[dict]) -> MergeResult:
     url_dedup_posts: list[dict] = []
-    seen_urls: set[str] = set()
+    seen_url_to_index: dict[str, int] = {}
 
     # 기존 보유 데이터를 먼저 유지하고, 신규 데이터를 뒤에 병합한다.
     for post in existing_posts + new_posts:
         original_url = canonicalize_original_url(str(post.get("original_url") or ""))
-        if not original_url or original_url in seen_urls:
+        if not original_url:
+            continue
+        if original_url in seen_url_to_index:
+            existing_post = url_dedup_posts[seen_url_to_index[original_url]]
+            if post.get("is_permanent_notice"):
+                existing_post["is_permanent_notice"] = True
             continue
         copied = dict(post)
         copied["original_url"] = original_url
-        seen_urls.add(original_url)
+        seen_url_to_index[original_url] = len(url_dedup_posts)
         url_dedup_posts.append(copied)
 
     dedup_posts: list[dict] = []
@@ -171,3 +189,26 @@ def merge_posts_with_dedup(existing_posts: list[dict], new_posts: list[dict]) ->
         url_dedup_removed=url_dedup_removed,
         title_dedup_removed=title_dedup_removed,
     )
+
+
+def prune_stale_posts(
+    posts: list[dict],
+    *,
+    current_date: date | None = None,
+) -> RetentionPruneResult:
+    kept_posts: list[dict] = []
+    stale_pruned = 0
+
+    for post in posts:
+        if should_prune_stale_notice(post, current_date=current_date):
+            stale_pruned += 1
+            logger.debug(
+                "1년 이상 지난 일반공지 삭제: title=%s, published_at=%s, url=%s",
+                post.get("title"),
+                post.get("published_at"),
+                post.get("original_url"),
+            )
+            continue
+        kept_posts.append(post)
+
+    return RetentionPruneResult(posts=kept_posts, stale_pruned=stale_pruned)

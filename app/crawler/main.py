@@ -6,7 +6,7 @@ from pathlib import Path
 from .config import DEFAULT_MAX_PAGES, FAILED_OUTPUT_FILE, NOTICE_BOARDS, OUTPUT_FILE
 from .services.board_crawler import crawl_board
 from .services.board_registry import build_board_adapters, build_clients
-from .services.dedup_service import merge_posts_with_dedup
+from .services.dedup_service import merge_posts_with_dedup, prune_stale_posts
 from .services.post_store import load_existing_posts
 from .services.url_normalizer import canonicalize_original_url
 from .utils.logger import get_logger
@@ -65,15 +65,21 @@ def crawl_all_notices(max_pages: int, output_path: Path) -> tuple[list[dict], li
             all_failed_items.extend(failed_items)
 
         merge_result = merge_posts_with_dedup(existing_posts, all_new_posts)
+        prune_result = prune_stale_posts(merge_result.posts)
 
-        save_json(merge_result.posts, output_path)
+        save_json(prune_result.posts, output_path)
         logger.info(
-            "결과 저장 완료: %s (total=%s, newly_added=%s, url_dedup_removed=%s, title_dedup_removed=%s)",
+            (
+                "결과 저장 완료: %s "
+                "(total=%s, newly_added=%s, url_dedup_removed=%s, "
+                "title_dedup_removed=%s, stale_pruned=%s)"
+            ),
             output_path,
-            len(merge_result.posts),
+            len(prune_result.posts),
             len(all_new_posts),
             merge_result.url_dedup_removed,
             merge_result.title_dedup_removed,
+            prune_result.stale_pruned,
         )
 
         if all_failed_items:
@@ -87,7 +93,7 @@ def crawl_all_notices(max_pages: int, output_path: Path) -> tuple[list[dict], li
             FAILED_OUTPUT_FILE.unlink()
             logger.info("실패 항목이 없어 기존 실패 로그 파일 삭제: %s", FAILED_OUTPUT_FILE)
 
-        return merge_result.posts, all_failed_items
+        return prune_result.posts, all_failed_items
     finally:
         clients.close()
 

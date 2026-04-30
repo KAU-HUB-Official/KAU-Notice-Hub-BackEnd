@@ -30,8 +30,6 @@ AISW_BASE_URL = "http://aisw.kau.ac.kr"
 AISW_NOTICE_LIST_URL = "http://aisw.kau.ac.kr/pages/notice.php"
 LMS_BASE_URL = "https://lms.kau.ac.kr"
 LMS_NOTICE_LIST_URL = "https://lms.kau.ac.kr/mod/ubboard/view.php?id=55398"
-ESLSCAT_BASE_URL = "https://www.eslscat.com"
-ESLSCAT_NOTICE_LIST_URL = "https://www.eslscat.com/class/student/help/notice_list.asp"
 ASBT_BASE_URL = "https://asbt.kau.ac.kr"
 ASBT_NOTICE_LIST_URL = "https://asbt.kau.ac.kr/customer/notice.php"
 
@@ -91,8 +89,6 @@ MATERIALS_JOB_SOURCE_NAME = "한국항공대학교 신소재공학과 취업공�
 MATERIALS_JOB_SOURCE_TYPE = "university_materials_job_notice"
 LMS_SOURCE_NAME = "한국항공대학교 LMS 공지사항"
 LMS_SOURCE_TYPE = "university_lms_notice"
-ESLSCAT_SOURCE_NAME = "한국항공대학교 토익 사이버 강좌"
-ESLSCAT_SOURCE_TYPE = "university_toeic_cyber_notice"
 ASBT_SOURCE_NAME = "한국항공대학교 첨단분야 부트캠프사업단"
 ASBT_SOURCE_TYPE = "university_asbt_notice"
 

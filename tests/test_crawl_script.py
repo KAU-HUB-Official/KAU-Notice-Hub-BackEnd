@@ -101,3 +101,32 @@ Path(os.environ["CRAWLER_OUTPUT_PATH"]).write_text(
     assert result.returncode != 0
     assert len(json.loads(final_path.read_text(encoding="utf-8"))) == 10
 
+
+def test_crawl_script_allows_drop_when_old_records_are_stale(tmp_path: Path) -> None:
+    final_path = tmp_path / "notices.json"
+    write_json(
+        final_path,
+        [
+            {"id": str(index), "published_at": "2024-01-01"}
+            for index in range(10)
+        ],
+    )
+
+    result = run_script(
+        tmp_path,
+        final_path,
+        """
+import json
+import os
+from pathlib import Path
+Path(os.environ["CRAWLER_OUTPUT_PATH"]).write_text(
+    json.dumps([{"id": "recent", "published_at": "2026-04-01"}], ensure_ascii=False),
+    encoding="utf-8",
+)
+""",
+    )
+
+    assert result.returncode == 0
+    assert json.loads(final_path.read_text(encoding="utf-8")) == [
+        {"id": "recent", "published_at": "2026-04-01"}
+    ]

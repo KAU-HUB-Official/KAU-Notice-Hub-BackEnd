@@ -124,6 +124,19 @@ def _evaluate_known_item_policy(
     return decision.stop_crawling
 
 
+def _sync_known_item_metadata(
+    detail_item: dict,
+    *,
+    known_posts_by_url: dict[str, dict],
+) -> None:
+    detail_url = str(detail_item.get("url") or "")
+    known_post = known_posts_by_url.get(detail_url)
+    if not known_post:
+        return
+
+    known_post["is_permanent_notice"] = bool(detail_item.get("is_permanent_notice"))
+
+
 def _parse_detail_item(
     board: dict[str, Any],
     detail_item: dict,
@@ -157,8 +170,6 @@ def _parse_detail_item(
     if not fetch_result.html:
         if fetch_result.failure_reason == "missing_ntt_id":
             logger.warning("[%s] 상세 URL에 nttId 누락: %s", board["name"], detail_url)
-        elif fetch_result.failure_reason == "missing_notice_id":
-            logger.warning("[%s] 상세 URL에 notice id 누락: %s", board["name"], detail_url)
         failed_items.append(
             {
                 "board": board["name"],
@@ -194,6 +205,7 @@ def _parse_detail_item(
             return None, decision.stop_crawling
 
         post_dict = post.to_dict()
+        post_dict["is_permanent_notice"] = is_permanent_notice
         known_urls.add(post.original_url)
         known_posts_by_url[post.original_url] = post_dict
         return post_dict, False
@@ -300,6 +312,7 @@ def crawl_board(
             detail_url = str(detail_item["url"])
 
             if detail_url in seen_for_board:
+                _sync_known_item_metadata(detail_item, known_posts_by_url=known_posts)
                 if _evaluate_known_item_policy(board, detail_item, known_posts_by_url=known_posts):
                     logger.info(
                         "[%s] 기존 수집 일반공지의 최근성 기준 초과로 page=%s에서 보드 수집 중단: %s",

@@ -18,14 +18,11 @@
 - `required_field_empty`: `title` 누락 또는 `content` 누락이며 첨부파일 fallback도 불가능한 경우
 - `robots_disallowed`: robots 정책으로 요청 차단
 - `missing_ntt_id`: `kau_college` 상세 URL에서 `nttId` 누락
-- `missing_notice_id`: `kau_eslscat` 상세 URL에서 `id` 누락
-
-참고: `missing_notice_id`는 `kau_eslscat` 보드를 활성화한 경우에만 발생 가능합니다.
 
 ## 기본 점검 루틴
 
 1. `crawler.log`에서 보드별 `collected/new` 로그 확인
-2. 최종 저장 로그의 `newly_added`, `url_dedup_removed`, `title_dedup_removed` 확인
+2. 최종 저장 로그의 `newly_added`, `url_dedup_removed`, `title_dedup_removed`, `stale_pruned` 확인
 3. 실패 파일의 `reason`별 건수 확인
 4. 문제 URL 샘플 재현(브라우저/직접 요청)로 원인 분리
 
@@ -42,6 +39,8 @@
 - canonical URL로 정규화해 `page/search` 차이 중복 제거
 - URL 중복 제거 후 제목 정규화 기준으로 교차 사이트 재게시 공지 통합
 - 페이지 순회는 오래된 일반공지/빈 목록/반복 목록을 만날 때 종료
+- 병합 후 1년 이상 지난 일반공지는 최종 스냅샷에서 제거
+- 레코드 급감 방어는 오래된 일반공지를 제외한 기존 보존 대상 건수를 기준으로 계산
 
 ## 증분 수집 실측 결과
 

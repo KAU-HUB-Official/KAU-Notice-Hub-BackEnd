@@ -173,15 +173,22 @@ def _validate_snapshot(
         try:
             old_data = json.loads(final_path.read_text(encoding="utf-8"))
             if isinstance(old_data, list):
-                old_count = len(old_data)
+                old_count = _count_retain_baseline_records(old_data)
         except Exception:
             old_count = 0
 
     if old_count > 0 and next_count < old_count * min_retain_ratio:
         raise ValueError(
-            "Refusing publish: record count dropped from "
+            "Refusing publish: record count dropped from retain baseline "
             f"{old_count} to {next_count}, below "
             f"CRAWLER_MIN_RETAIN_RATIO {min_retain_ratio}."
         )
 
     return next_count
+
+
+def _count_retain_baseline_records(data: list) -> int:
+    from app.crawler.services.dedup_service import prune_stale_posts
+
+    dict_items = [item for item in data if isinstance(item, dict)]
+    return len(prune_stale_posts(dict_items).posts)

@@ -36,7 +36,6 @@
 - `kau_amtc`: GNU board(`bo_table`, `wr_id`) 계열
 - `kau_lms_ubboard`: LMS `view.php/article.php` 계열
 - `kau_asbt`: `ptype=list/view&idx` 계열
-- `kau_eslscat`: eSLS CAT 계열(현재 기본 목록 비활성)
 
 ## 4) BoardAdapter 구현 체크포인트
 

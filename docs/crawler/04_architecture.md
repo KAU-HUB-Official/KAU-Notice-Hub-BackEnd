@@ -19,7 +19,7 @@
   - `dedup_service.py`: URL/제목 기준 병합
   - `url_normalizer.py`: canonical URL 정규화
 - `app/crawler/policies/notice_policy.py`
-  - 최근 1년 정책 및 상시공지 예외 처리
+  - 최근 1년 수집/삭제 정책 및 상시공지 예외 처리
 - `app/crawler/models/post.py`
   - 공통 `Post` 데이터 모델
 - `app/crawler/utils/`
@@ -42,7 +42,10 @@
 6. 기존+신규 데이터를 최종 병합
    - URL 중복 제거
    - 제목 정규화 중복 통합 및 `source_meta` 누적
-7. 결과/실패/로그 저장
+7. 병합 결과에서 1년 이상 지난 일반공지를 제거
+   - 상시공지는 게시일과 무관하게 보존
+   - 게시일 파싱 실패 항목은 1년 초과 여부를 확정할 수 없어 보존
+8. 결과/실패/로그 저장
 
 ## board_type 매핑
 
@@ -61,7 +64,6 @@
 - `kau_lms_ubboard`
 - `kau_asbt`
 - `kau_amtc`
-- `kau_eslscat` (구현만 존재, 기본 보드 목록에는 미포함)
 
 ## 중복 제거 계층
 

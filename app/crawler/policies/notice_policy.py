@@ -2,7 +2,8 @@ from __future__ import annotations
 
 import re
 from dataclasses import dataclass
-from datetime import date, datetime, timedelta
+from datetime import date, timedelta
+from typing import Any
 
 from ..config import RECENT_NOTICE_DAYS
 from ..utils.logger import get_logger
@@ -37,9 +38,67 @@ def is_recent_notice(published_at: str | None, *, lookback_days: int = RECENT_NO
     if not published_date:
         return False
 
-    cutoff_date = datetime.now().date() - timedelta(days=lookback_days)
+    cutoff_date = _cutoff_date(lookback_days=lookback_days)
     # "1년 전 이상"은 비최근으로 판단해 수집 중단 트리거로 사용한다.
     return published_date > cutoff_date
+
+
+def _cutoff_date(*, lookback_days: int, current_date: date | None = None) -> date:
+    return (current_date or date.today()) - timedelta(days=lookback_days)
+
+
+def _field(post: dict[str, Any], name: str) -> Any:
+    return post.get(name)
+
+
+def _iter_published_values(post: dict[str, Any]) -> list[Any]:
+    values = [
+        _field(post, "published_at"),
+        _field(post, "date"),
+        _field(post, "created_at"),
+        _field(post, "updated_at"),
+    ]
+
+    source_meta = post.get("source_meta")
+    if isinstance(source_meta, list):
+        for meta in source_meta:
+            if isinstance(meta, dict):
+                values.append(meta.get("published_at"))
+                values.append(meta.get("date"))
+
+    return values
+
+
+def _has_permanent_notice_meta(post: dict[str, Any]) -> bool:
+    source_meta = post.get("source_meta")
+    if not isinstance(source_meta, list) or not source_meta:
+        return bool(post.get("is_permanent_notice"))
+
+    return any(
+        isinstance(meta, dict) and bool(meta.get("is_permanent_notice"))
+        for meta in source_meta
+    )
+
+
+def should_prune_stale_notice(
+    post: dict[str, Any],
+    *,
+    lookback_days: int = RECENT_NOTICE_DAYS,
+    current_date: date | None = None,
+) -> bool:
+    if _has_permanent_notice_meta(post):
+        return False
+
+    published_dates = [
+        parsed_date
+        for value in _iter_published_values(post)
+        if (parsed_date := parse_published_date(str(value) if value is not None else None))
+    ]
+    if not published_dates:
+        return False
+
+    cutoff_date = _cutoff_date(lookback_days=lookback_days, current_date=current_date)
+    return all(published_date <= cutoff_date for published_date in published_dates)
 
 
 def evaluate_recent_policy(

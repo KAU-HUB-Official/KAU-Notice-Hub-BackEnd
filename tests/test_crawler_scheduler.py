@@ -67,3 +67,37 @@ def test_publish_crawler_snapshot_keeps_file_on_large_record_drop(
         )
 
     assert len(json.loads(final_path.read_text(encoding="utf-8"))) == 10
+
+
+def test_publish_crawler_snapshot_allows_drop_when_old_records_are_stale(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    final_path = tmp_path / "notices.json"
+    write_json(
+        final_path,
+        [
+            {"id": str(index), "published_at": "2024-01-01"}
+            for index in range(10)
+        ],
+    )
+
+    def fake_crawl_all_notices(*, max_pages: int, output_path: Path):
+        write_json(output_path, [{"id": "recent", "published_at": "2026-04-01"}])
+        return [{"id": "recent", "published_at": "2026-04-01"}], []
+
+    monkeypatch.setattr(crawler_scheduler, "_crawl_all_notices", fake_crawl_all_notices)
+
+    result = publish_crawler_snapshot(
+        Settings(
+            notice_json_path=final_path,
+            crawler_min_records=1,
+            crawler_min_retain_ratio=0.5,
+        )
+    )
+
+    assert result is not None
+    assert result.total_records == 1
+    assert json.loads(final_path.read_text(encoding="utf-8")) == [
+        {"id": "recent", "published_at": "2026-04-01"}
+    ]

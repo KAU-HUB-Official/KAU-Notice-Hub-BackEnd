@@ -208,12 +208,6 @@
 - 첨부: `div.bbs_view div.view_file a[href]`
 - 카테고리: `#subtitle h3` (없으면 보드명)
 
-## eSLS CAT (`kau_eslscat_parser.py`, 현재 비활성)
-
-- 목록 링크: `a[href*='javascript:goview(']`
-- 상세 URL 변환: `notice_view.asp?id={id}`
-- 상세 파싱: `table.tt_list` 기반 제목/본문/작성일/첨부 추출
-
 ## 공통 규칙
 
 - 모든 상대 링크는 `urljoin()`으로 절대 URL 변환
@@ -236,5 +230,4 @@
 - `amtc.kau.ac.kr`: `bo_table`, `wr_id`만 유지
 - `lms.kau.ac.kr`: `id`, `bwid`만 유지
 - `asbt.kau.ac.kr`: `ptype=view`, `idx`, `code`만 유지
-- `eslscat.com`: `id`만 유지
 - 그 외: fragment 제거 + query key 정렬

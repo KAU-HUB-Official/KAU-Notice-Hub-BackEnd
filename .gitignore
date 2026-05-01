@@ -1,4 +1,4 @@
-# Python bytecode / caches
+# Python bytecode and caches
 __pycache__/
 *.py[cod]
 *$py.class
@@ -6,31 +6,50 @@ __pycache__/
 .mypy_cache/
 .ruff_cache/
 .pyre/
+.hypothesis/
+
+# Test and coverage outputs
 .coverage
+.coverage.*
 coverage.xml
 htmlcov/
 
-# Packaging / build outputs
+# Packaging and build outputs
 *.egg-info/
 .eggs/
 build/
 dist/
 wheelhouse/
+pip-wheel-metadata/
 
 # Virtual environments
 .venv/
 venv/
 env/
 ENV/
+__pypackages__/
 
 # Local environment files
 .env
 .env.*
 !.env.example
 
+# Deployment keys and local credentials
+lightsail_deploy_key
+lightsail_deploy_key.pub
+*_deploy_key
+*_deploy_key.pub
+*.pem
+*.key
+id_rsa
+id_rsa.pub
+id_ed25519
+id_ed25519.pub
+
 # Runtime logs and local process files
 *.log
 nohup.out
+*.pid
 .uvicorn.log
 .uvicorn.pid
 
@@ -40,11 +59,16 @@ data/*.tmp
 data/*.tmp.*
 !data/.gitkeep
 
-# OS / editor files
+# Local databases
+*.sqlite
+*.sqlite3
+*.db
+
+# Docker and OS/editor noise
+.docker/
 .DS_Store
 Thumbs.db
 .idea/
 .vscode/
 *.swp
 *.swo
-

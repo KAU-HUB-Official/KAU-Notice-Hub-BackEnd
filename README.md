@@ -6,6 +6,7 @@ FastAPI 기반 공지 API 서버다. MVP 저장소는 JSON 파일이며, `app/cr
 
 | 문서 | 내용 |
 | --- | --- |
+| [AGENTS.md](AGENTS.md) | 에이전트 작업 규칙과 운영 체크리스트 |
 | [docs/API_SPEC.md](docs/API_SPEC.md) | API 계약과 Swagger UI 경로 |
 | [docs/CLASSIFICATION.md](docs/CLASSIFICATION.md) | 공지 대분류/중분류/source 필터 기준 |
 | [docs/CRAWLING_UPDATE.md](docs/CRAWLING_UPDATE.md) | 크롤러 JSON 게시 정책 |

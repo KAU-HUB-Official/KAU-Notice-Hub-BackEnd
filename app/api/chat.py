@@ -1,3 +1,5 @@
+import logging
+
 from fastapi import APIRouter, Depends
 from fastapi.responses import JSONResponse
 
@@ -9,6 +11,7 @@ from app.service import NoticeQuery, NoticeService
 
 
 router = APIRouter(prefix="/api/chat", tags=["chat"])
+logger = logging.getLogger(__name__)
 
 
 @router.post(
@@ -39,8 +42,9 @@ async def chat(
                 department=body.department,
             ),
         )
-    except NoticeRepositoryError as exc:
+    except NoticeRepositoryError:
+        logger.exception("Failed to create chat response")
         return JSONResponse(
             status_code=500,
-            content={"error": "챗봇 응답을 생성하지 못했습니다.", "detail": str(exc)},
+            content={"error": "챗봇 응답을 생성하지 못했습니다."},
         )

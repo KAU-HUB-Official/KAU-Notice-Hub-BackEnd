@@ -3,6 +3,7 @@ from fastapi.testclient import TestClient
 
 from app.dependencies import get_notice_service
 from app.main import app
+from app.repository import NoticeRepositoryError
 from app.schemas import Notice
 from app.service import NoticeService
 
@@ -16,6 +17,14 @@ class MemoryRepository:
 
     async def get_by_id(self, notice_id: str) -> Notice | None:
         return next((notice for notice in self.notices if notice.id == notice_id), None)
+
+
+class FailingRepository:
+    async def list_all(self) -> list[Notice]:
+        raise NoticeRepositoryError("private path leaked: /data/kau_official_posts.json")
+
+    async def get_by_id(self, notice_id: str) -> Notice | None:
+        raise NoticeRepositoryError(f"private path leaked for {notice_id}: /data/kau_official_posts.json")
 
 
 def make_notice(
@@ -71,6 +80,14 @@ def client() -> TestClient:
         ),
     ]
     app.dependency_overrides[get_notice_service] = lambda: NoticeService(MemoryRepository(notices))
+    with TestClient(app) as test_client:
+        yield test_client
+    app.dependency_overrides.clear()
+
+
+@pytest.fixture()
+def failing_client() -> TestClient:
+    app.dependency_overrides[get_notice_service] = lambda: NoticeService(FailingRepository())
     with TestClient(app) as test_client:
         yield test_client
     app.dependency_overrides.clear()
@@ -142,6 +159,20 @@ def test_get_notice_not_found(client: TestClient) -> None:
     assert response.json() == {"error": "공지 항목을 찾을 수 없습니다."}
 
 
+def test_get_notices_hides_repository_error_detail(failing_client: TestClient) -> None:
+    response = failing_client.get("/api/notices")
+
+    assert response.status_code == 500
+    assert response.json() == {"error": "공지 목록을 불러오지 못했습니다."}
+
+
+def test_get_notice_hides_repository_error_detail(failing_client: TestClient) -> None:
+    response = failing_client.get("/api/notices/cs")
+
+    assert response.status_code == 500
+    assert response.json() == {"error": "공지 상세를 불러오지 못했습니다."}
+
+
 def test_post_chat_fallback(client: TestClient) -> None:
     response = client.post("/api/chat", json={"question": "수강신청 알려줘"})
 
@@ -165,3 +196,10 @@ def test_post_chat_rejects_missing_question(client: TestClient) -> None:
 
     assert response.status_code == 400
     assert response.json() == {"error": "question 필드는 필수입니다."}
+
+
+def test_post_chat_hides_repository_error_detail(failing_client: TestClient) -> None:
+    response = failing_client.post("/api/chat", json={"question": "수강신청 알려줘"})
+
+    assert response.status_code == 500
+    assert response.json() == {"error": "챗봇 응답을 생성하지 못했습니다."}

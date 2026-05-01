@@ -1,3 +1,5 @@
+import logging
+
 from fastapi import APIRouter, Depends, Query
 from fastapi.responses import JSONResponse
 
@@ -8,6 +10,7 @@ from app.service import NoticeQuery, NoticeService
 
 
 router = APIRouter(prefix="/api/notices", tags=["notices"])
+logger = logging.getLogger(__name__)
 
 
 def parse_number(value: str | None, fallback: int) -> int:
@@ -50,10 +53,11 @@ async def list_notices(
                 page_size=parse_number(pageSize, 20),
             )
         )
-    except NoticeRepositoryError as exc:
+    except NoticeRepositoryError:
+        logger.exception("Failed to load notice list")
         return JSONResponse(
             status_code=500,
-            content={"error": "공지 목록을 불러오지 못했습니다.", "detail": str(exc)},
+            content={"error": "공지 목록을 불러오지 못했습니다."},
         )
 
 
@@ -68,10 +72,11 @@ async def get_notice(
 ) -> Notice | JSONResponse:
     try:
         notice = await service.get_notice_by_id(notice_id)
-    except NoticeRepositoryError as exc:
+    except NoticeRepositoryError:
+        logger.exception("Failed to load notice detail: %s", notice_id)
         return JSONResponse(
             status_code=500,
-            content={"error": "공지 상세를 불러오지 못했습니다.", "detail": str(exc)},
+            content={"error": "공지 상세를 불러오지 못했습니다."},
         )
 
     if not notice:

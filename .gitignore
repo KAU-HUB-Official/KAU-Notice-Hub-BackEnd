@@ -37,8 +37,10 @@ __pypackages__/
 # Deployment keys and local credentials
 lightsail_deploy_key
 lightsail_deploy_key.pub
+lightsail_deploy_key*
 *_deploy_key
 *_deploy_key.pub
+*_deploy_key*
 *.pem
 *.key
 id_rsa

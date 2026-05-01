@@ -5,7 +5,12 @@ __pycache__
 .mypy_cache
 .ruff_cache
 *.pyc
+lightsail_deploy_key*
+*_deploy_key*
+*.pem
+*.key
+id_rsa*
+id_ed25519*
 docs
 tests
 data/*.json
-

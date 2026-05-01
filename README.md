@@ -10,7 +10,7 @@ FastAPI 기반 공지 API 서버다. MVP 저장소는 JSON 파일이며, `app/cr
 | [docs/CLASSIFICATION.md](docs/CLASSIFICATION.md) | 공지 대분류/중분류/source 필터 기준 |
 | [docs/CRAWLING_UPDATE.md](docs/CRAWLING_UPDATE.md) | 크롤러 JSON 게시 정책 |
 | [docs/crawler/README.md](docs/crawler/README.md) | 통합 크롤러 구조와 운영 문서 |
-| [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md) | 로컬 실행과 Docker Compose 배포 |
+| [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md) | 로컬 실행, Docker Compose, GitHub Actions 배포 |
 | [docs/ERD.md](docs/ERD.md) | JSON 논리 모델 |
 
 ## 로컬 실행
@@ -57,6 +57,8 @@ http://localhost:8000/openapi.json
 pytest -q
 ```
 
+GitHub Actions의 `CI / test`는 push와 pull request에서 실행된다. `main` 병합 또는 직접 push 전에 로컬에서도 테스트를 실행한다.
+
 ## 크롤러 게시
 
 기본값은 내장 크롤러(`python3 -m app.crawler.main`)를 실행한다. 별도 명령을 넘길 때는 `CRAWLER_COMMAND`가 `$CRAWLER_OUTPUT_PATH`에 병합된 전체 JSON 스냅샷을 쓰면 된다.
@@ -82,6 +84,8 @@ CRAWLER_RUN_ON_STARTUP=true
 docker compose up -d --build api
 docker compose --profile proxy up -d --build
 ```
+
+운영 배포는 `main`에 merge 또는 push되면 GitHub Actions가 Lightsail 서버에서 `git pull`과 `docker compose --profile proxy up -d --build`를 실행한다. 외부 공개 포트는 Caddy의 80/443이며, API 8000 포트는 host의 `127.0.0.1`에만 바인딩한다.
 
 Docker Compose 서버 종료:
 

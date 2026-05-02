@@ -18,6 +18,8 @@ FastAPI app startup
   -> app/crawler 실행
   -> 기존 스냅샷 기준 증분 수집
   -> 기존 데이터와 신규/수정 데이터 병합
+  -> 1년 초과 일반공지 삭제
+  -> 선택적으로 이미지/HWP 기반 content 보강
   -> 다음 전체 스냅샷을 임시 JSON 파일로 생성
   -> 검증 성공 시 atomic rename/replace
   -> NOTICE_JSON_PATH 교체
@@ -41,9 +43,10 @@ MVP 기준 권장 흐름:
 3. 기존 데이터와 증분 수집 결과를 병합
 4. URL/id/title 기준 중복 제거 및 최신 필드 반영
 5. 게시일 기준 1년 이상 지난 일반공지를 병합 결과에서 제거
-6. 병합된 전체 결과를 tmp JSON에 저장
-7. tmp JSON 검증
-8. 검증 성공 시 tmp JSON을 NOTICE_JSON_PATH로 atomic 교체
+6. `CONTENT_ENRICHMENT_ENABLED=true`이면 본문이 비어 있는 이미지/HWP 공지의 `content` 보강
+7. 병합된 전체 결과를 tmp JSON에 저장
+8. tmp JSON 검증
+9. 검증 성공 시 tmp JSON을 NOTICE_JSON_PATH로 atomic 교체
 ```
 
 주의:
@@ -52,6 +55,7 @@ MVP 기준 권장 흐름:
 - 따라서 JSON 저장소를 쓰는 동안 `NOTICE_JSON_PATH`는 항상 “현재 전체 공지 목록”이어야 한다.
 - 증분 수집 후 오래된 일반공지는 최종 전체 스냅샷에서 제거한다. 상시공지는 게시일과 무관하게 보존하고, 게시일을 파싱할 수 없는 항목은 1년 초과 여부를 확정할 수 없으므로 삭제하지 않는다.
 - 레코드 급감 검증은 오래된 일반공지를 제외한 기존 보존 대상 건수를 기준으로 수행한다. 의도된 stale 삭제가 `MIN_RETAIN_RATIO`/`CRAWLER_MIN_RETAIN_RATIO`에 막히지 않도록 하기 위함이다.
+- content 보강은 실패해도 크롤링 실패로 취급하지 않는다. 실패한 공지는 기존 fallback `content`를 유지하고 `content_enrichment.status=failed`만 기록한다.
 - delta 파일을 따로 남기고 싶다면 `crawler_runs` 또는 `deltas` 용도로 별도 저장하고, API가 읽는 파일과 분리한다.
 
 ## API 서버 내부 스케줄러 운영 기준
@@ -184,6 +188,9 @@ uvicorn app.main:app --reload --port 8000
 | `CRAWLER_MIN_RECORDS` | `1` | 게시 허용 최소 레코드 수 |
 | `CRAWLER_MIN_RETAIN_RATIO` | `0.5` | 기존 개수 대비 급감 방어 비율 |
 | `CRAWLER_LOCK_PATH` | 없음 | 지정하지 않으면 JSON 디렉터리의 `.crawler.lock` 사용 |
+| `CONTENT_ENRICHMENT_ENABLED` | `false` | 이미지/HWP 기반 content 보강 활성화 |
+| `CONTENT_ENRICHMENT_MAX_CALLS_PER_RUN` | `50` | crawl 1회당 보강 API 호출 상한 |
+| `OPENAI_API_KEY` | 없음 | OpenAI provider 사용 시 필요 |
 
 현재 크롤러가 `--output` 파일을 기존 결과로 읽고 병합하는 방식이라면, 최종 파일을 직접 쓰지 말고 “작업 파일 복사본”을 output으로 넘긴 뒤 검증 후 최종 파일로 교체한다.
 

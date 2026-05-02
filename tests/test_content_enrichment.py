@@ -1,0 +1,317 @@
+from __future__ import annotations
+
+import zipfile
+from io import BytesIO
+
+from app.crawler.services.content_asset_downloader import (
+    ContentAsset,
+    ContentAssetDownloadError,
+    DownloadedAsset,
+    classify_attachment,
+    extract_inline_image_assets,
+    is_safe_asset_url,
+)
+from app.crawler.services.content_enrichment_service import (
+    ContentEnrichmentService,
+    is_fallback_content,
+)
+from app.crawler.services.content_extractors.hwp_extractor import (
+    ExtractedText,
+    HwpTextExtractor,
+)
+from app.crawler.services.content_extractors.openai_provider import (
+    GeneratedContent,
+    OpenAIContentProvider,
+)
+
+
+class FakeDownloader:
+    def __init__(self, *, content_type: str = "image/png", data: bytes = b"image") -> None:
+        self.content_type = content_type
+        self.data = data
+        self.calls = 0
+
+    def download(self, asset: ContentAsset) -> DownloadedAsset:
+        self.calls += 1
+        return DownloadedAsset(
+            asset=asset,
+            data=self.data,
+            content_type=self.content_type,
+            sha256="fake-sha256",
+        )
+
+
+class FailingDownloader:
+    def download(self, asset: ContentAsset) -> DownloadedAsset:
+        raise ContentAssetDownloadError("asset_download_failed", "failed")
+
+
+class FakeImageExtractor:
+    def extract_image_text(
+        self,
+        downloaded: DownloadedAsset,
+        *,
+        notice_meta: dict,
+        min_text_length: int,
+    ) -> ExtractedText:
+        return ExtractedText(
+            text="2026학년도 장학금 신청 기간은 5월 10일부터 5월 20일까지입니다.",
+            format="image",
+            method="fake-image",
+        )
+
+
+class FakeContentGenerator:
+    def generate_notice_content(
+        self,
+        *,
+        notice_meta: dict,
+        extracted_texts: list[ExtractedText],
+    ) -> GeneratedContent:
+        return GeneratedContent(
+            content="2026학년도 장학금 신청 안내입니다. 신청 기간은 5월 10일부터 5월 20일까지입니다.",
+            summary="장학금 신청 기간 안내",
+            confidence="high",
+            source_asset_names=["poster.png"],
+            model="fake-model",
+        )
+
+
+class FakeOpenAIResponse:
+    status_code = 200
+
+    def json(self) -> dict:
+        return {"output": [{"content": [{"type": "output_text", "text": "텍스트 추출 결과입니다."}]}]}
+
+
+class FakeOpenAISession:
+    def __init__(self) -> None:
+        self.payload: dict | None = None
+
+    def post(self, *args, **kwargs) -> FakeOpenAIResponse:
+        self.payload = kwargs.get("json")
+        return FakeOpenAIResponse()
+
+
+def make_service(
+    *,
+    downloader: object | None = None,
+    image_extractor: object | None = None,
+    content_generator: object | None = None,
+) -> ContentEnrichmentService:
+    return ContentEnrichmentService(
+        enabled=True,
+        min_text_length=30,
+        max_assets_per_notice=3,
+        max_calls_per_run=10,
+        downloader=downloader or FakeDownloader(),
+        hwp_extractor=HwpTextExtractor(min_text_length=30),
+        image_extractor=image_extractor or FakeImageExtractor(),
+        content_generator=content_generator or FakeContentGenerator(),
+        provider_name="fake",
+        model_name="fake-model",
+    )
+
+
+def test_fallback_content_detection() -> None:
+    assert is_fallback_content("[이미지 본문] 텍스트 본문 없음 (이미지 1개)")
+    assert is_fallback_content("[첨부파일 공지]\n- notice.hwp")
+    assert is_fallback_content("본문 정보가 비어 있습니다.")
+    assert not is_fallback_content("수강신청 기간 안내 본문입니다.")
+
+
+def test_extract_inline_image_assets_from_content_container() -> None:
+    html = """
+    <html>
+      <body>
+        <header><img src="/logo.png" /></header>
+        <div class="view_conts">
+          <img src="/files/poster.png" alt="장학금 포스터" />
+        </div>
+      </body>
+    </html>
+    """
+
+    assets = extract_inline_image_assets(html, "https://kau.ac.kr/notice/read")
+
+    assert assets == [
+        {
+            "type": "inline_image",
+            "name": "장학금 포스터",
+            "url": "https://kau.ac.kr/files/poster.png",
+            "source": "body",
+        }
+    ]
+
+
+def test_classifies_supported_attachment_types() -> None:
+    assert classify_attachment("poster.png", "https://kau.ac.kr/poster") == "image_attachment"
+    assert classify_attachment("notice.hwp", "https://kau.ac.kr/download") == "hwp_attachment"
+    assert classify_attachment("notice.pdf", "https://kau.ac.kr/notice.pdf") is None
+
+
+def test_rejects_unsafe_asset_urls_without_network_lookup() -> None:
+    assert not is_safe_asset_url("file:///tmp/poster.png", ["kau.ac.kr"])
+    assert not is_safe_asset_url("http://localhost/poster.png", ["kau.ac.kr"])
+    assert not is_safe_asset_url("http://127.0.0.1/poster.png", [])
+    assert not is_safe_asset_url("https://evil.example/poster.png", ["kau.ac.kr"])
+
+
+def test_hwp_extractor_reads_hwpx_zip_xml() -> None:
+    buffer = BytesIO()
+    with zipfile.ZipFile(buffer, "w") as archive:
+        archive.writestr(
+            "Contents/section0.xml",
+            "<root><p>장학금 신청 기간은 2026년 5월 10일부터 5월 20일까지입니다.</p></root>",
+        )
+
+    asset = ContentAsset(
+        type="hwp_attachment",
+        name="notice.hwpx",
+        url="https://kau.ac.kr/notice.hwpx",
+        source="attachment",
+    )
+    downloaded = DownloadedAsset(
+        asset=asset,
+        data=buffer.getvalue(),
+        content_type="application/vnd.hancom.hwpx",
+        sha256="fake",
+    )
+
+    extracted = HwpTextExtractor(min_text_length=10).extract(downloaded)
+
+    assert extracted.format == "hwpx"
+    assert extracted.method == "hwpx-xml"
+    assert "장학금 신청 기간" in extracted.text
+
+
+def test_content_enrichment_success_for_image_only_body() -> None:
+    post = {
+        "title": "장학금 신청 안내",
+        "content": "[이미지 본문] 텍스트 본문 없음 (이미지 1개)",
+        "published_at": "2026-05-01",
+        "source_name": "한국항공대학교",
+        "original_url": "https://kau.ac.kr/notice/1",
+        "attachments": [],
+        "content_assets": [
+            {
+                "type": "inline_image",
+                "name": "poster.png",
+                "url": "https://kau.ac.kr/poster.png",
+                "source": "body",
+            }
+        ],
+    }
+
+    result = make_service().enrich_posts([post])
+
+    assert result.attempted == 1
+    assert result.succeeded == 1
+    assert result.calls_used == 2
+    assert post["content_original"].startswith("[이미지 본문]")
+    assert "장학금 신청 안내" in post["content"]
+    assert post["content_enrichment"]["status"] == "success"
+    assert post["content_enrichment"]["trigger"] == "image_only_body"
+    assert post["content_enrichment"]["assets"][0]["sha256"] == "fake-sha256"
+
+
+def test_content_enrichment_failure_keeps_fallback_content() -> None:
+    post = {
+        "title": "장학금 신청 안내",
+        "content": "[첨부파일 공지]\n- poster.png",
+        "attachments": [
+            {
+                "name": "poster.png",
+                "url": "https://kau.ac.kr/poster.png",
+            }
+        ],
+    }
+
+    result = make_service(downloader=FailingDownloader()).enrich_posts([post])
+
+    assert result.attempted == 1
+    assert result.failed == 1
+    assert post["content"] == "[첨부파일 공지]\n- poster.png"
+    assert post["content_enrichment"]["status"] == "failed"
+    assert post["content_enrichment"]["error_code"] == "no_extracted_text"
+    assert post["content_enrichment"]["asset_errors"] == ["asset_download_failed"]
+
+
+def test_content_enrichment_missing_key_fails_before_download() -> None:
+    downloader = FakeDownloader()
+    service = ContentEnrichmentService(
+        enabled=True,
+        min_text_length=30,
+        max_assets_per_notice=3,
+        max_calls_per_run=10,
+        downloader=downloader,
+        hwp_extractor=HwpTextExtractor(min_text_length=30),
+        image_extractor=None,
+        content_generator=None,
+        provider_name="openai",
+        model_name="gpt-4.1-mini",
+    )
+    post = {
+        "title": "이미지 공지",
+        "content": "[이미지 본문] 텍스트 본문 없음 (이미지 1개)",
+        "content_assets": [
+            {
+                "type": "inline_image",
+                "name": "poster.png",
+                "url": "https://kau.ac.kr/poster.png",
+                "source": "body",
+            }
+        ],
+    }
+
+    result = service.enrich_posts([post])
+
+    assert result.failed == 1
+    assert downloader.calls == 0
+    assert post["content_enrichment"]["error_code"] == "missing_openai_api_key"
+
+
+def test_content_enrichment_skips_normal_content() -> None:
+    post = {
+        "title": "정상 본문 공지",
+        "content": (
+            "이미 충분한 공지 본문이 있으므로 보강 대상이 아닙니다. "
+            "신청 기간과 대상, 문의처가 본문에 포함되어 있습니다."
+        ),
+        "attachments": [{"name": "poster.png", "url": "https://kau.ac.kr/poster.png"}],
+    }
+
+    result = make_service().enrich_posts([post])
+
+    assert result.skipped == 1
+    assert "content_enrichment" not in post
+
+
+def test_openai_provider_disables_response_storage() -> None:
+    session = FakeOpenAISession()
+    provider = OpenAIContentProvider(
+        api_key="test-key",
+        model="gpt-4.1-mini",
+        session=session,  # type: ignore[arg-type]
+    )
+    asset = ContentAsset(
+        type="image_attachment",
+        name="poster.png",
+        url="https://kau.ac.kr/poster.png",
+        source="attachment",
+    )
+    downloaded = DownloadedAsset(
+        asset=asset,
+        data=b"image",
+        content_type="image/png",
+        sha256="fake",
+    )
+
+    provider.extract_image_text(
+        downloaded,
+        notice_meta={"title": "공지"},
+        min_text_length=1,
+    )
+
+    assert session.payload is not None
+    assert session.payload["store"] is False

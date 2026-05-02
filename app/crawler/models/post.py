@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from dataclasses import asdict, dataclass
+from dataclasses import asdict, dataclass, field
 from typing import Optional
 
 
@@ -15,6 +15,7 @@ class Post:
     original_url: str
     attachments: list[dict]
     crawled_at: str
+    content_assets: list[dict] = field(default_factory=list)
 
     def to_dict(self) -> dict:
         return asdict(self)

@@ -9,6 +9,7 @@ dependencies = [
   "pydantic>=2.8.0",
   "pydantic-settings>=2.4.0",
   "requests>=2.32.0",
+  "unhwp>=0.2.4",
   "uvicorn[standard]>=0.30.0"
 ]
 

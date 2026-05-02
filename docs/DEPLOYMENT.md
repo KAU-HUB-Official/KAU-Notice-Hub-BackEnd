@@ -49,8 +49,18 @@ http://localhost:8000/openapi.json
 | `BACKEND_CORS_ORIGINS` | `https://kau-notice.example.com` | 쉼표로 구분한 허용 frontend origin |
 | `BACKEND_PORT` | `8000` | Docker host에 바인딩할 API 포트. compose에서는 `127.0.0.1`에만 바인딩 |
 | `API_DOMAIN` | `api.kau-notice.example.com` 또는 `:80` | Caddy가 받을 host. 도메인이 없으면 `:80` |
-| `OPENAI_API_KEY` | `sk-...` | 예약값. 현재 챗봇은 local fallback 사용 |
-| `OPENAI_MODEL` | `gpt-4.1-mini` | 예약값. 현재 챗봇은 local fallback 사용 |
+| `OPENAI_API_KEY` | `sk-...` | content 보강에서 OpenAI provider를 사용할 때 필요. 챗봇은 현재 local fallback 사용 |
+| `OPENAI_MODEL` | `gpt-4.1-mini` | 챗봇용 예약값. 현재 챗봇은 local fallback 사용 |
+| `CONTENT_ENRICHMENT_ENABLED` | `false` | 본문이 비어 있는 이미지/HWP 공지의 content 보강 활성화 |
+| `CONTENT_ENRICHMENT_PROVIDER` | `openai` | content 보강 provider |
+| `CONTENT_ENRICHMENT_MODEL` | `gpt-4.1-mini` | 이미지 텍스트 추출과 content 생성 기본 모델 |
+| `CONTENT_ENRICHMENT_FALLBACK_MODEL` | `gpt-5.5` | 이미지 텍스트가 부족할 때 재시도할 fallback 모델 |
+| `CONTENT_ENRICHMENT_IMAGE_DETAIL` | `high` | OpenAI 이미지 입력 detail 값 |
+| `CONTENT_ENRICHMENT_MIN_TEXT_LENGTH` | `30` | 이 길이 미만의 fallback/짧은 본문만 보강 후보로 판단 |
+| `CONTENT_ENRICHMENT_MAX_ASSETS_PER_NOTICE` | `3` | 공지 1건에서 처리할 최대 이미지/HWP asset 수 |
+| `CONTENT_ENRICHMENT_MAX_FILE_BYTES` | `10485760` | 다운로드할 asset 최대 크기 |
+| `CONTENT_ENRICHMENT_MAX_CALLS_PER_RUN` | `50` | crawl 1회당 보강 API 호출 상한 |
+| `CONTENT_ENRICHMENT_ALLOWED_DOMAINS` | `kau.ac.kr,...` | asset 다운로드를 허용할 도메인 allowlist |
 | `LOG_LEVEL` | `INFO` | 로그 레벨 |
 | `CRAWLER_SCHEDULER_ENABLED` | `true` | API 프로세스 내 크롤러 스케줄러 활성화 |
 | `CRAWLER_INTERVAL_SECONDS` | `10800` | 크롤링 주기. 기본 3시간 |
@@ -64,7 +74,17 @@ http://localhost:8000/openapi.json
 ```env
 NOTICE_JSON_PATH=./data/kau_official_posts.json
 BACKEND_CORS_ORIGINS=http://localhost:3000
+OPENAI_API_KEY=
 OPENAI_MODEL=gpt-4.1-mini
+CONTENT_ENRICHMENT_ENABLED=false
+CONTENT_ENRICHMENT_PROVIDER=openai
+CONTENT_ENRICHMENT_MODEL=gpt-4.1-mini
+CONTENT_ENRICHMENT_FALLBACK_MODEL=gpt-5.5
+CONTENT_ENRICHMENT_IMAGE_DETAIL=high
+CONTENT_ENRICHMENT_MIN_TEXT_LENGTH=30
+CONTENT_ENRICHMENT_MAX_ASSETS_PER_NOTICE=3
+CONTENT_ENRICHMENT_MAX_FILE_BYTES=10485760
+CONTENT_ENRICHMENT_MAX_CALLS_PER_RUN=50
 LOG_LEVEL=INFO
 CRAWLER_SCHEDULER_ENABLED=false
 CRAWLER_INTERVAL_SECONDS=10800
@@ -72,6 +92,12 @@ CRAWLER_RUN_ON_STARTUP=true
 ```
 
 운영 서버의 `.env`는 서버에만 둔다. `.env`, SSH private key, `.pem`, `.key` 파일은 저장소에 커밋하지 않는다.
+
+`OPENAI_API_KEY`나 `CONTENT_ENRICHMENT_*` 값을 서버 `.env`에서 바꾼 뒤에는 컨테이너를 재생성해야 반영된다.
+
+```bash
+docker compose --profile proxy up -d --build --force-recreate api
+```
 
 ## Docker Compose
 

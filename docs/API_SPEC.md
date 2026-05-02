@@ -462,8 +462,18 @@ BACKEND_CORS_ORIGINS=http://localhost:3000
 | 이름 | 필수 | 기본값 | 설명 |
 | --- | --- | --- | --- |
 | `NOTICE_JSON_PATH` | 아니오 | `./data/kau_official_posts.json` | 크롤러 JSON 파일 경로 |
-| `OPENAI_API_KEY` | 아니오 | empty | 예약값. 현재 챗봇은 local fallback 사용 |
-| `OPENAI_MODEL` | 아니오 | `gpt-4.1-mini` | 예약값. 현재 챗봇은 local fallback 사용 |
+| `OPENAI_API_KEY` | 아니오 | empty | content 보강에서 OpenAI provider를 사용할 때 필요. 챗봇은 현재 local fallback 사용 |
+| `OPENAI_MODEL` | 아니오 | `gpt-4.1-mini` | 챗봇용 예약값. 현재 챗봇은 local fallback 사용 |
+| `CONTENT_ENRICHMENT_ENABLED` | 아니오 | `false` | 이미지/HWP 기반 content 보강 활성화 |
+| `CONTENT_ENRICHMENT_PROVIDER` | 아니오 | `openai` | content 보강 provider |
+| `CONTENT_ENRICHMENT_MODEL` | 아니오 | `gpt-4.1-mini` | content 보강 기본 모델 |
+| `CONTENT_ENRICHMENT_FALLBACK_MODEL` | 아니오 | `gpt-5.5` | 이미지 텍스트 부족 시 재시도 모델 |
+| `CONTENT_ENRICHMENT_IMAGE_DETAIL` | 아니오 | `high` | 이미지 입력 detail 값 |
+| `CONTENT_ENRICHMENT_MIN_TEXT_LENGTH` | 아니오 | `30` | 보강 후보 판단 최소 본문 길이 |
+| `CONTENT_ENRICHMENT_MAX_ASSETS_PER_NOTICE` | 아니오 | `3` | 공지 1건당 처리할 최대 asset 수 |
+| `CONTENT_ENRICHMENT_MAX_FILE_BYTES` | 아니오 | `10485760` | 다운로드할 asset 최대 크기 |
+| `CONTENT_ENRICHMENT_MAX_CALLS_PER_RUN` | 아니오 | `50` | crawl 1회당 보강 API 호출 상한 |
+| `CONTENT_ENRICHMENT_ALLOWED_DOMAINS` | 아니오 | KAU 관련 도메인 목록 | asset 다운로드 허용 도메인 allowlist |
 | `BACKEND_CORS_ORIGINS` | 아니오 | `http://localhost:3000` | 쉼표 구분 CORS origin 목록 |
 | `CRAWLER_SCHEDULER_ENABLED` | 아니오 | `false` | API 프로세스 내 크롤러 스케줄러 활성화 |
 | `CRAWLER_INTERVAL_SECONDS` | 아니오 | `10800` | 크롤링 주기. 기본 3시간 |

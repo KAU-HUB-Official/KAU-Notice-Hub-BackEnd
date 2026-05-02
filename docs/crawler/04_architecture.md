@@ -18,6 +18,9 @@
   - `post_store.py`: 기존 결과 로드
   - `dedup_service.py`: URL/제목 기준 병합
   - `url_normalizer.py`: canonical URL 정규화
+  - `content_enrichment_service.py`: 이미지/HWP 기반 content 보강 오케스트레이션
+  - `content_asset_downloader.py`: 보강 대상 asset 안전성 검사와 다운로드
+  - `content_extractors/`: HWP/HWPX, OpenAI provider adapter
 - `app/crawler/policies/notice_policy.py`
   - 최근 1년 수집/삭제 정책 및 상시공지 예외 처리
 - `app/crawler/models/post.py`
@@ -45,7 +48,10 @@
 7. 병합 결과에서 1년 이상 지난 일반공지를 제거
    - 상시공지는 게시일과 무관하게 보존
    - 게시일 파싱 실패 항목은 1년 초과 여부를 확정할 수 없어 보존
-8. 결과/실패/로그 저장
+8. `CONTENT_ENRICHMENT_ENABLED=true`이면 이미지/HWP 기반 content 보강
+   - 성공 시 `content_original`과 `content_enrichment.status=success` 기록
+   - 실패 시 기존 fallback `content` 유지 및 `content_enrichment.status=failed` 기록
+9. 결과/실패/로그 저장
 
 ## board_type 매핑
 

@@ -6,6 +6,7 @@ from typing import Any, Callable
 from ..models.post import Post
 from ..parsers.base_parser import BaseParser
 from ..policies.notice_policy import evaluate_recent_policy
+from ..services.content_asset_downloader import extract_inline_image_assets
 from ..services.url_normalizer import canonicalize_original_url
 from ..utils.logger import get_logger
 
@@ -205,6 +206,9 @@ def _parse_detail_item(
             return None, decision.stop_crawling
 
         post_dict = post.to_dict()
+        inline_assets = extract_inline_image_assets(fetch_result.html, detail_url)
+        if inline_assets:
+            post_dict["content_assets"] = inline_assets
         post_dict["is_permanent_notice"] = is_permanent_notice
         known_urls.add(post.original_url)
         known_posts_by_url[post.original_url] = post_dict

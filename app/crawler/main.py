@@ -3,9 +3,12 @@ from __future__ import annotations
 import argparse
 from pathlib import Path
 
+from app.config import get_settings
+
 from .config import DEFAULT_MAX_PAGES, FAILED_OUTPUT_FILE, NOTICE_BOARDS, OUTPUT_FILE
 from .services.board_crawler import crawl_board
 from .services.board_registry import build_board_adapters, build_clients
+from .services.content_enrichment_service import ContentEnrichmentService
 from .services.dedup_service import merge_posts_with_dedup, prune_stale_posts
 from .services.post_store import load_existing_posts
 from .services.url_normalizer import canonicalize_original_url
@@ -66,6 +69,22 @@ def crawl_all_notices(max_pages: int, output_path: Path) -> tuple[list[dict], li
 
         merge_result = merge_posts_with_dedup(existing_posts, all_new_posts)
         prune_result = prune_stale_posts(merge_result.posts)
+        settings = get_settings()
+        if settings.content_enrichment_enabled:
+            enrichment_result = ContentEnrichmentService.from_settings(settings).enrich_posts(
+                prune_result.posts
+            )
+            logger.info(
+                (
+                    "content enrichment 완료: attempted=%s, succeeded=%s, failed=%s, "
+                    "skipped=%s, calls_used=%s"
+                ),
+                enrichment_result.attempted,
+                enrichment_result.succeeded,
+                enrichment_result.failed,
+                enrichment_result.skipped,
+                enrichment_result.calls_used,
+            )
 
         save_json(prune_result.posts, output_path)
         logger.info(

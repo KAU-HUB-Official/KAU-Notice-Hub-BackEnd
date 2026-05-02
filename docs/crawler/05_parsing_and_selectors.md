@@ -212,6 +212,7 @@
 
 - 모든 상대 링크는 `urljoin()`으로 절대 URL 변환
 - 본문 텍스트가 비어 있으면 이미지 수/alt 기반 fallback 문자열 생성
+- 본문 영역의 `img[src]`는 `content_assets`에 기록해 content 보강 후보로 사용
 - 상세 파싱 후 본문이 비어 있고 첨부파일이 있으면 첨부파일명 기반 fallback 문자열 생성
 - 첨부 URL은 URL 기준으로 중복 제거
 

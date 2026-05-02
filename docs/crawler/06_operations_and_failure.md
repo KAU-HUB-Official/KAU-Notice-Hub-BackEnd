@@ -19,6 +19,30 @@
 - `robots_disallowed`: robots 정책으로 요청 차단
 - `missing_ntt_id`: `kau_college` 상세 URL에서 `nttId` 누락
 
+## content 보강 실패 코드
+
+`CONTENT_ENRICHMENT_ENABLED=true`인 경우 이미지/HWP 기반 본문 보강 실패는 크롤링 실패로 보지 않는다. 해당 공지는 기존 fallback `content`를 유지하고 `content_enrichment.status=failed`와 `error_code`만 기록한다.
+
+- `missing_openai_api_key`: OpenAI provider를 쓰도록 설정했지만 `OPENAI_API_KEY`가 없음
+- `unsafe_asset_url`: 허용 도메인/공개 IP/HTTP(S) 조건을 만족하지 않는 asset URL
+- `unsafe_asset_redirect`: 다운로드 중 허용되지 않은 URL로 redirect
+- `asset_download_failed`: asset 다운로드 HTTP 오류
+- `asset_too_large`: `CONTENT_ENRICHMENT_MAX_FILE_BYTES` 초과
+- `unsupported_asset_type`: 이미지/HWP/HWPX로 판별할 수 없음
+- `hwp_text_extractor_unavailable`: HWP 추출 라이브러리 사용 불가
+- `password_protected_hwp`: 암호화된 HWP
+- `unsupported_hwp_format`: 미지원 또는 손상된 HWP/HWPX
+- `hwp_text_extract_failed`: HWP 텍스트 추출 실패
+- `hwp_text_too_short`: 추출 텍스트가 최소 길이 미만
+- `image_text_too_short`: 이미지에서 추출된 텍스트가 최소 길이 미만
+- `openai_request_failed`: OpenAI API 요청 실패
+- `openai_invalid_response`: OpenAI 응답이 JSON 형식이 아님
+- `openai_empty_response`: OpenAI 응답 텍스트가 비어 있음
+- `llm_json_parse_failed`: content 생성 응답 JSON 파싱 실패
+- `generated_content_too_short`: 생성된 content가 최소 길이 미만
+- `enrichment_call_budget_exceeded`: crawl 1회 호출 상한 초과
+- `no_extracted_text`: 처리한 asset에서 사용할 텍스트를 얻지 못함
+
 ## 기본 점검 루틴
 
 1. `crawler.log`에서 보드별 `collected/new` 로그 확인
@@ -29,8 +53,8 @@
 ## 자주 보는 케이스
 
 - `kau_career`: robots 예외 정책이 적용되어 robots 차단 없이 수집
-- 이미지 중심 본문: 텍스트 대신 이미지 fallback 문자열 저장
-- 첨부파일만 있는 본문: 첨부파일명 기반 fallback 문자열 저장
+- 이미지 중심 본문: 기본값은 이미지 fallback 문자열 저장. content 보강이 켜져 있으면 본문 이미지에서 텍스트 추출 후 `content` 교체 시도
+- 첨부파일만 있는 본문: 기본값은 첨부파일명 기반 fallback 문자열 저장. content 보강이 켜져 있으면 이미지/HWP/HWPX 첨부에서 텍스트 추출 후 `content` 교체 시도
 - 대학 사이트 개편: 목록 selector 변경으로 `request_failed`가 아니라 `new=0` 패턴으로 먼저 나타나는 경우가 많음
 
 ## 중복/증분 관련 동작
@@ -60,3 +84,4 @@
 - 구조 점검용 스모크 테스트는 `--max-pages 1`로 제한하고, 실제 수집은 기본 실행(`--max-pages 0`)을 사용
 - 사이트 구조가 변경되면 parser와 문서(`05_parsing_and_selectors.md`)를 함께 갱신
 - 정책 변경 시 `notice_policy.py`, `board_crawler.py`, `08_crawling_rules.md`를 같이 수정
+- content 보강 정책 변경 시 `content_enrichment_service.py`, `content_asset_downloader.py`, `content_extractors/`, `09_content_enrichment_plan.md`를 같이 수정

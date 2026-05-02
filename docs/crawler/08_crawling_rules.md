@@ -9,6 +9,9 @@
 - `app/crawler/policies/notice_policy.py`
 - `app/crawler/services/url_normalizer.py`
 - `app/crawler/services/dedup_service.py`
+- `app/crawler/services/content_enrichment_service.py`
+- `app/crawler/services/content_asset_downloader.py`
+- `app/crawler/services/content_extractors/`
 
 ## 1) 페이지 순회
 
@@ -82,7 +85,26 @@
 - `source_meta` 배열에 출처 메타 누적
 - 첨부파일은 URL 기준으로 병합
 
-## 7) 실패 기록
+## 7) content 보강
+
+`CONTENT_ENRICHMENT_ENABLED=true`이면 병합/중복 제거/오래된 공지 삭제 이후, 최종 JSON 저장 직전에 content 보강을 시도합니다.
+
+보강 후보:
+
+- `content`가 `[이미지 본문]`, `[첨부파일 공지]`, `본문 정보가 비어 있습니다.` 같은 fallback 문자열인 경우
+- 본문 텍스트가 `CONTENT_ENRICHMENT_MIN_TEXT_LENGTH` 미만이고 본문 이미지 또는 이미지/HWP/HWPX 첨부가 있는 경우
+
+처리 기준:
+
+- 본문 이미지 URL은 상세 HTML에서 `content_assets`로 기록합니다.
+- 첨부파일은 파일명/URL/Content-Type 기준으로 이미지 또는 HWP/HWPX만 처리합니다.
+- asset 다운로드는 HTTP(S), 공개 IP, allowlist 도메인, 파일 크기 상한을 통과해야 합니다.
+- OpenAI provider는 이미지 텍스트 추출과 최종 content 생성을 담당합니다.
+- HWPX는 ZIP/XML 직접 파싱을 먼저 시도하고, HWP/HWPX는 `unhwp` 기반 HWP extractor로 fallback합니다.
+- 성공 시 `content_original`에 기존 fallback을 보존하고 `content`를 생성 결과로 교체합니다.
+- 실패 시 기존 `content`를 유지하고 `content_enrichment.status=failed`와 `error_code`를 기록합니다.
+
+## 8) 실패 기록
 
 - `request_failed`
 - `parse_error:<Exception>`
@@ -90,16 +112,21 @@
 - `robots_disallowed`
 - `missing_ntt_id` (`kau_college`)
 
-## 8) 운영 시 참고
+content 보강 실패는 위 실패 기록 파일에 쓰지 않고 각 post의 `content_enrichment` metadata에 기록합니다.
+
+## 9) 운영 시 참고
 
 - `max_posts` 설정값은 현재 상세 수집 상한으로 직접 사용되지 않습니다.
 - 정책 변경 시 다음 파일을 함께 업데이트해야 합니다.
   - `app/crawler/policies/notice_policy.py`
   - `app/crawler/services/board_crawler.py`
   - `app/crawler/services/dedup_service.py`
+  - `app/crawler/services/content_enrichment_service.py`
+  - `app/crawler/services/content_asset_downloader.py`
+  - `app/crawler/services/content_extractors/`
   - 본 문서(`docs/08_crawling_rules.md`)
 
-## 9) 카드형 학과/대학 게시판
+## 10) 카드형 학과/대학 게시판
 
 - `kau_card_notice`는 `notice.php?code=...&page=...` 구조를 쓰는 학과/대학 홈페이지에 사용합니다.
 - 현재 대상은 `aisw.kau.ac.kr`, `ai.kau.ac.kr:8100/8110/8120/8130/8140`, `sw.kau.ac.kr`, `ave.kau.ac.kr`입니다.

@@ -153,6 +153,24 @@ def _asset_name_from_url(url: str, fallback: str) -> str:
     return path_name or fallback
 
 
+def _clean_html_url(value: object) -> str:
+    return str(value or "").strip().replace("\\", "").strip("\"'")
+
+
+def _select_content_nodes(soup: BeautifulSoup, selector: str) -> list:
+    containers = [
+        node
+        for container_selector in CONTENT_IMAGE_SELECTORS
+        for node in soup.select(container_selector)
+    ]
+    if containers:
+        nodes = []
+        for container in containers:
+            nodes.extend(container.select(selector))
+        return nodes
+    return soup.select(selector)
+
+
 def extract_inline_image_assets(
     html: str,
     detail_url: str,
@@ -160,19 +178,12 @@ def extract_inline_image_assets(
     max_assets: int = 10,
 ) -> list[dict]:
     soup = BeautifulSoup(html, "html.parser")
-    containers = [node for selector in CONTENT_IMAGE_SELECTORS for node in soup.select(selector)]
-    image_nodes = []
-
-    if containers:
-        for container in containers:
-            image_nodes.extend(container.select("img[src]"))
-    else:
-        image_nodes = soup.select("img[src]")
+    image_nodes = _select_content_nodes(soup, "img[src]")
 
     assets: list[dict] = []
     seen_urls: set[str] = set()
     for index, image_node in enumerate(image_nodes, start=1):
-        src = str(image_node.get("src") or "").strip()
+        src = _clean_html_url(image_node.get("src"))
         if not src:
             continue
         absolute_url = urljoin(detail_url, src)
@@ -185,6 +196,42 @@ def extract_inline_image_assets(
         assets.append(
             {
                 "type": "inline_image",
+                "name": name,
+                "url": absolute_url,
+                "source": "body",
+            }
+        )
+        if len(assets) >= max_assets:
+            break
+
+    return assets
+
+
+def extract_inline_embed_assets(
+    html: str,
+    detail_url: str,
+    *,
+    max_assets: int = 10,
+) -> list[dict]:
+    soup = BeautifulSoup(html, "html.parser")
+    embed_nodes = _select_content_nodes(soup, "iframe[src]")
+
+    assets: list[dict] = []
+    seen_urls: set[str] = set()
+    for index, embed_node in enumerate(embed_nodes, start=1):
+        src = _clean_html_url(embed_node.get("src"))
+        if not src:
+            continue
+        absolute_url = urljoin(detail_url, src)
+        if absolute_url in seen_urls:
+            continue
+        seen_urls.add(absolute_url)
+
+        title = str(embed_node.get("title") or embed_node.get("aria-label") or "").strip()
+        name = title or _asset_name_from_url(absolute_url, f"inline-embed-{index}")
+        assets.append(
+            {
+                "type": "inline_embed",
                 "name": name,
                 "url": absolute_url,
                 "source": "body",

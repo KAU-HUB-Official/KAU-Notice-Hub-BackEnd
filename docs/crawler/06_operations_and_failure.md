@@ -15,7 +15,9 @@
 
 - `request_failed`: HTTP 요청 실패, 타임아웃, 네트워크 오류
 - `parse_error:<Exception>`: 상세 파싱 중 예외
-- `required_field_empty`: `title` 누락 또는 `content` 누락이며 첨부파일 fallback도 불가능한 경우
+- `required_field_empty:<fields>`: `title` 또는 `content` 누락. 예: `required_field_empty:content`, `required_field_empty:title,content`
+  - 실패 항목에는 `missing_fields` 배열도 함께 기록한다.
+  - `content` 누락은 본문 이미지/동영상/첨부파일 fallback도 불가능한 경우에만 실패로 기록한다.
 - `robots_disallowed`: robots 정책으로 요청 차단
 - `missing_ntt_id`: `kau_college` 상세 URL에서 `nttId` 누락
 
@@ -54,6 +56,7 @@
 
 - `kau_career`: robots 예외 정책이 적용되어 robots 차단 없이 수집
 - 이미지 중심 본문: 기본값은 이미지 fallback 문자열 저장. content 보강이 켜져 있으면 본문 이미지에서 텍스트 추출 후 `content` 교체 시도
+- 동영상 중심 본문: 기본값은 동영상 fallback 문자열 저장. 현재 content 보강 대상은 아니며 URL/제목 수준의 최소 정보만 보존
 - 첨부파일만 있는 본문: 기본값은 첨부파일명 기반 fallback 문자열 저장. content 보강이 켜져 있으면 이미지/HWP/HWPX 첨부에서 텍스트 추출 후 `content` 교체 시도
 - 대학 사이트 개편: 목록 selector 변경으로 `request_failed`가 아니라 `new=0` 패턴으로 먼저 나타나는 경우가 많음
 

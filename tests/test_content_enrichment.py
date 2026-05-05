@@ -3,11 +3,18 @@ from __future__ import annotations
 import zipfile
 from io import BytesIO
 
+from app.crawler.models.post import Post
+from app.crawler.services.board_crawler import (
+    _fill_missing_content_from_body_assets,
+    _missing_required_fields,
+    _required_field_failure_reason,
+)
 from app.crawler.services.content_asset_downloader import (
     ContentAsset,
     ContentAssetDownloadError,
     DownloadedAsset,
     classify_attachment,
+    extract_inline_embed_assets,
     extract_inline_image_assets,
     is_safe_asset_url,
 )
@@ -115,6 +122,7 @@ def make_service(
 
 def test_fallback_content_detection() -> None:
     assert is_fallback_content("[이미지 본문] 텍스트 본문 없음 (이미지 1개)")
+    assert is_fallback_content("[동영상 본문] 텍스트 본문 없음 (동영상 1개)")
     assert is_fallback_content("[첨부파일 공지]\n- notice.hwp")
     assert is_fallback_content("본문 정보가 비어 있습니다.")
     assert not is_fallback_content("수강신청 기간 안내 본문입니다.")
@@ -142,6 +150,129 @@ def test_extract_inline_image_assets_from_content_container() -> None:
             "source": "body",
         }
     ]
+
+
+def test_extract_inline_image_assets_cleans_escaped_src() -> None:
+    html = """
+    <div class="view_conts">
+      <img src='\\"/web/cmm/imageSrc.do?path=notice/poster.jpg\\"' />
+    </div>
+    """
+
+    assets = extract_inline_image_assets(
+        html,
+        "http://college.kau.ac.kr/web/pages/read.do?nttId=1",
+    )
+
+    assert (
+        assets[0]["url"]
+        == "http://college.kau.ac.kr/web/cmm/imageSrc.do?path=notice/poster.jpg"
+    )
+
+
+def test_extract_inline_embed_assets_from_content_container() -> None:
+    html = """
+    <html>
+      <body>
+        <iframe src="https://example.com/header"></iframe>
+        <div class="view_conts">
+          <iframe src="https://www.youtube.com/embed/QIDKo72QBbE" title="안내 영상"></iframe>
+        </div>
+      </body>
+    </html>
+    """
+
+    assets = extract_inline_embed_assets(html, "https://kau.ac.kr/notice/read")
+
+    assert assets == [
+        {
+            "type": "inline_embed",
+            "name": "안내 영상",
+            "url": "https://www.youtube.com/embed/QIDKo72QBbE",
+            "source": "body",
+        }
+    ]
+
+
+def test_missing_content_uses_inline_image_fallback_before_required_check() -> None:
+    post = Post(
+        source_name="한국항공대학교",
+        source_type="official",
+        category_raw="일반공지",
+        title="등록 안내",
+        content="",
+        published_at="2026-03-01",
+        original_url="https://kau.ac.kr/notice/1",
+        attachments=[],
+        crawled_at="2026-05-05T00:00:00+00:00",
+    )
+
+    _fill_missing_content_from_body_assets(
+        post,
+        inline_images=[
+            {
+                "type": "inline_image",
+                "name": "등록 안내 이미지",
+                "url": "https://kau.ac.kr/poster.jpg",
+                "source": "body",
+            }
+        ],
+        inline_embeds=[],
+    )
+
+    assert post.content.startswith("[이미지 본문] 텍스트 본문 없음 (이미지 1개)")
+    assert "등록 안내 이미지" in post.content
+
+
+def test_missing_content_uses_inline_embed_fallback_before_required_check() -> None:
+    post = Post(
+        source_name="한국항공대학교",
+        source_type="official",
+        category_raw="일반공지",
+        title="영상 안내",
+        content="",
+        published_at="2026-03-01",
+        original_url="https://kau.ac.kr/notice/2",
+        attachments=[],
+        crawled_at="2026-05-05T00:00:00+00:00",
+    )
+
+    _fill_missing_content_from_body_assets(
+        post,
+        inline_images=[],
+        inline_embeds=[
+            {
+                "type": "inline_embed",
+                "name": "안내 영상",
+                "url": "https://www.youtube.com/embed/QIDKo72QBbE",
+                "source": "body",
+            }
+        ],
+    )
+
+    assert post.content.startswith("[동영상 본문] 텍스트 본문 없음 (동영상 1개)")
+    assert "안내 영상" in post.content
+
+
+def test_required_field_failure_reason_includes_missing_field_names() -> None:
+    post = Post(
+        source_name="한국항공대학교",
+        source_type="official",
+        category_raw="일반공지",
+        title="",
+        content="",
+        published_at="2026-03-01",
+        original_url="https://kau.ac.kr/notice/3",
+        attachments=[],
+        crawled_at="2026-05-05T00:00:00+00:00",
+    )
+
+    missing_fields = _missing_required_fields(post)
+
+    assert missing_fields == ["title", "content"]
+    assert _required_field_failure_reason(missing_fields) == (
+        "required_field_empty:title,content"
+    )
 
 
 def test_classifies_supported_attachment_types() -> None:

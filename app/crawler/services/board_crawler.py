@@ -6,7 +6,10 @@ from typing import Any, Callable
 from ..models.post import Post
 from ..parsers.base_parser import BaseParser
 from ..policies.notice_policy import evaluate_recent_policy
-from ..services.content_asset_downloader import extract_inline_image_assets
+from ..services.content_asset_downloader import (
+    extract_inline_embed_assets,
+    extract_inline_image_assets,
+)
 from ..services.url_normalizer import canonicalize_original_url
 from ..utils.logger import get_logger
 
@@ -101,6 +104,60 @@ def _fill_missing_content_from_attachments(post: Post) -> None:
         post.content = "[첨부파일 공지]\n" + "\n".join(f"- {label}" for label in labels)
 
 
+def _asset_labels(assets: list[dict]) -> list[str]:
+    labels: list[str] = []
+    seen_labels: set[str] = set()
+
+    for asset in assets:
+        if not isinstance(asset, dict):
+            continue
+
+        label = str(asset.get("name") or asset.get("url") or "").strip()
+        if not label or label in seen_labels:
+            continue
+
+        seen_labels.add(label)
+        labels.append(label)
+
+    return labels
+
+
+def _fill_missing_content_from_body_assets(
+    post: Post,
+    *,
+    inline_images: list[dict],
+    inline_embeds: list[dict],
+) -> None:
+    if post.content:
+        return
+
+    if inline_images:
+        lines = [f"[이미지 본문] 텍스트 본문 없음 (이미지 {len(inline_images)}개)"]
+        lines.extend(f"- {label}" for label in _asset_labels(inline_images))
+        post.content = "\n".join(lines)
+        return
+
+    if inline_embeds:
+        lines = [f"[동영상 본문] 텍스트 본문 없음 (동영상 {len(inline_embeds)}개)"]
+        lines.extend(f"- {label}" for label in _asset_labels(inline_embeds))
+        post.content = "\n".join(lines)
+
+
+def _missing_required_fields(post: Post) -> list[str]:
+    missing_fields: list[str] = []
+    if not str(post.title or "").strip():
+        missing_fields.append("title")
+    if not str(post.content or "").strip():
+        missing_fields.append("content")
+    return missing_fields
+
+
+def _required_field_failure_reason(missing_fields: list[str]) -> str:
+    if not missing_fields:
+        return "required_field_empty"
+    return f"required_field_empty:{','.join(missing_fields)}"
+
+
 def _evaluate_known_item_policy(
     board: dict[str, Any],
     detail_item: dict,
@@ -183,16 +240,30 @@ def _parse_detail_item(
     try:
         post = parser.parse_post(fetch_result.html, detail_url)
         post.original_url = canonicalize_original_url(post.original_url)
+        inline_assets = extract_inline_image_assets(fetch_result.html, detail_url)
+        inline_embeds = extract_inline_embed_assets(fetch_result.html, detail_url)
+        _fill_missing_content_from_body_assets(
+            post,
+            inline_images=inline_assets,
+            inline_embeds=inline_embeds,
+        )
         _fill_missing_content_from_attachments(post)
-        if not post.title or not post.content:
+        missing_fields = _missing_required_fields(post)
+        if missing_fields:
             failed_items.append(
                 {
                     "board": board["name"],
                     "url": detail_url,
-                    "reason": "required_field_empty",
+                    "reason": _required_field_failure_reason(missing_fields),
+                    "missing_fields": missing_fields,
                 }
             )
-            logger.warning("[%s] 필수 필드 누락으로 스킵: %s", board["name"], detail_url)
+            logger.warning(
+                "[%s] 필수 필드 누락(%s)으로 스킵: %s",
+                board["name"],
+                ",".join(missing_fields),
+                detail_url,
+            )
             return None, False
 
         decision = evaluate_recent_policy(
@@ -206,7 +277,6 @@ def _parse_detail_item(
             return None, decision.stop_crawling
 
         post_dict = post.to_dict()
-        inline_assets = extract_inline_image_assets(fetch_result.html, detail_url)
         if inline_assets:
             post_dict["content_assets"] = inline_assets
         post_dict["is_permanent_notice"] = is_permanent_notice

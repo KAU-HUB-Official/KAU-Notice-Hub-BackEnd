@@ -91,12 +91,13 @@
 
 보강 후보:
 
-- `content`가 `[이미지 본문]`, `[첨부파일 공지]`, `본문 정보가 비어 있습니다.` 같은 fallback 문자열인 경우
+- `content`가 `[이미지 본문]`, `[동영상 본문]`, `[첨부파일 공지]`, `본문 정보가 비어 있습니다.` 같은 fallback 문자열인 경우
 - 본문 텍스트가 `CONTENT_ENRICHMENT_MIN_TEXT_LENGTH` 미만이고 본문 이미지 또는 이미지/HWP/HWPX 첨부가 있는 경우
 
 처리 기준:
 
 - 본문 이미지 URL은 상세 HTML에서 `content_assets`로 기록합니다.
+- 본문 동영상 iframe은 크롤링 실패로 보내지 않고 fallback content로 최소 정보를 보존합니다. 현재 LLM 보강 대상은 이미지/HWP/HWPX입니다.
 - 첨부파일은 파일명/URL/Content-Type 기준으로 이미지 또는 HWP/HWPX만 처리합니다.
 - asset 다운로드는 HTTP(S), 공개 IP, allowlist 도메인, 파일 크기 상한을 통과해야 합니다.
 - OpenAI provider는 이미지 텍스트 추출과 최종 content 생성을 담당합니다.
@@ -108,7 +109,7 @@
 
 - `request_failed`
 - `parse_error:<Exception>`
-- `required_field_empty` (`title` 누락 또는 첨부파일 fallback도 불가능한 `content` 누락)
+- `required_field_empty:<fields>` (`title` 누락 또는 본문 이미지/동영상/첨부파일 fallback도 불가능한 `content` 누락. `missing_fields` 배열도 함께 기록)
 - `robots_disallowed`
 - `missing_ntt_id` (`kau_college`)
 

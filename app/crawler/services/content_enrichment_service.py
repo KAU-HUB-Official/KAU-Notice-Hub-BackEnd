@@ -29,6 +29,7 @@ logger = get_logger("crawler.services.content_enrichment")
 
 FALLBACK_CONTENT_PREFIXES = (
     "[이미지 본문]",
+    "[동영상 본문]",
     "[첨부파일 공지]",
 )
 FALLBACK_CONTENT_VALUES = {

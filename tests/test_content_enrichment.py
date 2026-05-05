@@ -20,6 +20,7 @@ from app.crawler.services.content_asset_downloader import (
 )
 from app.crawler.services.content_enrichment_service import (
     ContentEnrichmentService,
+    detect_trigger,
     is_fallback_content,
 )
 from app.crawler.services.content_extractors.hwp_extractor import (
@@ -273,6 +274,73 @@ def test_required_field_failure_reason_includes_missing_field_names() -> None:
     assert _required_field_failure_reason(missing_fields) == (
         "required_field_empty:title,content"
     )
+
+
+def test_detect_trigger_prefers_inline_image_and_hwp_attachment_mix() -> None:
+    post = {
+        "content": "[이미지 본문] 텍스트 본문 없음 (이미지 1개)",
+        "content_assets": [
+            {
+                "type": "inline_image",
+                "name": "poster.jpg",
+                "url": "https://kau.ac.kr/poster.jpg",
+                "source": "body",
+            }
+        ],
+        "attachments": [
+            {
+                "name": "notice.hwp",
+                "url": "https://kau.ac.kr/notice.hwp",
+            }
+        ],
+    }
+
+    assert detect_trigger(post) == "inline_image_and_hwp_attachment"
+
+
+def test_detect_trigger_prefers_inline_image_and_mixed_attachments() -> None:
+    post = {
+        "content": "[이미지 본문] 텍스트 본문 없음 (이미지 1개)",
+        "content_assets": [
+            {
+                "type": "inline_image",
+                "name": "poster.jpg",
+                "url": "https://kau.ac.kr/poster.jpg",
+                "source": "body",
+            }
+        ],
+        "attachments": [
+            {
+                "name": "notice.hwp",
+                "url": "https://kau.ac.kr/notice.hwp",
+            },
+            {
+                "name": "extra.png",
+                "url": "https://kau.ac.kr/extra.png",
+            },
+        ],
+    }
+
+    assert detect_trigger(post) == "inline_image_and_mixed_attachments"
+
+
+def test_detect_trigger_identifies_mixed_attachments_without_inline_image() -> None:
+    post = {
+        "content": "[첨부파일 공지]\n- notice.hwp\n- poster.png",
+        "content_assets": [],
+        "attachments": [
+            {
+                "name": "notice.hwp",
+                "url": "https://kau.ac.kr/notice.hwp",
+            },
+            {
+                "name": "poster.png",
+                "url": "https://kau.ac.kr/poster.png",
+            },
+        ],
+    }
+
+    assert detect_trigger(post) == "mixed_attachments"
 
 
 def test_classifies_supported_attachment_types() -> None:

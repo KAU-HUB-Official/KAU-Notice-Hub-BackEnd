@@ -353,20 +353,31 @@ def detect_trigger(post: dict) -> str:
     content = str(post.get("content") or "").strip()
     assets = post.get("content_assets") or []
     attachments = post.get("attachments") or []
-    has_inline_image = any(isinstance(item, dict) for item in assets)
+    has_inline_image = any(
+        isinstance(item, dict) and item.get("type") == "inline_image"
+        for item in assets
+    )
     attachment_types = {
         classify_attachment(str(item.get("name") or ""), str(item.get("url") or ""))
         for item in attachments
         if isinstance(item, dict)
     }
+    has_hwp_attachment = "hwp_attachment" in attachment_types
+    has_image_attachment = "image_attachment" in attachment_types
 
+    if has_inline_image and has_hwp_attachment and has_image_attachment:
+        return "inline_image_and_mixed_attachments"
+    if has_inline_image and has_hwp_attachment:
+        return "inline_image_and_hwp_attachment"
+    if has_inline_image and has_image_attachment:
+        return "inline_image_and_image_attachment"
+    if has_hwp_attachment and has_image_attachment:
+        return "mixed_attachments"
     if has_inline_image and content.startswith("[이미지 본문]"):
         return "image_only_body"
-    if "hwp_attachment" in attachment_types and "image_attachment" in attachment_types:
-        return "mixed_attachments"
-    if "hwp_attachment" in attachment_types:
+    if has_hwp_attachment:
         return "hwp_attachment_only"
-    if "image_attachment" in attachment_types:
+    if has_image_attachment:
         return "image_attachment_only"
     if has_inline_image:
         return "inline_image"

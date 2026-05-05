@@ -105,6 +105,20 @@
 - 성공 시 `content_original`에 기존 fallback을 보존하고 `content`를 생성 결과로 교체합니다.
 - 실패 시 기존 `content`를 유지하고 `content_enrichment.status=failed`와 `error_code`를 기록합니다.
 
+`content_enrichment.trigger` 분류:
+
+| trigger | 의미 |
+| --- | --- |
+| `inline_image_and_mixed_attachments` | 본문 이미지와 이미지/HWP 첨부가 모두 있음 |
+| `inline_image_and_hwp_attachment` | 본문 이미지와 HWP/HWPX 첨부가 같이 있음 |
+| `inline_image_and_image_attachment` | 본문 이미지와 이미지 첨부가 같이 있음 |
+| `mixed_attachments` | 이미지 첨부와 HWP/HWPX 첨부가 같이 있음 |
+| `image_only_body` | 본문 이미지 중심 공지 |
+| `hwp_attachment_only` | HWP/HWPX 첨부 중심 공지 |
+| `image_attachment_only` | 이미지 첨부 중심 공지 |
+| `inline_image` | 텍스트가 짧고 본문 이미지가 있음 |
+| `unknown` | 위 조건에 들어가지 않는 보강 시도 |
+
 ## 8) 실패 기록
 
 - `request_failed`

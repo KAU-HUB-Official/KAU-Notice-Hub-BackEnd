@@ -323,6 +323,22 @@ LLM은 반드시 JSON 형태로 응답하게 한다.
 
 `normalize_notice()`는 기존처럼 `content`를 읽으면 된다. 필요하면 API 응답에 metadata를 노출하지 않고 내부 운영용으로만 보관한다.
 
+### trigger 분류
+
+`content_enrichment.trigger`는 보강을 시작한 원인을 기록한다. 여러 자산이 섞인 공지는 단일 원인보다 혼합 원인을 먼저 기록한다.
+
+| trigger | 기록 조건 |
+| --- | --- |
+| `inline_image_and_mixed_attachments` | 본문 이미지, 이미지 첨부, HWP/HWPX 첨부가 모두 있음 |
+| `inline_image_and_hwp_attachment` | 본문 이미지와 HWP/HWPX 첨부가 같이 있음 |
+| `inline_image_and_image_attachment` | 본문 이미지와 이미지 첨부가 같이 있음 |
+| `mixed_attachments` | 이미지 첨부와 HWP/HWPX 첨부가 같이 있음 |
+| `image_only_body` | 본문 이미지 중심이며 별도 보강 첨부가 없음 |
+| `hwp_attachment_only` | HWP/HWPX 첨부만 보강 자산으로 있음 |
+| `image_attachment_only` | 이미지 첨부만 보강 자산으로 있음 |
+| `inline_image` | 일반 텍스트가 짧고 본문 이미지가 있음 |
+| `unknown` | 보강 후보지만 위 조건에 맞지 않음 |
+
 ## 보안 및 운영 기준
 
 다운로드 안전성:

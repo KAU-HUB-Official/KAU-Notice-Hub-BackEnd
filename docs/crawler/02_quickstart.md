@@ -11,6 +11,8 @@
 python3 -m pip install -e .
 ```
 
+필요하면 `.env.example`을 참고해 `.env`를 작성합니다. content 보강을 사용하지 않는 기본 크롤링은 OpenAI API key 없이 실행할 수 있습니다.
+
 ## 기본 실행
 
 ```bash
@@ -29,6 +31,16 @@ python3 -m app.crawler.main --output data/custom_posts.json
 
 참고: `--output` 파일은 다음 실행에서 증분 수집 기준 파일(기존 데이터 로드)로도 사용됩니다.
 
+## content 보강 실행
+
+이미지/HWP/HWPX 기반 content 보강은 기본값이 꺼져 있습니다. 로컬에서 수동 검증할 때만 아래처럼 켭니다.
+
+```bash
+CONTENT_ENRICHMENT_ENABLED=true python3 -m app.crawler.main
+```
+
+OpenAI provider를 사용할 경우 `.env` 또는 실행 환경에 `OPENAI_API_KEY`가 필요합니다. 운영 초기에는 `CONTENT_ENRICHMENT_MAX_CALLS_PER_RUN`을 낮게 설정해 비용을 제한합니다.
+
 ## 기본 산출물
 
 - 게시글 결과: `data/kau_official_posts.json`
@@ -40,6 +52,7 @@ python3 -m app.crawler.main --output data/custom_posts.json
 - 크롤러는 실행 시작 시 결과 파일의 `original_url`과 `source_meta[].original_url`을 읽어 캐시를 구성합니다.
 - 이미 수집된 URL은 상세 요청을 건너뛰되, 기존 `published_at`으로 일반공지 중단 여부를 판단합니다.
 - 기본 실행은 신규 URL 0건만으로 페이지 순회를 멈추지 않고, 오래된 일반공지/빈 목록/반복 목록을 만날 때 종료합니다.
+- 이미 `content_enrichment.status=success`인 공지는 다음 실행에서 다시 보강하지 않습니다.
 
 ## 빠른 점검
 

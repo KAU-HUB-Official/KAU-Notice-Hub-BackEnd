@@ -12,14 +12,14 @@
 5. [파싱 규칙과 셀렉터](./05_parsing_and_selectors.md)
 6. [운영/장애 대응](./06_operations_and_failure.md)
 7. [크롤링 규칙 상세](./08_crawling_rules.md)
-8. [첨부/이미지 기반 content 보강 계획](./09_content_enrichment_plan.md)
+8. [첨부/이미지 기반 content 보강](./09_content_enrichment_rules.md)
 
 ## 권장 읽기 순서
 
 - 처음 파악할 때: `01 -> 02 -> 03`
 - 구조/코드 매핑이 필요할 때: `04 -> 05`
 - 운영 모니터링/장애 대응: `06 -> 08`
-- 본문이 비어 있는 공지 보강 설계: `09`
+- 본문이 비어 있는 공지 보강 정책: `09`
 
 ## 관련 경로
 

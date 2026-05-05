@@ -23,7 +23,7 @@
 
 ## content 보강 실패 코드
 
-`CONTENT_ENRICHMENT_ENABLED=true`인 경우 이미지/HWP 기반 본문 보강 실패는 크롤링 실패로 보지 않는다. 해당 공지는 기존 fallback `content`를 유지하고 `content_enrichment.status=failed`와 `error_code`만 기록한다.
+`CONTENT_ENRICHMENT_ENABLED=true`인 경우 이미지/HWP/HWPX 기반 본문 보강 실패는 크롤링 실패로 보지 않는다. 해당 공지는 기존 fallback `content`를 유지하고 `content_enrichment.status=failed`와 `error_code`만 기록한다.
 
 - `missing_openai_api_key`: OpenAI provider를 쓰도록 설정했지만 `OPENAI_API_KEY`가 없음
 - `unsafe_asset_url`: 허용 도메인/공개 IP/HTTP(S) 조건을 만족하지 않는 asset URL
@@ -69,13 +69,14 @@
 - 병합 후 1년 이상 지난 일반공지는 최종 스냅샷에서 제거
 - 레코드 급감 방어는 오래된 일반공지를 제외한 기존 보존 대상 건수를 기준으로 계산
 
-## 증분 수집 실측 결과
+## 증분 수집 실측 예시
 
-- 최종 저장 게시글 수: 2,229건
 - 초기 전체 수집 소요 시간: 약 45분(2,700초)
 - 증분 수집 소요 시간: 약 3분 30초(210초)
 - 소요 시간 기준 개선률: 약 92.2% 감소
 - 처리 시간 배율: 약 12.9배 빠름
+
+위 수치는 특정 시점의 운영 실측값입니다. 현재 저장 건수는 `data/kau_official_posts.json` 기준으로 다시 확인합니다.
 
 계산식:
 
@@ -87,4 +88,4 @@
 - 구조 점검용 스모크 테스트는 `--max-pages 1`로 제한하고, 실제 수집은 기본 실행(`--max-pages 0`)을 사용
 - 사이트 구조가 변경되면 parser와 문서(`05_parsing_and_selectors.md`)를 함께 갱신
 - 정책 변경 시 `notice_policy.py`, `board_crawler.py`, `08_crawling_rules.md`를 같이 수정
-- content 보강 정책 변경 시 `content_enrichment_service.py`, `content_asset_downloader.py`, `content_extractors/`, `09_content_enrichment_plan.md`를 같이 수정
+- content 보강 정책 변경 시 `content_enrichment_service.py`, `content_asset_downloader.py`, `content_extractors/`, `09_content_enrichment_rules.md`를 같이 수정

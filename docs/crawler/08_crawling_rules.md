@@ -21,10 +21,10 @@
   - 예: `job_notice`는 `min_pages=2`
 - 목록 항목은 `url`, `page`, `is_permanent_notice`로 관리합니다.
 - 다음 조건 중 하나를 만나면 해당 보드의 페이지 순회를 종료합니다.
-- 일반공지에서 최근성 기준 미충족/게시일 미확인 항목 발견
-- 목록 항목 0건
-- 이전에 본 페이지와 동일한 URL 목록 반복
-- 목록 요청 실패
+  - 일반공지에서 최근성 기준 미충족/게시일 미확인 항목 발견
+  - 목록 항목 0건
+  - 이전에 본 페이지와 동일한 URL 목록 반복
+  - 목록 요청 실패
 
 ## 2) 상세 수집 순서
 
@@ -91,7 +91,7 @@
 
 보강 후보:
 
-- `content`가 `[이미지 본문]`, `[동영상 본문]`, `[첨부파일 공지]`, `본문 정보가 비어 있습니다.` 같은 fallback 문자열인 경우
+- 보강 가능한 이미지/HWP/HWPX asset이 있고, `content`가 `[이미지 본문]`, `[동영상 본문]`, `[첨부파일 공지]`, `본문 정보가 비어 있습니다.` 같은 fallback 문자열인 경우
 - 본문 텍스트가 `CONTENT_ENRICHMENT_MIN_TEXT_LENGTH` 미만이고 본문 이미지 또는 이미지/HWP/HWPX 첨부가 있는 경우
 
 처리 기준:
@@ -101,7 +101,8 @@
 - 첨부파일은 파일명/URL/Content-Type 기준으로 이미지 또는 HWP/HWPX만 처리합니다.
 - asset 다운로드는 HTTP(S), 공개 IP, allowlist 도메인, 파일 크기 상한을 통과해야 합니다.
 - OpenAI provider는 이미지 텍스트 추출과 최종 content 생성을 담당합니다.
-- HWPX는 ZIP/XML 직접 파싱을 먼저 시도하고, HWP/HWPX는 `unhwp` 기반 HWP extractor로 fallback합니다.
+- HWPX는 ZIP/XML 직접 파싱을 먼저 시도하고, HWP/HWPX는 `unhwp` 기반 로컬 extractor로 fallback합니다.
+- `unhwp`를 import할 수 없는 환경에서는 `extract-hwp` 패키지가 import 가능한 경우 선택적 fallback으로 사용합니다.
 - 성공 시 `content_original`에 기존 fallback을 보존하고 `content`를 생성 결과로 교체합니다.
 - 실패 시 기존 `content`를 유지하고 `content_enrichment.status=failed`와 `error_code`를 기록합니다.
 
@@ -109,7 +110,7 @@
 
 | trigger | 의미 |
 | --- | --- |
-| `inline_image_and_mixed_attachments` | 본문 이미지와 이미지/HWP 첨부가 모두 있음 |
+| `inline_image_and_mixed_attachments` | 본문 이미지, 이미지 첨부, HWP/HWPX 첨부가 모두 있음 |
 | `inline_image_and_hwp_attachment` | 본문 이미지와 HWP/HWPX 첨부가 같이 있음 |
 | `inline_image_and_image_attachment` | 본문 이미지와 이미지 첨부가 같이 있음 |
 | `mixed_attachments` | 이미지 첨부와 HWP/HWPX 첨부가 같이 있음 |
@@ -139,7 +140,7 @@ content 보강 실패는 위 실패 기록 파일에 쓰지 않고 각 post의 `
   - `app/crawler/services/content_enrichment_service.py`
   - `app/crawler/services/content_asset_downloader.py`
   - `app/crawler/services/content_extractors/`
-  - 본 문서(`docs/08_crawling_rules.md`)
+  - 본 문서(`docs/crawler/08_crawling_rules.md`)
 
 ## 10) 카드형 학과/대학 게시판
 

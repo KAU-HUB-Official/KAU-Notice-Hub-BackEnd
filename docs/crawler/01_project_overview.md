@@ -37,6 +37,15 @@
 - `original_url`
 - `attachments`
 - `crawled_at`
+- `content_assets`
+
+최종 JSON 스냅샷에는 수집/병합/보강 단계에서 아래 metadata가 추가될 수 있습니다.
+
+- `is_permanent_notice`
+- `source_meta`
+- `content_original`
+- `content_enrichment`
+- `summary`
 
 ## 핵심 정책
 
@@ -44,9 +53,12 @@
 - 목록 단계에서 canonical URL 기준 중복 제거
 - 기존 결과 파일(`--output` 경로)의 `original_url`을 캐시로 활용한 증분 수집
 - 상세 단계에서 필수 필드(`title`, `content`) 검증
+- 본문 이미지/동영상/첨부파일만 있는 공지는 fallback content로 보존
 - 저장 전 URL 중복 + 제목 정규화 중복 통합
+- `CONTENT_ENRICHMENT_ENABLED=true`이면 이미지/HWP/HWPX 기반 content 보강
 
 ## 현재 제한
 
-- 일부 게시글은 본문이 이미지 중심이라 텍스트가 충분하지 않을 수 있음
+- content 보강은 기본값이 꺼져 있으므로, 운영에서 켜기 전까지 이미지/HWP 중심 공지는 fallback content로 남을 수 있음
+- 동영상 iframe만 있는 공지는 최소 정보만 보존하며 영상 내용이나 자막은 추출하지 않음
 - 제목 기반 2차 중복 통합 시 동일 제목 공지가 하나로 합쳐질 수 있음

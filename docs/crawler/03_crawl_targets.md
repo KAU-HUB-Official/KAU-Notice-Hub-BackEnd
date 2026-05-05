@@ -99,5 +99,3 @@
 - 기본 정책: 사이트별 `robots.txt` 준수
 - 예외 정책: `kau_career`는 사용자 요청으로 robots 검사 비활성화(`respect_robots=False`)
 - `job_notice`는 1페이지 고유 URL이 적은 경우를 보완하기 위해 `min_pages=2`를 적용
-
-## 비활성 구현

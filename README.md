@@ -10,6 +10,7 @@ FastAPI 기반 공지 API 서버다. MVP 저장소는 JSON 파일이며, `app/cr
 | [docs/API_SPEC.md](docs/API_SPEC.md) | API 계약과 Swagger UI 경로 |
 | [docs/CLASSIFICATION.md](docs/CLASSIFICATION.md) | 공지 대분류/중분류/source 필터 기준 |
 | [docs/CRAWLING_UPDATE.md](docs/CRAWLING_UPDATE.md) | 크롤러 JSON 게시 정책 |
+| [docs/RAG_PLAN.md](docs/RAG_PLAN.md) | 공지 기반 RAG 설정 및 구현 계획 |
 | [docs/crawler/README.md](docs/crawler/README.md) | 통합 크롤러 구조와 운영 문서 |
 | [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md) | 로컬 실행, Docker Compose, GitHub Actions 배포 |
 | [docs/ERD.md](docs/ERD.md) | JSON 논리 모델 |

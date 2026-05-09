@@ -60,18 +60,6 @@ RAG_TEMPERATURE=0
 RAG_ANSWER_LANGUAGE=ko
 ```
 
-후속 embedding 단계에서 추가할 값:
-
-```env
-RAG_EMBEDDING_ENABLED=false
-RAG_EMBEDDING_MODEL=text-embedding-3-small
-RAG_EMBEDDING_INDEX_PATH=./data/rag_embeddings.sqlite
-RAG_EMBEDDING_REBUILD_ON_CRAWL=false
-RAG_EMBEDDING_TOP_K=20
-RAG_HYBRID_KEYWORD_WEIGHT=0.45
-RAG_HYBRID_VECTOR_WEIGHT=0.55
-```
-
 OpenAI hosted file search를 검토할 때 추가할 값:
 
 ```env
@@ -84,14 +72,14 @@ RAG_OPENAI_VECTOR_SYNC_ON_CRAWL=false
 
 ### 변경 대상
 
-| 영역 | 후보 파일 |
-| --- | --- |
-| 설정 | `app/config.py`, `.env.example`, `docker-compose.yml` |
-| 챗봇 서비스 | `app/chat_service.py` |
+| 영역           | 후보 파일                                                   |
+| -------------- | ----------------------------------------------------------- |
+| 설정           | `app/config.py`, `.env.example`, `docker-compose.yml`       |
+| 챗봇 서비스    | `app/chat_service.py`                                       |
 | OpenAI adapter | `app/rag/openai_rag_provider.py` 또는 `app/rag/provider.py` |
-| 프롬프트 | `app/rag/prompts.py` |
-| 테스트 | `tests/test_chat_rag.py` |
-| 문서 | `docs/API_SPEC.md`, `docs/DEPLOYMENT.md`, 본 문서 |
+| 프롬프트       | `app/rag/prompts.py`                                        |
+| 테스트         | `tests/test_chat_rag.py`                                    |
+| 문서           | `docs/API_SPEC.md`, `docs/DEPLOYMENT.md`, 본 문서           |
 
 ### 요청 흐름
 
@@ -212,11 +200,11 @@ updated_at
 
 ### Storage 후보
 
-| 방식 | 장점 | 단점 | 추천 |
-| --- | --- | --- | --- |
-| SQLite + vector extension 또는 단순 numpy index | 단일 서버 운영 단순 | 고성능 검색 한계 | MVP 후속 검증 |
-| Postgres + pgvector | 운영 표준, 필터/인덱스 강함 | DB 도입 필요 | 사용량 증가 시 |
-| OpenAI vector store/file search | RAG 구성 단순 | 외부 저장/동기화/비용 관리 필요 | 파일 기반 RAG 검토 시 |
+| 방식                                            | 장점                        | 단점                            | 추천                  |
+| ----------------------------------------------- | --------------------------- | ------------------------------- | --------------------- |
+| SQLite + vector extension 또는 단순 numpy index | 단일 서버 운영 단순         | 고성능 검색 한계                | MVP 후속 검증         |
+| Postgres + pgvector                             | 운영 표준, 필터/인덱스 강함 | DB 도입 필요                    | 사용량 증가 시        |
+| OpenAI vector store/file search                 | RAG 구성 단순               | 외부 저장/동기화/비용 관리 필요 | 파일 기반 RAG 검토 시 |
 
 초기 embedding 모델은 `text-embedding-3-small`로 시작한다. 공식 예제에서도 이 모델을 semantic search embedding 예시로 사용한다.
 
@@ -258,14 +246,14 @@ OpenAI Responses API의 hosted file search는 파일 저장, embedding, retrieva
 
 ## 실패 처리
 
-| 실패 | 처리 |
-| --- | --- |
-| `OPENAI_API_KEY` 없음 | 기존 local fallback 유지 |
-| OpenAI 요청 실패 | local fallback 유지, `usedFallback=true` |
-| JSON schema 파싱 실패 | local fallback 유지 |
-| references 없음 | “관련 공지를 찾지 못함” 답변 |
-| context 길이 초과 | 낮은 점수 공지부터 제외 |
-| rate limit | local fallback 유지, 로그 기록 |
+| 실패                  | 처리                                     |
+| --------------------- | ---------------------------------------- |
+| `OPENAI_API_KEY` 없음 | 기존 local fallback 유지                 |
+| OpenAI 요청 실패      | local fallback 유지, `usedFallback=true` |
+| JSON schema 파싱 실패 | local fallback 유지                      |
+| references 없음       | “관련 공지를 찾지 못함” 답변             |
+| context 길이 초과     | 낮은 점수 공지부터 제외                  |
+| rate limit            | local fallback 유지, 로그 기록           |
 
 ## 보안 기준
 

@@ -172,7 +172,7 @@ def merge_posts_with_dedup(existing_posts: list[dict], new_posts: list[dict]) ->
             title_dedup_removed += 1
             existing_post = dedup_posts[title_to_index[title_key]]
             _merge_title_duplicate(existing_post, post)
-            logger.info(
+            logger.debug(
                 "제목 중복으로 메타 병합: title=%s, url=%s",
                 post.get("title"),
                 post.get("original_url"),

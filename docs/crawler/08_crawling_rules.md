@@ -21,7 +21,8 @@
   - 예: `job_notice`는 `min_pages=2`
 - 목록 항목은 `url`, `page`, `is_permanent_notice`로 관리합니다.
 - 다음 조건 중 하나를 만나면 해당 보드의 페이지 순회를 종료합니다.
-  - 일반공지에서 최근성 기준 미충족/게시일 미확인 항목 발견
+  - 일반공지 항목이 있는 페이지에서 일반공지 신규 URL 0건 발견
+  - 일반공지에서 1년 초과 항목 발견
   - 목록 항목 0건
   - 이전에 본 페이지와 동일한 URL 목록 반복
   - 목록 요청 실패
@@ -48,15 +49,26 @@
 - 상시공지
   - 게시일과 무관하게 포함
 - 일반공지
-  - `published_at` 파싱 성공 + `published_date > cutoff_date`인 경우만 포함
-  - 그 외(컷오프 이전/같은 날짜, 게시일 미확인)는 제외 + 해당 보드 수집 즉시 중단
+  - `published_date > cutoff_date`인 경우 포함
+  - `published_date <= cutoff_date`인 경우 제외 + 해당 보드 수집 즉시 중단
 
 ## 4) 증분 수집
 
 - 실행 시작 시 결과 파일(`--output`)의 `original_url`과 `source_meta[].original_url`을 읽어 `known_urls` 캐시를 구성합니다.
 - 캐시에 있는 URL은 상세 요청하지 않습니다.
-- 캐시에 있는 일반공지도 기존 `published_at`을 평가해 1년 초과/게시일 미확인이면 해당 보드 수집을 중단합니다.
+- 일반공지는 최신순으로 정렬된다는 전제로, 현재 페이지에 일반공지 항목이 있고 일반공지 신규 URL이 0건이면 해당 보드 수집을 중단합니다.
+- 상시공지만 있는 페이지는 이 조건으로 중단하지 않고 다음 페이지를 계속 확인합니다.
+- 이때 같은 페이지에 신규 상시공지가 있으면 먼저 상세 수집한 뒤 중단합니다.
+- 신규 일반공지와 기존 일반공지가 섞인 페이지에서는 기존 `published_at`도 평가해 1년 초과면 해당 보드 수집을 중단합니다.
 - 새로 수집된 post의 canonical URL은 즉시 `known_urls`에 반영됩니다.
+
+목록 로그는 아래 형태로 남깁니다.
+
+```text
+목록 | 게시판=일반공지 | 페이지=1 | 전체=10 | 신규=2 | 상시공지=1 | 일반공지=9 | 신규일반공지=2
+```
+
+수집 종료 사유는 `수집 종료 | 게시판=... | 사유=...` 형태로 남깁니다. 주요 사유는 `신규 일반공지 없음`, `일반공지 1년 초과`, `목록 없음`, `반복 목록`, `목록 요청 실패`, `robots 차단`입니다.
 
 ## 5) 오래된 공지 삭제
 
@@ -66,7 +78,6 @@
 - 삭제 대상: 게시일을 파싱할 수 있고 `published_date <= today - 365일`인 일반공지
 - 보존 대상:
   - 상시공지(`is_permanent_notice=true`)
-  - 게시일을 파싱할 수 없어 1년 초과 여부를 확정할 수 없는 공지
   - 제목 중복 병합 공지 중 하나라도 최근 게시일 또는 상시공지 메타가 있는 공지
 - 삭제 건수는 최종 저장 로그의 `stale_pruned` 값으로 확인합니다.
 - 발행 전 레코드 급감 검증은 기존 전체 건수가 아니라 기존 보존 대상 건수를 기준으로 수행합니다.
@@ -100,11 +111,15 @@
 - 본문 동영상 iframe은 크롤링 실패로 보내지 않고 fallback content로 최소 정보를 보존합니다. 현재 LLM 보강 대상은 이미지/HWP/HWPX입니다.
 - 첨부파일은 파일명/URL/Content-Type 기준으로 이미지 또는 HWP/HWPX만 처리합니다.
 - asset 다운로드는 HTTP(S), 공개 IP, allowlist 도메인, 파일 크기 상한을 통과해야 합니다.
+- 공지 1건에 여러 asset이 있으면 실패한 asset은 `asset_errors`에 남기고 남은 asset 처리를 계속합니다.
 - OpenAI provider는 이미지 텍스트 추출과 최종 content 생성을 담당합니다.
 - HWPX는 ZIP/XML 직접 파싱을 먼저 시도하고, HWP/HWPX는 `unhwp` 기반 로컬 extractor로 fallback합니다.
 - `unhwp`를 import할 수 없는 환경에서는 `extract-hwp` 패키지가 import 가능한 경우 선택적 fallback으로 사용합니다.
 - 성공 시 `content_original`에 기존 fallback을 보존하고 `content`를 생성 결과로 교체합니다.
 - 실패 시 기존 `content`를 유지하고 `content_enrichment.status=failed`와 `error_code`를 기록합니다.
+- 호출 예산이 소진되면 남은 후보는 `content_enrichment.status=skipped`, `reason=enrichment_call_budget_exceeded`로 기록하고 다음 실행에서 다시 시도할 수 있게 둡니다.
+
+완료 로그의 `시도`는 실제 성공/실패 판정까지 진행한 보강 후보 수입니다. `건너뜀`에는 보강 대상이 아닌 공지와 호출 예산 소진으로 이번 실행에서 보류된 공지가 함께 포함됩니다. `호출`이 `CONTENT_ENRICHMENT_MAX_CALLS_PER_RUN`에 도달하면 이후 후보는 실패가 아니라 skip으로 남깁니다.
 
 `content_enrichment.trigger` 분류:
 

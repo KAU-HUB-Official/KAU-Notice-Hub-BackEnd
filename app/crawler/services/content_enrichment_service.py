@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from datetime import datetime, timezone
-from typing import Protocol
+from typing import Literal, Protocol
 
 from app.config import Settings
 
@@ -26,6 +26,9 @@ from .content_extractors.openai_provider import (
 )
 
 logger = get_logger("crawler.services.content_enrichment")
+
+EnrichmentPostStatus = Literal["success", "failed", "skipped"]
+BUDGET_EXCEEDED_CODE = "enrichment_call_budget_exceeded"
 
 FALLBACK_CONTENT_PREFIXES = (
     "[이미지 본문]",
@@ -133,15 +136,25 @@ class ContentEnrichmentService:
             return result
 
         if self.content_generator is None:
-            logger.warning("content enrichment enabled but OPENAI_API_KEY is not configured")
+            logger.warning("본문 보강 설정 오류 | 사유=OPENAI_API_KEY 없음")
 
         for post in posts:
             if not self.should_enrich(post):
                 result.skipped += 1
                 continue
 
-            result.attempted += 1
+            if self._call_budget_exhausted():
+                self._mark_skipped(
+                    post,
+                    BUDGET_EXCEEDED_CODE,
+                    trigger=detect_trigger(post),
+                )
+                result.skipped += 1
+                result.calls_used = self.calls_used
+                continue
+
             if self.content_generator is None:
+                result.attempted += 1
                 self._mark_failed(
                     post,
                     "missing_openai_api_key",
@@ -152,10 +165,15 @@ class ContentEnrichmentService:
                 result.calls_used = self.calls_used
                 continue
 
-            if self._enrich_post(post):
+            post_result = self._enrich_post(post)
+            if post_result == "success":
+                result.attempted += 1
                 result.succeeded += 1
-            else:
+            elif post_result == "failed":
+                result.attempted += 1
                 result.failed += 1
+            else:
+                result.skipped += 1
             result.calls_used = self.calls_used
 
         return result
@@ -219,7 +237,7 @@ class ContentEnrichmentService:
 
         return assets[: self.max_assets_per_notice]
 
-    def _enrich_post(self, post: dict) -> bool:
+    def _enrich_post(self, post: dict) -> EnrichmentPostStatus:
         trigger = detect_trigger(post)
         assets = self.find_supported_assets(post)
         extracted_texts: list[ExtractedText] = []
@@ -242,26 +260,30 @@ class ContentEnrichmentService:
                 )
             except (ContentAssetDownloadError, HwpTextExtractionError, OpenAIProviderError) as exc:
                 code = getattr(exc, "code", exc.__class__.__name__)
+                if code == BUDGET_EXCEEDED_CODE:
+                    self._mark_skipped(post, BUDGET_EXCEEDED_CODE, trigger=trigger)
+                    return "skipped"
+
                 errors.append(str(code))
                 logger.warning(
-                    "content enrichment asset failed: title=%s asset=%s code=%s",
+                    "본문 보강 실패 | 제목=%s | asset=%s | 코드=%s",
                     post.get("title"),
-                    asset.url,
+                    safe_asset_log_value(asset.url),
                     code,
                 )
                 continue
 
         if not extracted_texts:
             self._mark_failed(post, "no_extracted_text", errors, trigger=trigger)
-            return False
+            return "failed"
 
         if self.content_generator is None:
             self._mark_failed(post, "missing_openai_api_key", errors, trigger=trigger)
-            return False
+            return "failed"
 
         if not self._consume_call():
-            self._mark_failed(post, "enrichment_call_budget_exceeded", errors, trigger=trigger)
-            return False
+            self._mark_skipped(post, BUDGET_EXCEEDED_CODE, trigger=trigger)
+            return "skipped"
 
         try:
             generated = self.content_generator.generate_notice_content(
@@ -269,12 +291,15 @@ class ContentEnrichmentService:
                 extracted_texts=extracted_texts,
             )
         except OpenAIProviderError as exc:
+            if exc.code == BUDGET_EXCEEDED_CODE:
+                self._mark_skipped(post, BUDGET_EXCEEDED_CODE, trigger=trigger)
+                return "skipped"
             self._mark_failed(post, exc.code, errors, trigger=trigger)
-            return False
+            return "failed"
 
         if len("".join(generated.content.split())) < self.min_text_length:
             self._mark_failed(post, "generated_content_too_short", errors, trigger=trigger)
-            return False
+            return "failed"
 
         original_content = str(post.get("content") or "")
         post.setdefault("content_original", original_content)
@@ -293,7 +318,7 @@ class ContentEnrichmentService:
             "source_asset_names": generated.source_asset_names,
             "generated_at": datetime.now(timezone.utc).isoformat(),
         }
-        return True
+        return "success"
 
     def _extract_text(
         self,
@@ -318,10 +343,13 @@ class ContentEnrichmentService:
         )
 
     def _consume_call(self) -> bool:
-        if self.calls_used >= self.max_calls_per_run:
+        if self._call_budget_exhausted():
             return False
         self.calls_used += 1
         return True
+
+    def _call_budget_exhausted(self) -> bool:
+        return self.calls_used >= self.max_calls_per_run
 
     def _mark_failed(
         self,
@@ -341,12 +369,40 @@ class ContentEnrichmentService:
             "generated_at": datetime.now(timezone.utc).isoformat(),
         }
 
+    def _mark_skipped(
+        self,
+        post: dict,
+        reason: str,
+        *,
+        trigger: str | None = None,
+    ) -> None:
+        post["content_enrichment"] = {
+            "enabled": True,
+            "status": "skipped",
+            "trigger": trigger or detect_trigger(post),
+            "provider": self.provider_name,
+            "reason": reason,
+            "skipped_at": datetime.now(timezone.utc).isoformat(),
+        }
+
 
 def is_fallback_content(content: str) -> bool:
     stripped = (content or "").strip()
     if stripped in FALLBACK_CONTENT_VALUES:
         return True
     return any(stripped.startswith(prefix) for prefix in FALLBACK_CONTENT_PREFIXES)
+
+
+def safe_asset_log_value(url: str, *, max_length: int = 200) -> str:
+    value = str(url or "").strip()
+    if value.startswith("data:"):
+        media_type = value.split(",", 1)[0]
+        if len(media_type) > max_length:
+            media_type = f"{media_type[:max_length]}..."
+        return f"{media_type},<omitted>"
+    if len(value) <= max_length:
+        return value
+    return f"{value[:max_length]}...<truncated:{len(value)} chars>"
 
 
 def detect_trigger(post: dict) -> str:

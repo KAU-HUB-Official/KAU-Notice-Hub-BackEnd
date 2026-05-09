@@ -27,13 +27,6 @@ def test_keeps_permanent_notice_even_when_old() -> None:
     )
 
 
-def test_keeps_notice_without_parseable_date() -> None:
-    assert not should_prune_stale_notice(
-        {"published_at": "날짜 미확인", "is_permanent_notice": False},
-        current_date=TODAY,
-    )
-
-
 def test_keeps_title_duplicate_when_any_source_meta_is_recent() -> None:
     assert not should_prune_stale_notice(
         {

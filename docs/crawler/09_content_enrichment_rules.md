@@ -57,6 +57,8 @@ OpenAI provider는 Responses API를 사용하며, 크롤러 보강 요청에는 
 - 보강 결과는 출처와 처리 상태를 metadata로 남긴다.
 - LLM 생성 content는 추출된 텍스트와 기존 공지 메타데이터 안에서만 작성한다.
 - `content_enrichment.status=success`인 공지는 다음 수집에서 다시 보강하지 않는다.
+- 공지 1건에 여러 asset이 있으면 실패한 asset을 건너뛰고 남은 asset을 계속 처리한다.
+- 호출 예산이 소진된 후보는 실패가 아니라 `content_enrichment.status=skipped`로 남겨 다음 실행에서 다시 시도한다.
 
 ## 보강 후보 판단
 
@@ -231,6 +233,20 @@ LLM은 반드시 JSON 형태로 응답해야 한다.
 }
 ```
 
+호출 예산 소진 skip 예시:
+
+```json
+{
+  "content": "[이미지 본문] 텍스트 본문 없음 (이미지 1개)",
+  "content_enrichment": {
+    "enabled": true,
+    "status": "skipped",
+    "trigger": "image_only_body",
+    "reason": "enrichment_call_budget_exceeded"
+  }
+}
+```
+
 `normalize_notice()`는 기존처럼 `content`를 읽으면 된다. API 응답에는 enrichment metadata를 노출하지 않는다.
 
 ## trigger 분류
@@ -265,6 +281,7 @@ LLM은 반드시 JSON 형태로 응답해야 한다.
 - 기본값은 `CONTENT_ENRICHMENT_ENABLED=false`다.
 - 공지 1건당 처리 asset 수를 제한한다.
 - crawl 1회당 enrichment API 호출 상한을 둔다.
+- 호출 예산이 소진되면 남은 후보는 `status=skipped`, `reason=enrichment_call_budget_exceeded`로 기록하고 다음 실행에서 다시 시도한다.
 - 이미 `content_enrichment.status=success`인 공지는 다시 보강하지 않는다.
 - `OPENAI_API_KEY`가 없으면 API 호출 없이 실패 metadata만 기록한다.
 

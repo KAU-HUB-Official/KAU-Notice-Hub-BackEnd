@@ -33,16 +33,6 @@ def parse_published_date(published_at: str | None) -> date | None:
         return None
 
 
-def is_recent_notice(published_at: str | None, *, lookback_days: int = RECENT_NOTICE_DAYS) -> bool:
-    published_date = parse_published_date(published_at)
-    if not published_date:
-        return False
-
-    cutoff_date = _cutoff_date(lookback_days=lookback_days)
-    # "1년 전 이상"은 비최근으로 판단해 수집 중단 트리거로 사용한다.
-    return published_date > cutoff_date
-
-
 def _cutoff_date(*, lookback_days: int, current_date: date | None = None) -> date:
     return (current_date or date.today()) - timedelta(days=lookback_days)
 
@@ -116,26 +106,21 @@ def evaluate_recent_policy(
     """
     if is_permanent_notice:
         # 상시 공지는 작성일과 무관하게 모두 수집한다.
-        if not is_recent_notice(published_at):
-            logger.info(
-                "[%s] 상시공지로 간주하여 날짜 필터 예외 적용: published_at=%s, page=%s, url=%s",
-                board_name,
-                published_at,
-                source_page,
-                detail_url,
-            )
         return RecentPolicyDecision(include_post=True, stop_crawling=False)
 
-    # 일반 공지는 최근 1년 이내만 수집한다.
-    if is_recent_notice(published_at):
-        return RecentPolicyDecision(include_post=True, stop_crawling=False)
+    # 일반 공지는 게시일이 1년을 초과한 경우에만 수집을 중단한다.
+    published_date = parse_published_date(published_at)
+    cutoff_date = _cutoff_date(lookback_days=RECENT_NOTICE_DAYS)
 
-    # 일반 공지에서 1년 전 이상/게시일 미확인을 만나면 해당 보드 상세 수집을 종료한다.
-    logger.info(
-        "[%s] 일반공지 1년 전 이상 또는 게시일 미확인으로 크롤링 중단: published_at=%s, page=%s, url=%s",
-        board_name,
-        published_at,
-        source_page,
-        detail_url,
-    )
-    return RecentPolicyDecision(include_post=False, stop_crawling=True)
+    if published_date and published_date <= cutoff_date:
+        # 일반 공지에서 1년 전 이상을 만나면 해당 보드 상세 수집을 종료한다.
+        logger.debug(
+            "수집 종료 후보 | 게시판=%s | 사유=일반공지 1년 초과 | 게시일=%s | 페이지=%s | url=%s",
+            board_name,
+            published_at,
+            source_page,
+            detail_url,
+        )
+        return RecentPolicyDecision(include_post=False, stop_crawling=True)
+
+    return RecentPolicyDecision(include_post=True, stop_crawling=False)

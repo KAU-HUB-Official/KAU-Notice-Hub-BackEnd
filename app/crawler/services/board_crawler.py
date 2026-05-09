@@ -16,6 +16,11 @@ from ..utils.logger import get_logger
 logger = get_logger("crawler.services.board_crawler")
 
 
+def _board_label(board: dict[str, Any]) -> str:
+    name = str(board.get("name") or board.get("key") or "").strip()
+    return name.removesuffix("공지사항").strip() or name
+
+
 @dataclass(frozen=True)
 class DetailFetchResult:
     html: str | None
@@ -205,6 +210,7 @@ def _parse_detail_item(
     known_posts_by_url: dict[str, dict],
     failed_items: list[dict],
 ) -> tuple[dict | None, bool]:
+    board_label = _board_label(board)
     detail_url = str(detail_item["url"])
     source_page = int(detail_item["page"])
     is_permanent_notice = bool(detail_item["is_permanent_notice"])
@@ -221,13 +227,13 @@ def _parse_detail_item(
                 "reason": "robots_disallowed",
             }
         )
-        logger.warning("[%s] robots.txt 차단으로 상세 스킵: %s", board["name"], detail_url)
+        logger.warning("상세 스킵 | 게시판=%s | 사유=robots 차단 | url=%s", board_label, detail_url)
         return None, False
 
     fetch_result = adapter.fetch_detail(board, detail_url)
     if not fetch_result.html:
         if fetch_result.failure_reason == "missing_ntt_id":
-            logger.warning("[%s] 상세 URL에 nttId 누락: %s", board["name"], detail_url)
+            logger.warning("상세 스킵 | 게시판=%s | 사유=nttId 누락 | url=%s", board_label, detail_url)
         failed_items.append(
             {
                 "board": board["name"],
@@ -259,8 +265,8 @@ def _parse_detail_item(
                 }
             )
             logger.warning(
-                "[%s] 필수 필드 누락(%s)으로 스킵: %s",
-                board["name"],
+                "상세 스킵 | 게시판=%s | 사유=필수 필드 누락 | 필드=%s | url=%s",
+                board_label,
                 ",".join(missing_fields),
                 detail_url,
             )
@@ -284,7 +290,7 @@ def _parse_detail_item(
         known_posts_by_url[post.original_url] = post_dict
         return post_dict, False
     except Exception as exc:  # noqa: BLE001
-        logger.exception("[%s] 상세 파싱 실패: %s", board["name"], detail_url)
+        logger.exception("상세 실패 | 게시판=%s | 사유=파싱 오류 | url=%s", board_label, detail_url)
         failed_items.append(
             {
                 "board": board["name"],
@@ -304,6 +310,7 @@ def crawl_board(
     known_posts_by_url: dict[str, dict] | None = None,
 ) -> tuple[list[dict], list[dict]]:
     parser = adapter.parser_factory(board)
+    board_label = _board_label(board)
 
     failed_items: list[dict] = []
     posts: list[dict] = []
@@ -328,7 +335,7 @@ def crawl_board(
                     "reason": "robots_disallowed",
                 }
             )
-            logger.warning("[%s] robots.txt 차단으로 목록 스킵: %s", board["name"], page_url)
+            logger.warning("수집 종료 | 게시판=%s | 사유=robots 차단 | 페이지=%s", board_label, page)
             # robots가 전역 차단인 경우가 많으므로 페이지 루프를 조기 종료한다.
             break
 
@@ -336,8 +343,8 @@ def crawl_board(
 
         if not html:
             logger.error(
-                "[%s] 목록 요청 실패: page=%s, url=%s",
-                board["name"],
+                "수집 종료 | 게시판=%s | 사유=목록 요청 실패 | 페이지=%s | url=%s",
+                board_label,
                 page,
                 page_url,
             )
@@ -345,12 +352,12 @@ def crawl_board(
 
         page_items = _normalize_page_items(parser.parse_post_items(html, page_url), page=page)
         if not page_items:
-            logger.info("[%s] 목록 항목 없음, page=%s에서 페이지 순회 종료", board["name"], page)
+            logger.info("수집 종료 | 게시판=%s | 사유=목록 없음 | 페이지=%s", board_label, page)
             break
 
         page_signature = tuple(str(item.get("url") or "") for item in page_items)
         if page_signature in seen_page_signatures:
-            logger.info("[%s] 반복 목록 감지, page=%s에서 페이지 순회 종료", board["name"], page)
+            logger.info("수집 종료 | 게시판=%s | 사유=반복 목록 | 페이지=%s", board_label, page)
             break
         seen_page_signatures.add(page_signature)
 
@@ -360,52 +367,50 @@ def crawl_board(
             if str(item.get("url") or "") not in seen_for_board
         ]
 
+        permanent_items = [
+            item for item in page_items if bool(item.get("is_permanent_notice"))
+        ]
+        general_items = [
+            item for item in page_items if not bool(item.get("is_permanent_notice"))
+        ]
+        new_general_count = sum(
+            1 for item in general_items if str(item.get("url") or "") not in seen_for_board
+        )
+        stop_after_page = bool(general_items) and new_general_count == 0
+        ordered_page_items = _dedup_items(
+            permanent_items if stop_after_page else permanent_items + general_items
+        )
+
         logger.info(
-            "[%s] 목록 파싱 완료: page=%s, collected=%s, new=%s",
-            board["name"],
+            (
+                "목록 | 게시판=%s | 페이지=%s | 전체=%s | 신규=%s "
+                "| 상시공지=%s | 일반공지=%s | 신규일반공지=%s"
+            ),
+            board_label,
             page,
             len(page_items),
             len(new_page_items),
-        )
-
-        permanent_items = [item for item in page_items if bool(item.get("is_permanent_notice"))]
-        general_items = [item for item in page_items if not bool(item.get("is_permanent_notice"))]
-        ordered_page_items = _dedup_items(permanent_items + general_items)
-
-        logger.info(
-            "[%s] page=%s 상세 대상: total=%s (permanent=%s, general=%s)",
-            board["name"],
-            page,
-            len(ordered_page_items),
             len(permanent_items),
             len(general_items),
+            new_general_count,
         )
 
         stop_board = False
-        for idx, detail_item in enumerate(ordered_page_items, start=1):
+        for detail_item in ordered_page_items:
             detail_url = str(detail_item["url"])
 
             if detail_url in seen_for_board:
                 _sync_known_item_metadata(detail_item, known_posts_by_url=known_posts)
                 if _evaluate_known_item_policy(board, detail_item, known_posts_by_url=known_posts):
                     logger.info(
-                        "[%s] 기존 수집 일반공지의 최근성 기준 초과로 page=%s에서 보드 수집 중단: %s",
-                        board["name"],
+                        "수집 종료 | 게시판=%s | 사유=기존 일반공지 1년 초과 | 페이지=%s | url=%s",
+                        board_label,
                         page,
                         detail_url,
                     )
                     stop_board = True
                     break
                 continue
-
-            logger.info(
-                "[%s] 상세 수집 중 (page=%s, %s/%s): %s",
-                board["name"],
-                page,
-                idx,
-                len(ordered_page_items),
-                detail_url,
-            )
 
             seen_for_board.add(detail_url)
             post, should_stop = _parse_detail_item(
@@ -421,15 +426,25 @@ def crawl_board(
                 posts.append(post)
             if should_stop:
                 logger.info(
-                    "[%s] 정책에 따라 page=%s에서 보드 수집 중단: %s",
-                    board["name"],
+                    (
+                        "수집 종료 | 게시판=%s "
+                        "| 사유=일반공지 1년 초과 "
+                        "| 페이지=%s | url=%s"
+                    ),
+                    board_label,
                     page,
                     detail_url,
                 )
                 stop_board = True
                 break
 
-        if stop_board:
+        if stop_board or stop_after_page:
+            if stop_after_page and not stop_board:
+                logger.info(
+                    "수집 종료 | 게시판=%s | 사유=신규 일반공지 없음 | 페이지=%s",
+                    board_label,
+                    page,
+                )
             break
 
         page += 1

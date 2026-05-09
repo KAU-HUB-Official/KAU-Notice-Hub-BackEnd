@@ -38,7 +38,9 @@
    - `services/board_crawler.py`
 4. 목록 페이지를 순회하며 페이지별 상세 수집
    - canonical URL 기준으로 보드 내 중복 상세 요청 제거
-   - 기존 URL은 상세 요청을 생략하되, 기존 `published_at`으로 일반공지 중단 여부 판단
+   - 일반공지 항목이 있는 페이지에서 일반공지 신규 URL이 0건이면 해당 보드 수집 중단
+   - 상시공지만 있는 페이지는 다음 페이지 계속 확인
+   - 같은 페이지의 신규 상시공지는 먼저 상세 수집
 5. 상세 수집 시 최근성 정책 적용
    - 상시공지: 항상 포함
    - 일반공지: 최근 365일만 포함, 기준 미충족 시 보드 수집 중단
@@ -47,10 +49,10 @@
    - 제목 정규화 중복 통합 및 `source_meta` 누적
 7. 병합 결과에서 1년 이상 지난 일반공지를 제거
    - 상시공지는 게시일과 무관하게 보존
-   - 게시일 파싱 실패 항목은 1년 초과 여부를 확정할 수 없어 보존
 8. `CONTENT_ENRICHMENT_ENABLED=true`이면 이미지/HWP/HWPX 기반 content 보강
    - 성공 시 `content_original`과 `content_enrichment.status=success` 기록
    - 실패 시 기존 fallback `content` 유지 및 `content_enrichment.status=failed` 기록
+   - 호출 예산 소진 시 `content_enrichment.status=skipped`로 기록하고 다음 실행에서 재시도 가능하게 유지
 9. 결과/실패/로그 저장
 
 ## board_type 매핑

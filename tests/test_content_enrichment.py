@@ -22,6 +22,7 @@ from app.crawler.services.content_enrichment_service import (
     ContentEnrichmentService,
     detect_trigger,
     is_fallback_content,
+    safe_asset_log_value,
 )
 from app.crawler.services.content_extractors.hwp_extractor import (
     ExtractedText,
@@ -106,12 +107,13 @@ def make_service(
     downloader: object | None = None,
     image_extractor: object | None = None,
     content_generator: object | None = None,
+    max_calls_per_run: int = 10,
 ) -> ContentEnrichmentService:
     return ContentEnrichmentService(
         enabled=True,
         min_text_length=30,
         max_assets_per_notice=3,
-        max_calls_per_run=10,
+        max_calls_per_run=max_calls_per_run,
         downloader=downloader or FakeDownloader(),
         hwp_extractor=HwpTextExtractor(min_text_length=30),
         image_extractor=image_extractor or FakeImageExtractor(),
@@ -356,6 +358,20 @@ def test_rejects_unsafe_asset_urls_without_network_lookup() -> None:
     assert not is_safe_asset_url("https://evil.example/poster.png", ["kau.ac.kr"])
 
 
+def test_safe_asset_log_value_omits_data_url_payload() -> None:
+    data_url = "data:image/png;base64," + ("a" * 500)
+
+    assert safe_asset_log_value(data_url) == "data:image/png;base64,<omitted>"
+
+
+def test_safe_asset_log_value_truncates_long_url() -> None:
+    url = "https://kau.ac.kr/" + ("a" * 300)
+
+    sanitized = safe_asset_log_value(url, max_length=40)
+
+    assert sanitized == "https://kau.ac.kr/aaaaaaaaaaaaaaaaaaaaaa...<truncated:318 chars>"
+
+
 def test_hwp_extractor_reads_hwpx_zip_xml() -> None:
     buffer = BytesIO()
     with zipfile.ZipFile(buffer, "w") as archive:
@@ -412,6 +428,75 @@ def test_content_enrichment_success_for_image_only_body() -> None:
     assert post["content_enrichment"]["status"] == "success"
     assert post["content_enrichment"]["trigger"] == "image_only_body"
     assert post["content_enrichment"]["assets"][0]["sha256"] == "fake-sha256"
+
+
+def test_content_enrichment_skips_remaining_candidates_after_call_budget() -> None:
+    first_post = {
+        "title": "첫 번째 이미지 공지",
+        "content": "[이미지 본문] 텍스트 본문 없음 (이미지 1개)",
+        "content_assets": [
+            {
+                "type": "inline_image",
+                "name": "first.png",
+                "url": "https://kau.ac.kr/first.png",
+                "source": "body",
+            }
+        ],
+    }
+    second_post = {
+        "title": "두 번째 이미지 공지",
+        "content": "[이미지 본문] 텍스트 본문 없음 (이미지 1개)",
+        "content_assets": [
+            {
+                "type": "inline_image",
+                "name": "second.png",
+                "url": "https://kau.ac.kr/second.png",
+                "source": "body",
+            }
+        ],
+    }
+    downloader = FakeDownloader()
+
+    result = make_service(downloader=downloader, max_calls_per_run=2).enrich_posts(
+        [first_post, second_post]
+    )
+
+    assert result.attempted == 1
+    assert result.succeeded == 1
+    assert result.failed == 0
+    assert result.skipped == 1
+    assert result.calls_used == 2
+    assert downloader.calls == 1
+    assert first_post["content_enrichment"]["status"] == "success"
+    assert second_post["content_enrichment"]["status"] == "skipped"
+    assert second_post["content_enrichment"]["reason"] == "enrichment_call_budget_exceeded"
+
+
+def test_content_enrichment_marks_current_notice_skipped_when_budget_runs_out() -> None:
+    post = {
+        "title": "이미지 공지",
+        "content": "[이미지 본문] 텍스트 본문 없음 (이미지 1개)",
+        "content_assets": [
+            {
+                "type": "inline_image",
+                "name": "poster.png",
+                "url": "https://kau.ac.kr/poster.png",
+                "source": "body",
+            }
+        ],
+    }
+
+    result = make_service(max_calls_per_run=1).enrich_posts([post])
+
+    assert result.attempted == 0
+    assert result.succeeded == 0
+    assert result.failed == 0
+    assert result.skipped == 1
+    assert result.calls_used == 1
+    assert post["content"] == "[이미지 본문] 텍스트 본문 없음 (이미지 1개)"
+    assert "content_original" not in post
+    assert post["content_enrichment"]["status"] == "skipped"
+    assert post["content_enrichment"]["reason"] == "enrichment_call_budget_exceeded"
 
 
 def test_content_enrichment_failure_keeps_fallback_content() -> None:

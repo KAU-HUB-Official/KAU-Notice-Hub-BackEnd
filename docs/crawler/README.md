@@ -13,6 +13,7 @@
 6. [운영/장애 대응](./06_operations_and_failure.md)
 7. [크롤링 규칙 상세](./08_crawling_rules.md)
 8. [첨부/이미지 기반 content 보강](./09_content_enrichment_rules.md)
+9. [문제 해결 및 개선 이력](./10_troubleshooting_and_improvements.md)
 
 ## 권장 읽기 순서
 
@@ -20,6 +21,7 @@
 - 구조/코드 매핑이 필요할 때: `04 -> 05`
 - 운영 모니터링/장애 대응: `06 -> 08`
 - 본문이 비어 있는 공지 보강 정책: `09`
+- 병목 해소와 고난도 구현 개선 이력 확인: `10`
 
 ## 관련 경로
 

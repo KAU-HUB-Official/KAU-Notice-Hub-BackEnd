@@ -18,6 +18,11 @@ from .utils.save_json import save_json
 logger = get_logger("crawler.main")
 
 
+def _board_label(board: dict) -> str:
+    name = str(board.get("name") or board.get("key") or "").strip()
+    return name.removesuffix("공지사항").strip() or name
+
+
 def crawl_all_notices(max_pages: int, output_path: Path) -> tuple[list[dict], list[dict]]:
     clients = build_clients()
     adapters = build_board_adapters(clients)
@@ -43,18 +48,20 @@ def crawl_all_notices(max_pages: int, output_path: Path) -> tuple[list[dict], li
         all_failed_items: list[dict] = []
 
         logger.info(
-            "공지 게시판 수집 시작: 게시판=%s, 페이지상한=%s, 기존보유URL=%s",
+            "수집 시작 | 게시판수=%s | 페이지상한=%s | 기존URL=%s",
             len(NOTICE_BOARDS),
             "자동" if max_pages <= 0 else max_pages,
             len(known_urls),
         )
 
         for board in NOTICE_BOARDS:
-            logger.info("게시판 수집 시작: %s", board["name"])
-
             adapter = adapters.get(board["board_type"])
             if adapter is None:
-                logger.warning("지원하지 않는 board_type: %s", board["board_type"])
+                logger.warning(
+                    "지원 제외 | 게시판=%s | board_type=%s",
+                    _board_label(board),
+                    board["board_type"],
+                )
                 continue
 
             posts, failed_items = crawl_board(
@@ -76,8 +83,8 @@ def crawl_all_notices(max_pages: int, output_path: Path) -> tuple[list[dict], li
             )
             logger.info(
                 (
-                    "content enrichment 완료: attempted=%s, succeeded=%s, failed=%s, "
-                    "skipped=%s, calls_used=%s"
+                    "본문 보강 | 시도=%s | 성공=%s | 실패=%s "
+                    "| 건너뜀=%s | 호출=%s"
                 ),
                 enrichment_result.attempted,
                 enrichment_result.succeeded,
@@ -89,28 +96,27 @@ def crawl_all_notices(max_pages: int, output_path: Path) -> tuple[list[dict], li
         save_json(prune_result.posts, output_path)
         logger.info(
             (
-                "결과 저장 완료: %s "
-                "(total=%s, newly_added=%s, url_dedup_removed=%s, "
-                "title_dedup_removed=%s, stale_pruned=%s)"
+                "저장 완료 | 전체=%s | 신규=%s | URL중복=%s "
+                "| 제목중복=%s | 오래된공지삭제=%s | 경로=%s"
             ),
-            output_path,
             len(prune_result.posts),
             len(all_new_posts),
             merge_result.url_dedup_removed,
             merge_result.title_dedup_removed,
             prune_result.stale_pruned,
+            output_path,
         )
 
         if all_failed_items:
             save_json(all_failed_items, FAILED_OUTPUT_FILE)
             logger.warning(
-                "실패 로그 저장 완료: %s (count=%s)",
-                FAILED_OUTPUT_FILE,
+                "실패 저장 | 건수=%s | 경로=%s",
                 len(all_failed_items),
+                FAILED_OUTPUT_FILE,
             )
         elif FAILED_OUTPUT_FILE.exists():
             FAILED_OUTPUT_FILE.unlink()
-            logger.info("실패 항목이 없어 기존 실패 로그 파일 삭제: %s", FAILED_OUTPUT_FILE)
+            logger.info("실패 없음 | 기존 실패 파일 삭제 | 경로=%s", FAILED_OUTPUT_FILE)
 
         return prune_result.posts, all_failed_items
     finally:

@@ -33,6 +33,7 @@ __pypackages__/
 .env
 .env.*
 !.env.example
+AGENTS.md
 
 # Deployment keys and local credentials
 lightsail_deploy_key

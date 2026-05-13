@@ -64,6 +64,7 @@ class NoticeContentGenerator(Protocol):
 
 @dataclass
 class ContentEnrichmentRunResult:
+    target_count: int = 0
     attempted: int = 0
     succeeded: int = 0
     failed: int = 0
@@ -142,6 +143,8 @@ class ContentEnrichmentService:
             if not self.should_enrich(post):
                 result.skipped += 1
                 continue
+
+            result.target_count += 1
 
             if self._call_budget_exhausted():
                 self._mark_skipped(
@@ -306,18 +309,27 @@ class ContentEnrichmentService:
         post["content"] = generated.content
         if generated.summary:
             post["summary"] = generated.summary
+        model_name = generated.model or self.model_name
         post["content_enrichment"] = {
             "enabled": True,
             "status": "success",
             "trigger": trigger,
             "provider": self.provider_name,
-            "model": generated.model or self.model_name,
+            "model": model_name,
             "assets": processed_assets,
             "confidence": generated.confidence,
             "warnings": generated.warnings,
             "source_asset_names": generated.source_asset_names,
             "generated_at": datetime.now(timezone.utc).isoformat(),
         }
+        logger.info(
+            "본문 보강 성공 | 제목=%s | trigger=%s | asset수=%s | model=%s | confidence=%s",
+            post.get("title"),
+            trigger,
+            len(processed_assets),
+            model_name,
+            generated.confidence,
+        )
         return "success"
 
     def _extract_text(

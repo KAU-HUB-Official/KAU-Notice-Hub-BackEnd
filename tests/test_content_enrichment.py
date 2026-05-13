@@ -464,6 +464,7 @@ def test_content_enrichment_skips_remaining_candidates_after_call_budget() -> No
     assert result.attempted == 1
     assert result.succeeded == 1
     assert result.failed == 0
+    assert result.target_count == 2
     assert result.skipped == 1
     assert result.calls_used == 2
     assert downloader.calls == 1
@@ -491,6 +492,7 @@ def test_content_enrichment_marks_current_notice_skipped_when_budget_runs_out() 
     assert result.attempted == 0
     assert result.succeeded == 0
     assert result.failed == 0
+    assert result.target_count == 1
     assert result.skipped == 1
     assert result.calls_used == 1
     assert post["content"] == "[이미지 본문] 텍스트 본문 없음 (이미지 1개)"
@@ -551,6 +553,7 @@ def test_content_enrichment_missing_key_fails_before_download() -> None:
     result = service.enrich_posts([post])
 
     assert result.failed == 1
+    assert result.target_count == 1
     assert downloader.calls == 0
     assert post["content_enrichment"]["error_code"] == "missing_openai_api_key"
 
@@ -567,6 +570,7 @@ def test_content_enrichment_skips_normal_content() -> None:
 
     result = make_service().enrich_posts([post])
 
+    assert result.target_count == 0
     assert result.skipped == 1
     assert "content_enrichment" not in post
 

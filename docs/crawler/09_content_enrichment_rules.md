@@ -219,6 +219,12 @@ LLM은 반드시 JSON 형태로 응답해야 한다.
 }
 ```
 
+성공 로그:
+
+```text
+본문 보강 성공 | 제목=장학금 신청 안내 | trigger=image_only_body | asset수=1 | model=gpt-4.1-mini | confidence=high
+```
+
 실패 예시:
 
 ```json
@@ -232,6 +238,152 @@ LLM은 반드시 JSON 형태로 응답해야 한다.
   }
 }
 ```
+
+## 실패 사례와 판단 기준
+
+content 보강 실패는 원본 공지 수집 실패가 아니다. 실패 시 기존 fallback `content`를 유지하고, 실패 원인은 `content_enrichment.error_code`와 `asset_errors`로 남긴다.
+
+### 1. base64 inline 이미지
+
+상황:
+
+- 본문 이미지가 `data:image/png;base64,...`처럼 HTML 안에 직접 들어 있다.
+- 일반적인 첨부 URL이 아니므로 downloader가 HTTP(S) URL로 가져올 수 없다.
+
+기록:
+
+- asset 단위 오류: `unsafe_asset_url`
+- 최종적으로 사용할 텍스트가 없으면 post 오류: `no_extracted_text`
+
+현재 처리:
+
+- 보안상 HTTP(S), 공개 IP, allowlist 도메인 조건을 통과한 URL만 다운로드한다.
+- base64 payload는 로그에 남기지 않고 `<omitted>`로 축약한다.
+
+개선이 필요할 때:
+
+- data URI decode 로직을 추가한다.
+- MIME type과 byte 크기를 검증한다.
+- 검증된 이미지 bytes만 image text extractor로 넘긴다.
+
+### 2. 큰 이미지 또는 첨부파일
+
+상황:
+
+- 포스터 이미지나 첨부파일 크기가 `CONTENT_ENRICHMENT_MAX_FILE_BYTES`를 초과한다.
+
+기록:
+
+- `asset_too_large`
+
+현재 처리:
+
+- 비용, 메모리, API 입력 크기 방어를 위해 해당 asset을 건너뛴다.
+
+개선이 필요할 때:
+
+- 단순 상한 증가는 운영 비용과 메모리 사용량을 키울 수 있다.
+- 이미지의 경우 다운로드 후 리사이즈/압축 전처리를 검토한다.
+
+### 3. HWP 추출기 사용 불가
+
+상황:
+
+- HWP/HWPX 첨부는 있으나 실행 환경에서 `unhwp` 또는 선택 fallback extractor를 사용할 수 없다.
+
+기록:
+
+- `hwp_text_extractor_unavailable`
+
+현재 처리:
+
+- 해당 HWP asset에서 텍스트를 얻지 못한 것으로 보고, 다른 asset이 있으면 계속 처리한다.
+
+개선이 필요할 때:
+
+- 로컬 개발 환경과 Docker 이미지에 HWP 추출 의존성을 설치한다.
+- 운영 배포 이미지에서도 같은 extractor를 사용할 수 있는지 smoke test를 수행한다.
+
+### 4. HWP/HWPX 형식 문제
+
+상황:
+
+- 파일이 암호화되었거나, 손상되었거나, extractor가 지원하지 않는 형식이다.
+
+기록:
+
+- `password_protected_hwp`
+- `unsupported_hwp_format`
+- `hwp_text_extract_failed`
+- `hwp_text_too_short`
+
+현재 처리:
+
+- 기존 fallback content를 유지한다.
+- 다른 처리 가능한 asset이 있으면 해당 asset으로 보강을 계속 시도한다.
+
+개선이 필요할 때:
+
+- 파일을 수동으로 열어 실제 손상 여부를 확인한다.
+- 로컬 추출로 부족하면 문서 변환 API 도입 여부를 별도 계획으로 검토한다.
+
+### 5. 이미지 텍스트 부족
+
+상황:
+
+- 이미지 OCR/vision 결과가 너무 짧거나, 포스터 안의 글자를 충분히 읽지 못한다.
+
+기록:
+
+- `image_text_too_short`
+
+현재 처리:
+
+- 최소 길이 미만 텍스트는 content 생성 근거로 사용하지 않는다.
+
+개선이 필요할 때:
+
+- 원본 이미지 해상도, 글자 크기, 압축 상태를 확인한다.
+- 필요하면 이미지 전처리나 `CONTENT_ENRICHMENT_IMAGE_DETAIL` 조정을 검토한다.
+
+### 6. LLM content 생성 실패
+
+상황:
+
+- 텍스트 추출은 되었지만 LLM 응답이 비어 있거나 JSON 계약을 지키지 않거나, 생성된 content가 너무 짧다.
+
+기록:
+
+- `openai_request_failed`
+- `openai_invalid_response`
+- `openai_empty_response`
+- `llm_json_parse_failed`
+- `generated_content_too_short`
+
+현재 처리:
+
+- 기존 fallback content를 유지하고 실패 metadata를 남긴다.
+
+개선이 필요할 때:
+
+- provider 응답 오류와 prompt 품질을 분리해 확인한다.
+- 반복 발생하면 prompt, JSON schema 검증, fallback model 설정을 점검한다.
+
+### 7. 호출 예산 소진
+
+상황:
+
+- `CONTENT_ENRICHMENT_MAX_CALLS_PER_RUN`에 도달했다.
+
+기록:
+
+- `content_enrichment.status=skipped`
+- `reason=enrichment_call_budget_exceeded`
+
+현재 처리:
+
+- 실패로 보지 않는다.
+- 다음 실행에서 다시 보강 대상이 될 수 있게 둔다.
 
 호출 예산 소진 skip 예시:
 

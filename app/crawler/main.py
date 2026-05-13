@@ -83,13 +83,13 @@ def crawl_all_notices(max_pages: int, output_path: Path) -> tuple[list[dict], li
             )
             logger.info(
                 (
-                    "본문 보강 | 시도=%s | 성공=%s | 실패=%s "
-                    "| 건너뜀=%s | 호출=%s"
+                    "본문 보강 | 보강대상=%s | 시도=%s "
+                    "| 성공=%s | 실패=%s | 호출=%s"
                 ),
+                enrichment_result.target_count,
                 enrichment_result.attempted,
                 enrichment_result.succeeded,
                 enrichment_result.failed,
-                enrichment_result.skipped,
                 enrichment_result.calls_used,
             )
 

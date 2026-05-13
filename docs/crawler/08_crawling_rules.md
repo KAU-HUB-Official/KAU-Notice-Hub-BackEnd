@@ -119,7 +119,7 @@
 - 실패 시 기존 `content`를 유지하고 `content_enrichment.status=failed`와 `error_code`를 기록합니다.
 - 호출 예산이 소진되면 남은 후보는 `content_enrichment.status=skipped`, `reason=enrichment_call_budget_exceeded`로 기록하고 다음 실행에서 다시 시도할 수 있게 둡니다.
 
-완료 로그의 `시도`는 실제 성공/실패 판정까지 진행한 보강 후보 수입니다. `건너뜀`에는 보강 대상이 아닌 공지와 호출 예산 소진으로 이번 실행에서 보류된 공지가 함께 포함됩니다. `호출`이 `CONTENT_ENRICHMENT_MAX_CALLS_PER_RUN`에 도달하면 이후 후보는 실패가 아니라 skip으로 남깁니다.
+완료 로그의 `보강대상`은 이번 실행에서 보강 후보로 잡힌 공지 수입니다. `시도`는 보강 후보 중 실제 성공/실패 판정까지 진행한 수입니다. `호출`이 `CONTENT_ENRICHMENT_MAX_CALLS_PER_RUN`에 도달하면 이후 후보는 실패가 아니라 skip으로 남고, `보강대상`에는 포함되지만 `시도`에는 포함되지 않습니다.
 
 `content_enrichment.trigger` 분류:
 

@@ -46,6 +46,23 @@
 - `generated_content_too_short`: 생성된 content가 최소 길이 미만
 - `no_extracted_text`: 처리한 asset에서 사용할 텍스트를 얻지 못함
 
+## content 보강 실패 사례
+
+보강 실패는 크롤링 실패가 아니며, 기존 fallback `content`를 유지한 상태로 `content_enrichment.status=failed`와 원인 코드만 기록한다. 운영에서 자주 확인하는 실패 사례는 아래와 같다.
+
+| 실패 코드 | 주된 상황 | 확인/대응 |
+| --- | --- | --- |
+| `unsafe_asset_url` | 본문 이미지가 `data:image/...;base64,...` 형태이거나, 허용 도메인/HTTP(S)/공개 IP 조건을 통과하지 못함 | 현재 downloader는 HTTP(S) URL 기반 asset만 처리한다. base64 inline 이미지를 처리하려면 data URI decode, MIME/크기 검증, 이미지 extractor 전달 로직이 별도로 필요하다. |
+| `asset_too_large` | 이미지나 첨부파일이 `CONTENT_ENRICHMENT_MAX_FILE_BYTES`를 초과함 | 상한을 올리면 비용/메모리 사용량이 늘어난다. 운영에서는 상한 조정 전 이미지 리사이즈/압축 전처리 도입을 우선 검토한다. |
+| `asset_download_failed` | asset URL 요청이 실패하거나 서버가 오류 응답을 반환함 | 원문 URL에서 파일 접근 가능 여부, redirect, 인증 필요 여부를 확인한다. 일시 오류면 다음 실행에서 재시도될 수 있다. |
+| `hwp_text_extractor_unavailable` | 실행 환경에서 `unhwp` 또는 선택 fallback extractor를 사용할 수 없음 | 로컬과 Docker 이미지에 HWP 추출 의존성이 설치되어 있는지 확인한다. |
+| `hwp_text_extract_failed` / `unsupported_hwp_format` | HWP/HWPX가 손상되었거나 extractor가 처리할 수 없는 형식임 | 파일 자체를 수동으로 열어 확인한다. 다른 변환 API 도입 전까지 기존 fallback content를 유지한다. |
+| `hwp_text_too_short` / `image_text_too_short` | 추출된 텍스트가 `CONTENT_ENRICHMENT_MIN_TEXT_LENGTH` 미만임 | 포스터 이미지의 글자가 너무 작거나, HWP에서 유효 텍스트를 얻지 못한 경우다. 원문 asset 품질을 확인한다. |
+| `generated_content_too_short` | 추출 텍스트는 있었지만 LLM이 최소 길이 이상의 content를 생성하지 못함 | prompt, 최소 길이, 추출 텍스트 품질을 함께 확인한다. |
+| `no_extracted_text` | 처리 가능한 모든 asset에서 사용할 텍스트를 얻지 못함 | `asset_errors`에 기록된 asset별 실패 코드를 먼저 확인한다. |
+
+`enrichment_call_budget_exceeded`는 실패가 아니라 skip이다. 호출 상한에 도달해 이번 실행에서 보류된 상태이며, 다음 실행에서 다시 시도할 수 있다.
+
 ## content 보강 skip reason
 
 - `enrichment_call_budget_exceeded`: crawl 1회 호출 상한 초과. 실패가 아니라 비용 방어로 인한 보류 상태다. 해당 공지는 `content_enrichment.status=skipped`로 기록하고 다음 실행에서 다시 시도할 수 있게 둔다.
@@ -55,16 +72,24 @@
 완료 로그 예시:
 
 ```text
-본문 보강 | 시도=184 | 성공=4 | 실패=180 | 건너뜀=2068 | 호출=10
+본문 보강 | 보강대상=175 | 시도=7 | 성공=4 | 실패=3 | 호출=10
 ```
 
-- `시도`: 보강 후보로 판정되어 실제 성공/실패 판정까지 진행한 공지 수. 예산 소진으로 `skipped`된 공지는 포함하지 않는다.
+- `보강대상`: fallback content, 짧은 본문, 이미지/HWP/HWPX asset 조건을 만족해 이번 실행에서 보강 후보로 잡힌 공지 수
+- `시도`: 보강 후보 중 실제 성공/실패 판정까지 진행한 공지 수. 예산 소진으로 `skipped`된 공지는 포함하지 않는다.
 - `성공`: 최종 `content` 생성에 성공해 `content_enrichment.status=success`가 된 공지 수
 - `실패`: 보강을 시도했지만 사용할 텍스트 추출이나 최종 content 생성에 실패한 공지 수
-- `건너뜀`: 보강 대상이 아니거나 호출 예산 소진으로 이번 실행에서 처리하지 않은 공지 수
 - `호출`: 이번 crawl에서 OpenAI 기반 이미지 추출 또는 content 생성에 사용한 호출 수
 
 `성공`이 적다고 해서 자동 재시작 로직이 동작했다는 뜻은 아니다. 호출 예산, asset 다운로드 실패, HWP 추출 실패, 이미지 텍스트 부족 등이 섞인 결과일 수 있다. 원인은 JSON의 `content_enrichment.error_code`, `asset_errors`, `reason`을 함께 확인한다.
+
+개별 성공 로그는 아래 형태로 남긴다.
+
+```text
+본문 보강 성공 | 제목=장학금 신청 안내 | trigger=image_only_body | asset수=1 | model=gpt-4.1-mini | confidence=high
+```
+
+실패 로그는 asset 단위로 남기며, 최종 실패 원인은 게시 JSON의 `content_enrichment.error_code`와 `asset_errors`를 함께 확인한다.
 
 목록 수집 로그 예시:
 
@@ -83,7 +108,7 @@
 
 1. `crawler.log`에서 보드별 `전체`, `신규`, `상시공지`, `일반공지`, `신규일반공지` 로그 확인
 2. 최종 저장 로그의 `전체`, `신규`, `URL중복`, `제목중복`, `오래된공지삭제` 확인
-3. content 보강 완료 로그의 `시도`, `성공`, `실패`, `건너뜀`, `호출` 확인
+3. content 보강 완료 로그의 `보강대상`, `시도`, `성공`, `실패`, `호출` 확인
 4. 실패 파일의 `reason`별 건수 확인
 5. content 보강 실패는 게시 JSON의 `content_enrichment.error_code`, `asset_errors`, `reason` 확인
 6. 문제 URL 샘플 재현(브라우저/직접 요청)로 원인 분리

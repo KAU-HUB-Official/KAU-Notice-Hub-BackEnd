@@ -1,12 +1,14 @@
 from __future__ import annotations
 
+import base64
+import binascii
 import hashlib
 import ipaddress
 import mimetypes
 import socket
 from dataclasses import dataclass
 from pathlib import PurePosixPath
-from urllib.parse import unquote, urljoin, urlparse
+from urllib.parse import unquote, unquote_to_bytes, urljoin, urlparse
 
 import requests
 from bs4 import BeautifulSoup
@@ -71,6 +73,10 @@ def _name_suffix(value: str) -> str:
 
 def _content_type_base(content_type: str | None) -> str:
     return (content_type or "").split(";", 1)[0].strip().lower()
+
+
+def _is_data_url(url: str) -> bool:
+    return str(url or "").strip().lower().startswith("data:")
 
 
 def is_image_asset(name: str, url: str, content_type: str | None = None) -> bool:
@@ -149,6 +155,8 @@ def is_safe_asset_url(url: str, allowed_domains: list[str]) -> bool:
 
 
 def _asset_name_from_url(url: str, fallback: str) -> str:
+    if _is_data_url(url):
+        return fallback
     path_name = PurePosixPath(unquote(urlparse(url).path)).name
     return path_name or fallback
 
@@ -258,16 +266,25 @@ class ContentAssetDownloader:
         self.session = session or requests.Session()
 
     def download(self, asset: ContentAsset) -> DownloadedAsset:
+        if _is_data_url(asset.url):
+            return self._download_data_url(asset)
+
         if not is_safe_asset_url(asset.url, self.allowed_domains):
             raise ContentAssetDownloadError("unsafe_asset_url", f"unsafe asset URL: {asset.url}")
 
-        response = self.session.get(
-            asset.url,
-            headers={"User-Agent": USER_AGENT},
-            timeout=self.timeout_seconds,
-            allow_redirects=True,
-            stream=True,
-        )
+        try:
+            response = self.session.get(
+                asset.url,
+                headers={"User-Agent": USER_AGENT},
+                timeout=self.timeout_seconds,
+                allow_redirects=True,
+                stream=True,
+            )
+        except requests.RequestException as exc:
+            raise ContentAssetDownloadError(
+                "asset_download_failed",
+                f"asset download failed: {exc.__class__.__name__}",
+            ) from exc
         if response.status_code >= 400:
             raise ContentAssetDownloadError(
                 "asset_download_failed",
@@ -289,13 +306,19 @@ class ContentAssetDownloader:
 
         chunks: list[bytes] = []
         total_size = 0
-        for chunk in response.iter_content(chunk_size=8192):
-            if not chunk:
-                continue
-            total_size += len(chunk)
-            if total_size > self.max_file_bytes:
-                raise ContentAssetDownloadError("asset_too_large", "asset exceeds max size")
-            chunks.append(chunk)
+        try:
+            for chunk in response.iter_content(chunk_size=8192):
+                if not chunk:
+                    continue
+                total_size += len(chunk)
+                if total_size > self.max_file_bytes:
+                    raise ContentAssetDownloadError("asset_too_large", "asset exceeds max size")
+                chunks.append(chunk)
+        except requests.RequestException as exc:
+            raise ContentAssetDownloadError(
+                "asset_download_failed",
+                f"asset download failed: {exc.__class__.__name__}",
+            ) from exc
 
         data = b"".join(chunks)
         content_type = _content_type_base(response.headers.get("Content-Type"))
@@ -320,3 +343,48 @@ class ContentAssetDownloader:
         if asset.type == "hwp_attachment":
             return is_hwp_asset(asset.name, asset.url, content_type)
         return False
+
+    def _download_data_url(self, asset: ContentAsset) -> DownloadedAsset:
+        content_type, data = self._decode_data_url(asset.url)
+        if len(data) > self.max_file_bytes:
+            raise ContentAssetDownloadError("asset_too_large", "asset exceeds max size")
+
+        if not self._matches_expected_type(asset, content_type):
+            raise ContentAssetDownloadError(
+                "unsupported_asset_type",
+                f"unsupported asset type: {content_type or 'unknown'}",
+            )
+
+        return DownloadedAsset(
+            asset=asset,
+            data=data,
+            content_type=content_type,
+            sha256=hashlib.sha256(data).hexdigest(),
+        )
+
+    def _decode_data_url(self, url: str) -> tuple[str, bytes]:
+        header, separator, payload = url.partition(",")
+        if not separator or not header.lower().startswith("data:"):
+            raise ContentAssetDownloadError("asset_download_failed", "invalid data URL")
+
+        metadata = header[5:]
+        parts = [part.strip() for part in metadata.split(";") if part.strip()]
+        content_type = "text/plain"
+        parameters = parts
+        if parts and "/" in parts[0]:
+            content_type = _content_type_base(parts[0])
+            parameters = parts[1:]
+
+        is_base64_encoded = any(part.lower() == "base64" for part in parameters)
+        try:
+            if is_base64_encoded:
+                normalized_payload = "".join(unquote(payload).split())
+                if (len(normalized_payload) * 3) // 4 > self.max_file_bytes:
+                    raise ContentAssetDownloadError("asset_too_large", "asset exceeds max size")
+                data = base64.b64decode(normalized_payload, validate=True)
+            else:
+                data = unquote_to_bytes(payload)
+        except binascii.Error as exc:
+            raise ContentAssetDownloadError("asset_download_failed", "invalid data URL payload") from exc
+
+        return content_type, data

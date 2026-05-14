@@ -21,53 +21,48 @@
 - `robots_disallowed`: robots 정책으로 요청 차단
 - `missing_ntt_id`: `kau_college` 상세 URL에서 `nttId` 누락
 
-## content 보강 실패 코드
+## 본문 보강 결과 해석
 
-`CONTENT_ENRICHMENT_ENABLED=true`인 경우 이미지/HWP/HWPX 기반 본문 보강 실패는 크롤링 실패로 보지 않는다. 해당 공지는 기존 fallback `content`를 유지하고 `content_enrichment.status=failed`와 `error_code`만 기록한다.
+`CONTENT_ENRICHMENT_ENABLED=true`인 경우 이미지/HWP/HWPX 기반 본문 보강 실패는 크롤링 실패가 아니다. 해당 공지는 기존 fallback `content`를 유지하고 `content_enrichment.status`와 원인 metadata만 기록한다.
 
 공지 1건에 여러 asset이 있으면 asset 단위로 처리한다. 일부 asset 다운로드나 텍스트 추출이 실패해도 즉시 공지 전체를 실패로 확정하지 않고, 남은 asset을 계속 시도한다. 하나 이상의 asset에서 텍스트를 얻고 최종 content 생성까지 성공하면 해당 공지는 `success`가 된다. 모든 처리 가능한 asset에서 사용할 텍스트를 얻지 못하면 `no_extracted_text`로 실패한다.
 
-- `missing_openai_api_key`: OpenAI provider를 쓰도록 설정했지만 `OPENAI_API_KEY`가 없음
-- `unsafe_asset_url`: 허용 도메인/공개 IP/HTTP(S) 조건을 만족하지 않는 asset URL
-- `unsafe_asset_redirect`: 다운로드 중 허용되지 않은 URL로 redirect
-- `asset_download_failed`: asset 다운로드 HTTP 오류
-- `asset_too_large`: `CONTENT_ENRICHMENT_MAX_FILE_BYTES` 초과
-- `unsupported_asset_type`: 이미지/HWP/HWPX로 판별할 수 없음
-- `hwp_text_extractor_unavailable`: HWP 추출 라이브러리 사용 불가
-- `password_protected_hwp`: 암호화된 HWP
-- `unsupported_hwp_format`: 미지원 또는 손상된 HWP/HWPX
-- `hwp_text_extract_failed`: HWP 텍스트 추출 실패
-- `hwp_text_too_short`: 추출 텍스트가 최소 길이 미만
-- `image_text_too_short`: 이미지에서 추출된 텍스트가 최소 길이 미만
-- `openai_request_failed`: OpenAI API 요청 실패
-- `openai_invalid_response`: OpenAI 응답이 JSON 형식이 아님
-- `openai_empty_response`: OpenAI 응답 텍스트가 비어 있음
-- `llm_json_parse_failed`: content 생성 응답 JSON 파싱 실패
-- `generated_content_too_short`: 생성된 content가 최소 길이 미만
-- `no_extracted_text`: 처리한 asset에서 사용할 텍스트를 얻지 못함
+### 상태값
 
-## content 보강 실패 사례
+| status | 의미 |
+| --- | --- |
+| `success` | 텍스트 추출과 LLM content 생성까지 성공해 `content`를 교체함 |
+| `failed` | 보강을 시도했지만 사용할 텍스트를 얻지 못했거나 content 생성에 실패함 |
+| `skipped` | 호출 예산 등 운영 조건 때문에 이번 실행에서 보류됨 |
 
-보강 실패는 크롤링 실패가 아니며, 기존 fallback `content`를 유지한 상태로 `content_enrichment.status=failed`와 원인 코드만 기록한다. 운영에서 자주 확인하는 실패 사례는 아래와 같다.
+`skipped`는 실패가 아니다. `reason=enrichment_call_budget_exceeded`이면 crawl 1회 호출 상한에 도달한 상태이며, 다음 실행에서 다시 시도할 수 있다.
 
-| 실패 코드 | 주된 상황 | 확인/대응 |
+### 실패 코드
+
+| 코드 | 의미 | 확인 지점 |
 | --- | --- | --- |
-| `unsafe_asset_url` | 본문 이미지가 `data:image/...;base64,...` 형태이거나, 허용 도메인/HTTP(S)/공개 IP 조건을 통과하지 못함 | 현재 downloader는 HTTP(S) URL 기반 asset만 처리한다. base64 inline 이미지를 처리하려면 data URI decode, MIME/크기 검증, 이미지 extractor 전달 로직이 별도로 필요하다. |
-| `asset_too_large` | 이미지나 첨부파일이 `CONTENT_ENRICHMENT_MAX_FILE_BYTES`를 초과함 | 상한을 올리면 비용/메모리 사용량이 늘어난다. 운영에서는 상한 조정 전 이미지 리사이즈/압축 전처리 도입을 우선 검토한다. |
-| `asset_download_failed` | asset URL 요청이 실패하거나 서버가 오류 응답을 반환함 | 원문 URL에서 파일 접근 가능 여부, redirect, 인증 필요 여부를 확인한다. 일시 오류면 다음 실행에서 재시도될 수 있다. |
-| `hwp_text_extractor_unavailable` | 실행 환경에서 `unhwp` 또는 선택 fallback extractor를 사용할 수 없음 | 로컬과 Docker 이미지에 HWP 추출 의존성이 설치되어 있는지 확인한다. |
-| `hwp_text_extract_failed` / `unsupported_hwp_format` | HWP/HWPX가 손상되었거나 extractor가 처리할 수 없는 형식임 | 파일 자체를 수동으로 열어 확인한다. 다른 변환 API 도입 전까지 기존 fallback content를 유지한다. |
-| `hwp_text_too_short` / `image_text_too_short` | 추출된 텍스트가 `CONTENT_ENRICHMENT_MIN_TEXT_LENGTH` 미만임 | 포스터 이미지의 글자가 너무 작거나, HWP에서 유효 텍스트를 얻지 못한 경우다. 원문 asset 품질을 확인한다. |
-| `generated_content_too_short` | 추출 텍스트는 있었지만 LLM이 최소 길이 이상의 content를 생성하지 못함 | prompt, 최소 길이, 추출 텍스트 품질을 함께 확인한다. |
-| `no_extracted_text` | 처리 가능한 모든 asset에서 사용할 텍스트를 얻지 못함 | `asset_errors`에 기록된 asset별 실패 코드를 먼저 확인한다. |
+| `missing_openai_api_key` | `OPENAI_API_KEY` 없음 | 서버 `.env`, 배포 secret, 컨테이너 재시작 여부 |
+| `unsafe_asset_url` | HTTP(S) URL이 허용 도메인/공개 IP 조건을 통과하지 못함 | 원문 URL, redirect 대상, allowlist |
+| `unsafe_asset_redirect` | 다운로드 중 허용되지 않은 URL로 redirect됨 | 최종 redirect URL |
+| `asset_download_failed` | asset 요청 실패, HTTP 오류, timeout, 깨진 data URL payload | 원문 파일 접근 가능 여부, 일시 네트워크 오류, data URL 형식 |
+| `asset_too_large` | `CONTENT_ENRICHMENT_MAX_FILE_BYTES` 초과 | asset 크기, 운영 상한 |
+| `unsupported_asset_type` | 이미지/HWP/HWPX로 판별할 수 없음 | 확장자, `Content-Type`, data URL MIME |
+| `hwp_text_extractor_unavailable` | 사용할 수 있는 HWP extractor 없음 | 로컬/Docker 의존성 설치 여부 |
+| `password_protected_hwp` | 암호화된 HWP/HWPX | 파일 수동 확인 |
+| `unsupported_hwp_format` | 미지원 또는 손상된 HWP/HWPX | 파일 수동 확인 |
+| `hwp_text_extract_failed` | HWP 텍스트 추출 실패 | extractor 로그, 파일 상태 |
+| `hwp_text_too_short` | HWP 추출 텍스트가 최소 길이 미만 | 원문 파일 품질 |
+| `image_text_too_short` | 이미지에서 추출한 텍스트가 최소 길이 미만 | 이미지 해상도, 글자 크기 |
+| `openai_request_failed` | OpenAI API 요청 실패 | API key, 네트워크, rate limit |
+| `openai_invalid_response` | OpenAI 응답이 JSON 형식이 아님 | provider 응답 |
+| `openai_empty_response` | OpenAI 응답 텍스트가 비어 있음 | provider 응답 |
+| `llm_json_parse_failed` | content 생성 응답 JSON 파싱 실패 | prompt, 응답 원문 |
+| `generated_content_too_short` | 생성된 content가 최소 길이 미만 | 추출 텍스트 품질, prompt |
+| `no_extracted_text` | 처리한 asset 전체에서 사용할 텍스트를 얻지 못함 | `asset_errors`의 asset별 코드 |
 
-`enrichment_call_budget_exceeded`는 실패가 아니라 skip이다. 호출 상한에 도달해 이번 실행에서 보류된 상태이며, 다음 실행에서 다시 시도할 수 있다.
+`data:image/...;base64,...` 인라인 이미지는 네트워크 요청 없이 decode하고 MIME/크기 검증을 거쳐 처리한다. 따라서 정상 이미지 data URL은 `unsafe_asset_url`로 분류하지 않는다.
 
-## content 보강 skip reason
-
-- `enrichment_call_budget_exceeded`: crawl 1회 호출 상한 초과. 실패가 아니라 비용 방어로 인한 보류 상태다. 해당 공지는 `content_enrichment.status=skipped`로 기록하고 다음 실행에서 다시 시도할 수 있게 둔다.
-
-## content 보강 로그 해석
+## 본문 보강 로그 해석
 
 완료 로그 예시:
 
@@ -108,17 +103,17 @@
 
 1. `crawler.log`에서 보드별 `전체`, `신규`, `상시공지`, `일반공지`, `신규일반공지` 로그 확인
 2. 최종 저장 로그의 `전체`, `신규`, `URL중복`, `제목중복`, `오래된공지삭제` 확인
-3. content 보강 완료 로그의 `보강대상`, `시도`, `성공`, `실패`, `호출` 확인
+3. 본문 보강 완료 로그의 `보강대상`, `시도`, `성공`, `실패`, `호출` 확인
 4. 실패 파일의 `reason`별 건수 확인
-5. content 보강 실패는 게시 JSON의 `content_enrichment.error_code`, `asset_errors`, `reason` 확인
+5. 본문 보강 실패는 게시 JSON의 `content_enrichment.error_code`, `asset_errors`, `reason` 확인
 6. 문제 URL 샘플 재현(브라우저/직접 요청)로 원인 분리
 
 ## 자주 보는 케이스
 
 - `kau_career`: robots 예외 정책이 적용되어 robots 차단 없이 수집
-- 이미지 중심 본문: 기본값은 이미지 fallback 문자열 저장. content 보강이 켜져 있으면 본문 이미지에서 텍스트 추출 후 `content` 교체 시도
-- 동영상 중심 본문: 기본값은 동영상 fallback 문자열 저장. 현재 content 보강 대상은 아니며 URL/제목 수준의 최소 정보만 보존
-- 첨부파일만 있는 본문: 기본값은 첨부파일명 기반 fallback 문자열 저장. content 보강이 켜져 있으면 이미지/HWP/HWPX 첨부에서 텍스트 추출 후 `content` 교체 시도
+- 이미지 중심 본문: 기본값은 이미지 fallback 문자열 저장. 본문 보강이 켜져 있으면 본문 이미지에서 텍스트 추출 후 `content` 교체 시도
+- 동영상 중심 본문: 기본값은 동영상 fallback 문자열 저장. 현재 본문 보강 대상은 아니며 URL/제목 수준의 최소 정보만 보존
+- 첨부파일만 있는 본문: 기본값은 첨부파일명 기반 fallback 문자열 저장. 본문 보강이 켜져 있으면 이미지/HWP/HWPX 첨부에서 텍스트 추출 후 `content` 교체 시도
 - 대학 사이트 개편: 목록 selector 변경으로 `request_failed`가 아니라 `전체=0` 또는 `신규=0` 패턴으로 먼저 나타나는 경우가 많음
 
 ## 중복/증분 관련 동작
@@ -153,4 +148,4 @@
 - 구조 점검용 스모크 테스트는 `--max-pages 1`로 제한하고, 실제 수집은 기본 실행(`--max-pages 0`)을 사용
 - 사이트 구조가 변경되면 parser와 문서(`05_parsing_and_selectors.md`)를 함께 갱신
 - 정책 변경 시 `notice_policy.py`, `board_crawler.py`, `08_crawling_rules.md`를 같이 수정
-- content 보강 정책 변경 시 `content_enrichment_service.py`, `content_asset_downloader.py`, `content_extractors/`, `09_content_enrichment_rules.md`를 같이 수정
+- 본문 보강 정책 변경 시 `content_enrichment_service.py`, `content_asset_downloader.py`, `content_extractors/`, `09_content_enrichment_rules.md`를 같이 수정

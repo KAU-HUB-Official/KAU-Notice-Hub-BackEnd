@@ -1,7 +1,11 @@
 from __future__ import annotations
 
+import hashlib
 import zipfile
 from io import BytesIO
+
+import pytest
+import requests
 
 from app.crawler.models.post import Post
 from app.crawler.services.board_crawler import (
@@ -12,6 +16,7 @@ from app.crawler.services.board_crawler import (
 from app.crawler.services.content_asset_downloader import (
     ContentAsset,
     ContentAssetDownloadError,
+    ContentAssetDownloader,
     DownloadedAsset,
     classify_attachment,
     extract_inline_embed_assets,
@@ -102,6 +107,30 @@ class FakeOpenAISession:
         return FakeOpenAIResponse()
 
 
+class NoNetworkSession:
+    def get(self, *args, **kwargs) -> object:
+        raise AssertionError("data URL assets must not use HTTP download")
+
+
+class TimeoutSession:
+    def get(self, *args, **kwargs) -> object:
+        raise requests.ReadTimeout("timed out")
+
+
+class StreamingTimeoutResponse:
+    status_code = 200
+    url = "https://93.184.216.34/poster.png"
+    headers = {"Content-Type": "image/png"}
+
+    def iter_content(self, *args, **kwargs) -> object:
+        raise requests.ReadTimeout("timed out")
+
+
+class StreamingTimeoutSession:
+    def get(self, *args, **kwargs) -> StreamingTimeoutResponse:
+        return StreamingTimeoutResponse()
+
+
 def make_service(
     *,
     downloader: object | None = None,
@@ -171,6 +200,25 @@ def test_extract_inline_image_assets_cleans_escaped_src() -> None:
         assets[0]["url"]
         == "http://college.kau.ac.kr/web/cmm/imageSrc.do?path=notice/poster.jpg"
     )
+
+
+def test_extract_inline_image_assets_keeps_data_url_with_fallback_name() -> None:
+    html = """
+    <div class="view_conts">
+      <img src="data:image/png;base64,aW1hZ2U=" />
+    </div>
+    """
+
+    assets = extract_inline_image_assets(html, "https://kau.ac.kr/notice/read")
+
+    assert assets == [
+        {
+            "type": "inline_image",
+            "name": "inline-image-1",
+            "url": "data:image/png;base64,aW1hZ2U=",
+            "source": "body",
+        }
+    ]
 
 
 def test_extract_inline_embed_assets_from_content_container() -> None:
@@ -370,6 +418,102 @@ def test_safe_asset_log_value_truncates_long_url() -> None:
     sanitized = safe_asset_log_value(url, max_length=40)
 
     assert sanitized == "https://kau.ac.kr/aaaaaaaaaaaaaaaaaaaaaa...<truncated:318 chars>"
+
+
+def test_content_asset_downloader_decodes_inline_data_image() -> None:
+    downloader = ContentAssetDownloader(
+        allowed_domains=["kau.ac.kr"],
+        max_file_bytes=10,
+        session=NoNetworkSession(),
+    )
+    asset = ContentAsset(
+        type="inline_image",
+        name="poster.png",
+        url="data:image/png;base64,aW1hZ2U=",
+        source="body",
+    )
+
+    downloaded = downloader.download(asset)
+
+    assert downloaded.data == b"image"
+    assert downloaded.content_type == "image/png"
+    assert downloaded.sha256 == hashlib.sha256(b"image").hexdigest()
+
+
+def test_content_asset_downloader_rejects_large_data_image() -> None:
+    downloader = ContentAssetDownloader(
+        allowed_domains=["kau.ac.kr"],
+        max_file_bytes=4,
+        session=NoNetworkSession(),
+    )
+    asset = ContentAsset(
+        type="inline_image",
+        name="poster.png",
+        url="data:image/png;base64,aW1hZ2U=",
+        source="body",
+    )
+
+    with pytest.raises(ContentAssetDownloadError) as exc_info:
+        downloader.download(asset)
+
+    assert exc_info.value.code == "asset_too_large"
+
+
+def test_content_asset_downloader_rejects_non_image_data_url() -> None:
+    downloader = ContentAssetDownloader(
+        allowed_domains=["kau.ac.kr"],
+        max_file_bytes=10,
+        session=NoNetworkSession(),
+    )
+    asset = ContentAsset(
+        type="inline_image",
+        name="poster.txt",
+        url="data:text/plain;base64,aW1hZ2U=",
+        source="body",
+    )
+
+    with pytest.raises(ContentAssetDownloadError) as exc_info:
+        downloader.download(asset)
+
+    assert exc_info.value.code == "unsupported_asset_type"
+
+
+def test_content_asset_downloader_wraps_request_timeout() -> None:
+    downloader = ContentAssetDownloader(
+        allowed_domains=[],
+        max_file_bytes=10,
+        session=TimeoutSession(),
+    )
+    asset = ContentAsset(
+        type="inline_image",
+        name="poster.png",
+        url="https://93.184.216.34/poster.png",
+        source="body",
+    )
+
+    with pytest.raises(ContentAssetDownloadError) as exc_info:
+        downloader.download(asset)
+
+    assert exc_info.value.code == "asset_download_failed"
+
+
+def test_content_asset_downloader_wraps_streaming_timeout() -> None:
+    downloader = ContentAssetDownloader(
+        allowed_domains=[],
+        max_file_bytes=10,
+        session=StreamingTimeoutSession(),
+    )
+    asset = ContentAsset(
+        type="inline_image",
+        name="poster.png",
+        url="https://93.184.216.34/poster.png",
+        source="body",
+    )
+
+    with pytest.raises(ContentAssetDownloadError) as exc_info:
+        downloader.download(asset)
+
+    assert exc_info.value.code == "asset_download_failed"
 
 
 def test_hwp_extractor_reads_hwpx_zip_xml() -> None:

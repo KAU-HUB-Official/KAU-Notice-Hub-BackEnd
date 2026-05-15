@@ -8,17 +8,20 @@
 
 ## 프로젝트 구조
 
-| 경로 | 역할 |
-| --- | --- |
-| `app/` | FastAPI 앱, 서비스 계층, repository, schemas, 검색, 크롤러 스케줄러 |
-| `app/crawler/` | 내장 KAU 공지 크롤러 |
-| `scripts/run_incremental_crawl_publish.sh` | 수동 증분 크롤링 및 atomic JSON 게시 스크립트 |
-| `tests/` | Pytest 테스트 |
-| `docs/` | API, 크롤러, 분류, ERD, 배포 문서 |
-| `.github/workflows/ci.yml` | 테스트 workflow |
-| `.github/workflows/deploy.yml` | Lightsail 배포 workflow |
-| `docker-compose.yml` | API, crawler tool profile, Caddy reverse proxy 구성 |
-| `Caddyfile` | Caddy reverse proxy 설정 |
+| 경로                                       | 역할                                                                |
+| ------------------------------------------ | ------------------------------------------------------------------- |
+| `app/`                                     | FastAPI 앱, 서비스 계층, repository, schemas, 검색, 크롤러 스케줄러 |
+| `app/crawler/`                             | 내장 KAU 공지 크롤러                                                |
+| `scripts/run_incremental_crawl_publish.sh` | 수동 증분 크롤링 및 atomic JSON 게시 스크립트                       |
+| `tests/`                                   | Pytest 테스트                                                       |
+| `docs/`                                    | API, 크롤러, 분류, ERD, 배포 문서                                   |
+| `data/`                                    | 런타임 JSON 스냅샷 저장 디렉토리 (커밋 금지)                        |
+| `.github/workflows/ci.yml`                 | 테스트 workflow                                                     |
+| `.github/workflows/deploy.yml`             | Lightsail 배포 workflow                                             |
+| `pyproject.toml`                           | 패키지 메타데이터, 의존성, 빌드 설정                                |
+| `Dockerfile`                               | API 컨테이너 이미지 정의                                            |
+| `docker-compose.yml`                       | API, crawler tool profile, Caddy reverse proxy 구성                 |
+| `Caddyfile`                                | Caddy reverse proxy 설정                                            |
 
 ## 작업 원칙
 
@@ -160,11 +163,11 @@ docker compose ps
 
 GitHub 배포 secret:
 
-| Secret | 의미 |
-| --- | --- |
-| `LIGHTSAIL_HOST` | Lightsail 공인 IPv4 또는 DNS 이름 |
-| `LIGHTSAIL_USER` | 보통 `ubuntu` |
-| `LIGHTSAIL_SSH_KEY` | 배포용 private key 전체 |
+| Secret              | 의미                              |
+| ------------------- | --------------------------------- |
+| `LIGHTSAIL_HOST`    | Lightsail 공인 IPv4 또는 DNS 이름 |
+| `LIGHTSAIL_USER`    | 보통 `ubuntu`                     |
+| `LIGHTSAIL_SSH_KEY` | 배포용 private key 전체           |
 
 private key가 노출되면 새 key로 교체하고, GitHub Secrets를 갱신하고, 새 public key를 서버 `~/.ssh/authorized_keys`에 추가한 뒤, 기존 public key를 서버에서 제거한다.
 
@@ -172,14 +175,14 @@ private key가 노출되면 새 key로 교체하고, GitHub Secrets를 갱신하
 
 아래 영역을 변경하면 관련 문서를 함께 갱신한다.
 
-| 변경 | 문서 |
-| --- | --- |
-| API 요청/응답 계약 | `docs/API_SPEC.md` |
-| source group, category, audience 분류 | `docs/CLASSIFICATION.md` |
-| 크롤러 병합, 오래된 공지 삭제, 게시 정책 | `docs/CRAWLING_UPDATE.md`, `docs/crawler/` |
-| 배포, 방화벽, Caddy, GitHub Actions, secrets | `docs/DEPLOYMENT.md` |
-| 저장 JSON 형태 또는 논리 엔티티 | `docs/ERD.md` |
-| 주요 명령 또는 빠른 시작 변경 | `README.md` |
+| 변경                                         | 문서                                       |
+| -------------------------------------------- | ------------------------------------------ |
+| API 요청/응답 계약                           | `docs/API_SPEC.md`                         |
+| source group, category, audience 분류        | `docs/CLASSIFICATION.md`                   |
+| 크롤러 병합, 오래된 공지 삭제, 게시 정책     | `docs/CRAWLING_UPDATE.md`, `docs/crawler/` |
+| 배포, 방화벽, Caddy, GitHub Actions, secrets | `docs/DEPLOYMENT.md`                       |
+| 저장 JSON 형태 또는 논리 엔티티              | `docs/ERD.md`                              |
+| 주요 명령 또는 빠른 시작 변경                | `README.md`                                |
 
 사용자가 명시적으로 요구하지 않는 한 제거된 확장 관련 기록이나 계획을 다시 추가하지 않는다.
 

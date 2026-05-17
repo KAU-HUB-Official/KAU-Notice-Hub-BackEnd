@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import date as date_cls, datetime
 import re
 
 from app.classification import (
@@ -101,7 +101,31 @@ def build_search_text(notice: Notice) -> str:
     return "\n".join(value for value in values if value).lower()
 
 
-def score_notice(notice: Notice, terms: list[str]) -> int:
+def recency_boost(notice_date: str | None, today: date_cls | None = None) -> int:
+    if not notice_date:
+        return 0
+
+    try:
+        parsed = datetime.fromisoformat(notice_date).date()
+    except ValueError:
+        return 0
+
+    reference = today or date_cls.today()
+    delta_days = (reference - parsed).days
+    if delta_days < 0:
+        return 0
+    if delta_days <= 7:
+        return 5
+    if delta_days <= 30:
+        return 3
+    if delta_days <= 90:
+        return 1
+    if delta_days > 365:
+        return -2
+    return 0
+
+
+def score_notice(notice: Notice, terms: list[str], today: date_cls | None = None) -> int:
     if not terms:
         return 0
 
@@ -129,6 +153,9 @@ def score_notice(notice: Notice, terms: list[str]) -> int:
             score += 2
         if term in content:
             score += 1
+
+    if score > 0:
+        score += recency_boost(notice.date, today)
 
     return score
 
@@ -207,9 +234,16 @@ def to_comparable_date(value: str | None = None) -> float:
         return 0
 
 
-def rank_notices(notices: list[Notice], q: str | None = None) -> list[RankedNotice]:
+def rank_notices(
+    notices: list[Notice],
+    q: str | None = None,
+    today: date_cls | None = None,
+) -> list[RankedNotice]:
     terms = [term.strip().lower() for term in extract_search_terms(q)]
-    ranked = [RankedNotice(notice=notice, score=score_notice(notice, terms)) for notice in notices]
+    ranked = [
+        RankedNotice(notice=notice, score=score_notice(notice, terms, today))
+        for notice in notices
+    ]
     return sorted(
         ranked,
         key=lambda item: (

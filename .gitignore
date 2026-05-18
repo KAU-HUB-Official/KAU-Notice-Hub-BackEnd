@@ -77,3 +77,6 @@ Thumbs.db
 *.swo
 
 .claude
+
+# Local HTML notes (변경사항 정리 등 학습용)
+*.html

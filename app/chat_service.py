@@ -3,7 +3,7 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
-from typing import Any
+from typing import Any, AsyncIterator
 
 import requests
 
@@ -290,12 +290,16 @@ async def _generate_with_openai(
     return answer, settings.openai_model
 
 
-async def ask_notice_question(
+async def _retrieve_references(
     service: NoticeService,
-    question: str,
-    filters: NoticeQuery | None = None,
-) -> ChatAnswer:
-    normalized_question = question.strip()
+    normalized_question: str,
+    filters: NoticeQuery | None,
+) -> tuple[list[Notice], list[NoticeReference], bool]:
+    """검색 결과 + out_of_domain 시그널 반환.
+
+    out_of_domain=True면 키워드 추출 LLM이 질문을 도메인 외로 판정한 경우다.
+    이때는 검색 자체를 skip하고 호출자가 안내 답변을 반환해야 한다.
+    """
     settings = get_settings()
     limit = settings.rag_max_references
 
@@ -310,12 +314,7 @@ async def ask_notice_question(
                 "rag_out_of_domain question_len=%d",
                 len(normalized_question),
             )
-            return ChatAnswer(
-                answer=OUT_OF_DOMAIN_ANSWER,
-                references=[],
-                usedFallback=True,
-                model="local-fallback",
-            )
+            return [], [], True
         else:
             search_query = " ".join(keywords)
             use_keyword_fallback = False
@@ -331,7 +330,72 @@ async def ask_notice_question(
         filters=filters,
         fallback_to_latest=use_keyword_fallback,
     )
-    references = build_references(references_source)
+    return references_source, build_references(references_source), False
+
+
+async def stream_notice_question(
+    service: NoticeService,
+    question: str,
+    filters: NoticeQuery | None = None,
+) -> "AsyncIterator[dict[str, Any]]":
+    normalized_question = question.strip()
+
+    yield {"type": "search_started"}
+
+    references_source, references, out_of_domain = await _retrieve_references(
+        service, normalized_question, filters
+    )
+
+    yield {
+        "type": "search_completed",
+        "references": [reference.model_dump() for reference in references],
+    }
+
+    if out_of_domain:
+        yield {
+            "type": "answer_completed",
+            "answer": OUT_OF_DOMAIN_ANSWER,
+            "usedFallback": True,
+            "model": "local-fallback",
+        }
+        return
+
+    result = await _generate_with_openai(normalized_question, filters, references_source)
+    if result is not None:
+        answer, model = result
+        yield {
+            "type": "answer_completed",
+            "answer": answer,
+            "usedFallback": False,
+            "model": model,
+        }
+        return
+
+    yield {
+        "type": "answer_completed",
+        "answer": fallback_answer(normalized_question, references_source),
+        "usedFallback": True,
+        "model": "local-fallback",
+    }
+
+
+async def ask_notice_question(
+    service: NoticeService,
+    question: str,
+    filters: NoticeQuery | None = None,
+) -> ChatAnswer:
+    normalized_question = question.strip()
+    references_source, references, out_of_domain = await _retrieve_references(
+        service, normalized_question, filters
+    )
+
+    if out_of_domain:
+        return ChatAnswer(
+            answer=OUT_OF_DOMAIN_ANSWER,
+            references=[],
+            usedFallback=True,
+            model="local-fallback",
+        )
 
     result = await _generate_with_openai(normalized_question, filters, references_source)
     if result is not None:

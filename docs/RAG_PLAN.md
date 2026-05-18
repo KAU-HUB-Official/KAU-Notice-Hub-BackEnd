@@ -103,6 +103,8 @@ department=...
 
 ## 응답 계약
 
+UI에서 "공지 검색중 → 검색 완료 → 답변 생성" 단계 표시가 필요한 경우 `POST /api/chat/stream` SSE 엔드포인트를 함께 제공한다. 동일한 파이프라인(`stream_notice_question`)을 거쳐 `search_started`, `search_completed`, `answer_completed`(또는 `error`) 이벤트를 순서대로 push한다. 기존 `POST /api/chat`은 그대로 단일 JSON 응답을 유지한다.
+
 API 응답은 현재 `ChatAnswer` 그대로 유지한다.
 
 ```json

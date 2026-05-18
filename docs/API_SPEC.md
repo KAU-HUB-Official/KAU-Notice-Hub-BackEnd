@@ -405,6 +405,38 @@ MVP 기준:
 - 키워드 기반 검색이 0건이면 무관한 최신 공지로 채우지 않고 빈 `references`와 fallback 답변을 반환한다.
 - 비활성화/키 부재/호출 실패 시 local fallback 답변을 반환한다 (`usedFallback=true`, `model="local-fallback"`).
 - 벡터 검색 기반 RAG는 아직 구현하지 않는다. 자세한 동작과 환경변수는 [RAG_PLAN.md](RAG_PLAN.md)를 참고한다.
+- UI에서 단계별 진행("공지 검색중 → 검색 완료 → 답변 생성")을 그려야 하면 아래 `POST /api/chat/stream` SSE 엔드포인트를 사용한다.
+
+### `POST /api/chat/stream`
+
+`POST /api/chat`과 동일한 입력을 받아 Server-Sent Events(SSE)로 단계별 결과를 스트리밍한다. 응답 `Content-Type`은 `text/event-stream`이며 각 줄은 `data: {...}\n\n` 형식의 JSON이다.
+
+#### 이벤트 타입
+
+| `type`             | 시점                        | 추가 필드                                               |
+| ------------------ | --------------------------- | ------------------------------------------------------- |
+| `search_started`   | 검색 시작 직전              | 없음                                                    |
+| `search_completed` | references가 결정된 직후    | `references: NoticeReference[]`                         |
+| `answer_completed` | LLM 답변 또는 fallback 완료 | `answer: string`, `usedFallback: bool`, `model: string` |
+| `error`            | 처리 중 예외 발생           | `error: string`                                         |
+
+이벤트 순서는 정상 흐름에서 `search_started` → `search_completed` → `answer_completed`다. 실패 시 마지막에 `error` 이벤트가 추가될 수 있다.
+
+#### 요청 본문
+
+`POST /api/chat`과 동일한 `ChatRequestBody`.
+
+#### 응답 예시
+
+```text
+data: {"type": "search_started"}
+
+data: {"type": "search_completed", "references": [{"id": "...", "title": "...", "url": "...", "source": "...", "date": "..."}]}
+
+data: {"type": "answer_completed", "answer": "...", "usedFallback": false, "model": "gpt-4.1-mini"}
+```
+
+검색 결과가 0건이거나 RAG가 비활성/실패면 `answer_completed`의 `usedFallback`이 `true`, `model`이 `"local-fallback"`이고 `answer`는 local fallback 메시지다.
 
 #### 요청 본문
 

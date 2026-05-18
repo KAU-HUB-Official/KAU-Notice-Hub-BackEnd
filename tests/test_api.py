@@ -203,3 +203,22 @@ def test_post_chat_hides_repository_error_detail(failing_client: TestClient) -> 
 
     assert response.status_code == 500
     assert response.json() == {"error": "챗봇 응답을 생성하지 못했습니다."}
+
+
+def test_post_chat_stream_emits_sse_events(client: TestClient) -> None:
+    response = client.post("/api/chat/stream", json={"question": "수강신청 알려줘"})
+
+    assert response.status_code == 200
+    assert response.headers["content-type"].startswith("text/event-stream")
+    body = response.text
+    assert '"type": "search_started"' in body
+    assert '"type": "search_completed"' in body
+    assert '"type": "answer_completed"' in body
+    assert '"model": "local-fallback"' in body
+
+
+def test_post_chat_stream_rejects_empty_question(client: TestClient) -> None:
+    response = client.post("/api/chat/stream", json={"question": "   "})
+
+    assert response.status_code == 400
+    assert response.json() == {"error": "question 필드는 필수입니다."}

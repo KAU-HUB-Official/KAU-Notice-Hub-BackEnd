@@ -221,6 +221,71 @@ async def test_out_of_domain_returns_guard_answer(rag_env) -> None:
     assert mock_call.call_count == 1  # 추출만, 답변은 호출 안 함
 
 
+@pytest.mark.anyio
+async def test_stream_emits_three_phase_events(
+    service: NoticeService, rag_env
+) -> None:
+    rag_env(enabled=True, api_key="sk-test")
+    fake = _stub_call(answer="LLM 답변", extracted=["수강신청"])
+
+    with patch.object(chat_service, "_call_openai_sync", side_effect=fake):
+        events = [
+            event
+            async for event in chat_service.stream_notice_question(
+                service, "수강신청 알려줘"
+            )
+        ]
+
+    assert [event["type"] for event in events] == [
+        "search_started",
+        "search_completed",
+        "answer_completed",
+    ]
+    assert [reference["id"] for reference in events[1]["references"]] == ["a"]
+    assert events[2]["answer"] == "LLM 답변"
+    assert events[2]["usedFallback"] is False
+    assert events[2]["model"] == "gpt-4.1-mini"
+
+
+@pytest.mark.anyio
+async def test_stream_falls_back_when_openai_disabled(
+    service: NoticeService, rag_env
+) -> None:
+    rag_env(enabled=False, api_key="")
+
+    events = [
+        event
+        async for event in chat_service.stream_notice_question(service, "수강신청")
+    ]
+
+    assert events[0]["type"] == "search_started"
+    assert events[1]["type"] == "search_completed"
+    assert events[2]["type"] == "answer_completed"
+    assert events[2]["usedFallback"] is True
+    assert events[2]["model"] == "local-fallback"
+
+
+@pytest.mark.anyio
+async def test_stream_out_of_domain_emits_guard_event(rag_env) -> None:
+    rag_env(enabled=True, api_key="sk-test")
+    notices = [make_notice("a", "수강신청 안내", content="수강신청 일정")]
+    svc = NoticeService(MemoryRepository(notices))
+    fake = _stub_call(answer="답변", extracted=[])
+
+    with patch.object(chat_service, "_call_openai_sync", side_effect=fake):
+        events = [
+            event
+            async for event in chat_service.stream_notice_question(svc, "비트코인 가격")
+        ]
+
+    assert [event["type"] for event in events] == [
+        "search_started",
+        "search_completed",
+        "answer_completed",
+    ]
+    assert events[1]["references"] == []
+    assert events[2]["answer"] == chat_service.OUT_OF_DOMAIN_ANSWER
+    assert events[2]["usedFallback"] is True
 
 
 @pytest.mark.anyio

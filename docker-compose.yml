@@ -24,6 +24,8 @@ services:
       CRAWLER_MAX_PAGES: ${CRAWLER_MAX_PAGES:-0}
       CRAWLER_MIN_RECORDS: ${CRAWLER_MIN_RECORDS:-1}
       CRAWLER_MIN_RETAIN_RATIO: ${CRAWLER_MIN_RETAIN_RATIO:-0.5}
+      RAG_ENABLED: ${RAG_ENABLED:-false}
+      RAG_MAX_REFERENCES: ${RAG_MAX_REFERENCES:-6}
     volumes:
       - notice_data:/data
     ports:

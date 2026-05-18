@@ -32,6 +32,8 @@ class Settings(BaseSettings):
     crawler_min_records: int = 1
     crawler_min_retain_ratio: float = 0.5
     crawler_lock_path: Path | None = None
+    rag_enabled: bool = False
+    rag_max_references: int = 6
 
     model_config = SettingsConfigDict(
         env_file=".env",

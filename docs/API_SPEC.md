@@ -398,9 +398,10 @@ GET /api/notices/notice-001
 
 MVP 기준:
 
-- `GET /api/notices`와 같은 필터/검색 로직을 사용한다.
-- 현재 구현은 local fallback 답변과 근거 목록을 반환한다.
-- 벡터 검색 기반의 완전한 RAG는 아직 구현하지 않는다.
+- `GET /api/notices`와 같은 키워드 검색/필터로 관련 공지를 찾는다.
+- `RAG_ENABLED=true`이고 `OPENAI_API_KEY`가 설정돼 있으면 OpenAI Responses API로 답변을 생성한다 (`usedFallback=false`, `model=OPENAI_MODEL`).
+- 비활성화/키 부재/호출 실패 시 local fallback 답변을 반환한다 (`usedFallback=true`, `model="local-fallback"`).
+- 벡터 검색 기반 RAG는 아직 구현하지 않는다. 자세한 동작과 환경변수는 [RAG_PLAN.md](RAG_PLAN.md)를 참고한다.
 
 #### 요청 본문
 

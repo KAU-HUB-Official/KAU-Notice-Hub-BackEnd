@@ -49,8 +49,10 @@ http://localhost:8000/openapi.json
 | `BACKEND_CORS_ORIGINS` | `https://kau-notice.example.com` | 쉼표로 구분한 허용 frontend origin |
 | `BACKEND_PORT` | `8000` | Docker host에 바인딩할 API 포트. compose에서는 `127.0.0.1`에만 바인딩 |
 | `API_DOMAIN` | `api.kau-notice.example.com` 또는 `:80` | Caddy가 받을 host. 도메인이 없으면 `:80` |
-| `OPENAI_API_KEY` | `sk-...` | content 보강에서 OpenAI provider를 사용할 때 필요. 챗봇은 현재 local fallback 사용 |
-| `OPENAI_MODEL` | `gpt-4.1-mini` | 챗봇용 예약값. 현재 챗봇은 local fallback 사용 |
+| `OPENAI_API_KEY` | `sk-...` | content 보강과 RAG 챗봇이 공유. 값이 비어 있으면 챗봇은 local fallback |
+| `OPENAI_MODEL` | `gpt-4.1-mini` | content 보강과 RAG 챗봇이 공유하는 기본 모델 |
+| `RAG_ENABLED` | `false` | `true`로 두고 `OPENAI_API_KEY`가 있으면 `/api/chat`이 OpenAI 답변 생성 |
+| `RAG_MAX_REFERENCES` | `6` | 챗봇이 LLM에 넘기고 응답 `references`로도 노출할 공지 수 |
 | `CONTENT_ENRICHMENT_ENABLED` | `false` | 본문이 비어 있는 이미지/HWP 공지의 content 보강 활성화 |
 | `CONTENT_ENRICHMENT_PROVIDER` | `openai` | content 보강 provider |
 | `CONTENT_ENRICHMENT_MODEL` | `gpt-4.1-mini` | 이미지 텍스트 추출과 content 생성 기본 모델 |
@@ -89,6 +91,8 @@ LOG_LEVEL=INFO
 CRAWLER_SCHEDULER_ENABLED=false
 CRAWLER_INTERVAL_SECONDS=10800
 CRAWLER_RUN_ON_STARTUP=true
+RAG_ENABLED=false
+RAG_MAX_REFERENCES=6
 ```
 
 운영 서버의 `.env`는 서버에만 둔다. `.env`, SSH private key, `.pem`, `.key` 파일은 저장소에 커밋하지 않는다.

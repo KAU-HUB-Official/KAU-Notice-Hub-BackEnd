@@ -400,6 +400,9 @@ MVP 기준:
 
 - `GET /api/notices`와 같은 키워드 검색/필터로 관련 공지를 찾는다.
 - `RAG_ENABLED=true`이고 `OPENAI_API_KEY`가 설정돼 있으면 OpenAI Responses API로 답변을 생성한다 (`usedFallback=false`, `model=OPENAI_MODEL`).
+- `RAG_QUERY_EXTRACTION_ENABLED=true`(기본)이면 검색 직전 LLM이 질문에서 명사 키워드만 추출해 검색어로 사용한다. 추출이 실패하면 질문 원문을 그대로 검색한다.
+- 키워드 추출 LLM이 질문을 공지 도메인 밖으로 판정하면(빈 배열 반환) 검색 자체를 skip하고 "KAU 공지 안내만 도와드릴 수 있어요" 안내를 `usedFallback=true`로 돌려준다. SSE에서는 `search_completed`의 `references`가 빈 배열이고 `answer_completed`에 안내 문구가 들어간다.
+- 키워드 기반 검색이 0건이면 무관한 최신 공지로 채우지 않고 빈 `references`와 fallback 답변을 반환한다.
 - 비활성화/키 부재/호출 실패 시 local fallback 답변을 반환한다 (`usedFallback=true`, `model="local-fallback"`).
 - 벡터 검색 기반 RAG는 아직 구현하지 않는다. 자세한 동작과 환경변수는 [RAG_PLAN.md](RAG_PLAN.md)를 참고한다.
 

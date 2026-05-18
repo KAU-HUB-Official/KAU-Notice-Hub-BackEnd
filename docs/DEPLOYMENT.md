@@ -53,6 +53,7 @@ http://localhost:8000/openapi.json
 | `OPENAI_MODEL` | `gpt-4.1-mini` | content 보강과 RAG 챗봇이 공유하는 기본 모델 |
 | `RAG_ENABLED` | `false` | `true`로 두고 `OPENAI_API_KEY`가 있으면 `/api/chat`이 OpenAI 답변 생성 |
 | `RAG_MAX_REFERENCES` | `6` | 챗봇이 LLM에 넘기고 응답 `references`로도 노출할 공지 수 |
+| `RAG_QUERY_EXTRACTION_ENABLED` | `true` | RAG_ENABLED일 때 검색 직전 LLM이 질문에서 명사 키워드만 추출해 검색어로 사용 |
 | `CONTENT_ENRICHMENT_ENABLED` | `false` | 본문이 비어 있는 이미지/HWP 공지의 content 보강 활성화 |
 | `CONTENT_ENRICHMENT_PROVIDER` | `openai` | content 보강 provider |
 | `CONTENT_ENRICHMENT_MODEL` | `gpt-4.1-mini` | 이미지 텍스트 추출과 content 생성 기본 모델 |
@@ -93,6 +94,7 @@ CRAWLER_INTERVAL_SECONDS=10800
 CRAWLER_RUN_ON_STARTUP=true
 RAG_ENABLED=false
 RAG_MAX_REFERENCES=6
+RAG_QUERY_EXTRACTION_ENABLED=true
 ```
 
 운영 서버의 `.env`는 서버에만 둔다. `.env`, SSH private key, `.pem`, `.key` 파일은 저장소에 커밋하지 않는다.

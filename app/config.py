@@ -34,6 +34,7 @@ class Settings(BaseSettings):
     crawler_lock_path: Path | None = None
     rag_enabled: bool = False
     rag_max_references: int = 6
+    rag_query_extraction_enabled: bool = True
 
     model_config = SettingsConfigDict(
         env_file=".env",

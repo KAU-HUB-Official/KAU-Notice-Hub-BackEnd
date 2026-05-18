@@ -130,6 +130,7 @@ class NoticeService:
         question: str,
         limit: int = 5,
         filters: NoticeQuery | None = None,
+        fallback_to_latest: bool = True,
     ) -> list[Notice]:
         base = filters or NoticeQuery()
         search = await self.list_notices(
@@ -146,6 +147,9 @@ class NoticeService:
         )
         if search.items:
             return search.items
+
+        if not fallback_to_latest:
+            return []
 
         latest = await self.list_notices(
             NoticeQuery(

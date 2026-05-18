@@ -27,11 +27,15 @@
 
 ```text
 사용자 질문
+  -> (선택) LLM 키워드 추출: 질문에서 검색 키워드만 JSON 배열로 받음
+       └ 빈 배열을 받으면 도메인 외 질문으로 보고 검색 skip → 안내 답변 반환
+       └ 실패/비활성 시 질문 원문을 그대로 검색어로 사용
   -> 기존 local search/filter로 관련 공지 조회
+       └ 키워드 추출 성공 시 검색 0건이면 fallback_to_latest 끔 (무관 최신 공지 노출 차단)
   -> build_context로 LLM 입력 컨텍스트 구성
   -> OpenAI 호출 (RAG_ENABLED + API key 있을 때)
   -> 텍스트 답변과 references 반환
-  -> 실패/비활성화 시 기존 local fallback
+  -> 실패/비활성화/references 0건 시 기존 local fallback
 ```
 
 ## 비목표
@@ -48,9 +52,12 @@
 ```env
 RAG_ENABLED=false
 RAG_MAX_REFERENCES=6
+RAG_QUERY_EXTRACTION_ENABLED=true
 OPENAI_API_KEY=
 OPENAI_MODEL=gpt-4.1-mini
 ```
+
+- `RAG_QUERY_EXTRACTION_ENABLED=true`(기본)이면 RAG_ENABLED일 때 검색 직전 LLM 1회 호출이 추가된다. 비활성화하면 사용자 질문 원문이 검색어로 들어가던 기존 동작으로 회귀한다.
 
 - `RAG_ENABLED=false`가 기본값이라 환경변수만 추가해서는 동작이 바뀌지 않는다.
 - `OPENAI_API_KEY`와 `OPENAI_MODEL`은 content enrichment에서 이미 사용 중이므로 그대로 재사용한다.

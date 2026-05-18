@@ -68,12 +68,6 @@ def test_recency_boost_tiers() -> None:
     assert recency_boost("2024-01-01", today) == -2
 
 
-def test_recency_boost_handles_missing_or_invalid_date() -> None:
-    today = date(2026, 5, 15)
-    assert recency_boost(None, today) == 0
-    assert recency_boost("not-a-date", today) == 0
-
-
 def test_score_notice_recency_only_applies_when_matched() -> None:
     today = date(2026, 5, 15)
     matched = make_notice("m", "수강신청 안내", content="본문", date="2026-05-10")

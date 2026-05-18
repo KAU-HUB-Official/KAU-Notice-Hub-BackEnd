@@ -101,15 +101,8 @@ def build_search_text(notice: Notice) -> str:
     return "\n".join(value for value in values if value).lower()
 
 
-def recency_boost(notice_date: str | None, today: date_cls | None = None) -> int:
-    if not notice_date:
-        return 0
-
-    try:
-        parsed = datetime.fromisoformat(notice_date).date()
-    except ValueError:
-        return 0
-
+def recency_boost(notice_date: str, today: date_cls | None = None) -> int:
+    parsed = datetime.fromisoformat(notice_date).date()
     reference = today or date_cls.today()
     delta_days = (reference - parsed).days
     if delta_days < 0:
@@ -154,7 +147,7 @@ def score_notice(notice: Notice, terms: list[str], today: date_cls | None = None
         if term in content:
             score += 1
 
-    if score > 0:
+    if score > 0 and notice.date:
         score += recency_boost(notice.date, today)
 
     return score

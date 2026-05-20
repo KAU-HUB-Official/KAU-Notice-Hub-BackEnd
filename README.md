@@ -45,6 +45,16 @@ curl http://localhost:8000/health
 curl 'http://localhost:8000/api/notices?page=1&pageSize=5'
 ```
 
+챗봇 호출 (RAG_ENABLED=true + OPENAI_API_KEY가 있어야 LLM 답변, 아니면 local fallback):
+
+```bash
+curl -sS -X POST http://localhost:8000/api/chat \
+  -H 'Content-Type: application/json' \
+  -d '{"question":"수강신청 알려줘"}'
+```
+
+후속 질문은 `history`에 직전 대화를 함께 보낸다. UI에서 단계별 진행("검색중 → 검색 완료 → 답변")을 그리려면 SSE 엔드포인트 `POST /api/chat/stream`을 사용한다. 자세한 동작은 [docs/API_SPEC.md](docs/API_SPEC.md), [docs/RAG_PLAN.md](docs/RAG_PLAN.md)를 참고한다.
+
 API 문서 UI:
 
 ```text

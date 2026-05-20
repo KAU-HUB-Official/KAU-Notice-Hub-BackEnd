@@ -223,6 +223,46 @@ def test_trim_history_handles_empty() -> None:
 
 
 @pytest.mark.anyio
+async def test_empty_keywords_with_history_uses_question_fallback(rag_env) -> None:
+    """history가 있고 LLM이 빈 배열을 주면, 도메인 외로 거부하지 않고
+    질문 원문으로 검색을 시도해야 한다 (후속 질문 시나리오)."""
+    rag_env(enabled=True, api_key="sk-test")
+    notices = [make_notice("a", "공모전 안내", content="공모전 신청 기간")]
+    svc = NoticeService(MemoryRepository(notices))
+    history = [
+        ChatMessage(role="user", content="공모전 알려줘"),
+        ChatMessage(role="assistant", content="2025 공모전 두 개 있어요."),
+    ]
+    fake = _stub_call(answer="답변", extracted=[])
+
+    with patch.object(chat_service, "_call_openai_sync", side_effect=fake):
+        answer = await chat_service.ask_notice_question(
+            svc, "공모전 신청 마감 언제야?", history=history
+        )
+
+    assert answer.usedFallback is False
+    assert [r.id for r in answer.references] == ["a"]
+    assert answer.answer == "답변"
+
+
+@pytest.mark.anyio
+async def test_empty_keywords_without_history_still_blocks_out_of_domain(
+    rag_env,
+) -> None:
+    """history가 없을 때는 빈 배열을 그대로 도메인 외로 거부."""
+    rag_env(enabled=True, api_key="sk-test")
+    svc = NoticeService(MemoryRepository([make_notice("a", "공모전", content="...")]))
+    fake = _stub_call(answer="답변", extracted=[])
+
+    with patch.object(chat_service, "_call_openai_sync", side_effect=fake):
+        answer = await chat_service.ask_notice_question(svc, "비트코인 가격")
+
+    assert answer.usedFallback is True
+    assert answer.answer == chat_service.OUT_OF_DOMAIN_ANSWER
+    assert answer.references == []
+
+
+@pytest.mark.anyio
 async def test_history_is_forwarded_to_llm(service: NoticeService, rag_env) -> None:
     rag_env(enabled=True, api_key="sk-test")
     history = [

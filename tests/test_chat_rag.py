@@ -204,6 +204,40 @@ def test_parse_keyword_list_returns_empty_list_for_empty_array() -> None:
     assert chat_service._parse_keyword_list("[]") == []
 
 
+def test_build_system_prompt_injects_today() -> None:
+    from datetime import date
+
+    prompt = chat_service._build_system_prompt(date(2026, 5, 20))
+    assert "오늘 날짜는 2026-05-20" in prompt
+    assert "신청 가능" in prompt  # 시간 한정 표현 가이드 포함
+
+
+@pytest.mark.anyio
+async def test_today_is_forwarded_to_answer_system_prompt(
+    service: NoticeService, rag_env
+) -> None:
+    from datetime import date
+
+    rag_env(enabled=True, api_key="sk-test")
+    captured: dict[str, str] = {}
+
+    def fake(api_key, model, system_prompt, messages):
+        captured.setdefault("answer_system", "")
+        if "공지 안내 도우미" in system_prompt:
+            captured["answer_system"] = system_prompt
+            return "답변"
+        if "JSON 배열로 추출" in system_prompt:
+            return '["수강신청"]'
+        return None
+
+    with patch.object(chat_service, "_call_openai_sync", side_effect=fake):
+        await chat_service.ask_notice_question(
+            service, "수강신청 알려줘", today=date(2026, 5, 20)
+        )
+
+    assert "오늘 날짜는 2026-05-20" in captured["answer_system"]
+
+
 def test_trim_history_caps_count_and_length() -> None:
     history = [
         ChatMessage(role="user", content=f"질문 {i}") for i in range(8)

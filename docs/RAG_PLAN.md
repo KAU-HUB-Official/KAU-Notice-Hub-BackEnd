@@ -103,6 +103,8 @@ department=...
 
 ## 응답 계약
 
+답변 LLM 시스템 프롬프트에는 서버 기준 오늘 날짜가 주입된다. 사용자가 "지금", "현재", "이번주", "신청 가능" 같은 시간 한정 표현을 쓰면 LLM이 각 공지 본문에서 마감일을 찾아 오늘 기준으로 지난 공지를 답에서 제외한다. 마감 정보가 불분명하면 "마감 정보 확인 필요"라고 표기해 원문을 안내한다.
+
 멀티턴 대화에서 후속 질문("그 공지 자세히")을 이해해야 하면 클라이언트가 `ChatRequestBody.history`에 직전 대화 메시지를 함께 보낸다. 서버는 최근 10개 메시지, 메시지당 500자에서 잘라 키워드 추출 LLM과 답변 LLM 양쪽 호출에 multi-turn 형식으로 포함시킨다. history는 데이터로만 취급되며 시스템 지시를 변경하지 않는다. 서버는 conversation 저장소를 두지 않는다.
 
 UI에서 "공지 검색중 → 검색 완료 → 답변 생성" 단계 표시가 필요한 경우 `POST /api/chat/stream` SSE 엔드포인트를 함께 제공한다. 동일한 파이프라인(`stream_notice_question`)을 거쳐 `search_started`, `search_completed`, `answer_completed`(또는 `error`) 이벤트를 순서대로 push한다. 기존 `POST /api/chat`은 그대로 단일 JSON 응답을 유지한다.

@@ -406,6 +406,7 @@ MVP 기준:
 - 비활성화/키 부재/호출 실패 시 local fallback 답변을 반환한다 (`usedFallback=true`, `model="local-fallback"`).
 - 벡터 검색 기반 RAG는 아직 구현하지 않는다. 자세한 동작과 환경변수는 [RAG_PLAN.md](RAG_PLAN.md)를 참고한다.
 - UI에서 단계별 진행("공지 검색중 → 검색 완료 → 답변 생성")을 그려야 하면 아래 `POST /api/chat/stream` SSE 엔드포인트를 사용한다.
+- 후속 질문 맥락을 유지하려면 요청 본문의 `history` 필드(`ChatMessage[]`)에 이전 대화를 함께 전달한다. 서버는 최근 10개 메시지까지만 사용하고 각 메시지는 500자에서 잘라 LLM 프롬프트에 포함시킨다. history는 데이터로만 취급되며 시스템 지시 변경에 사용되지 않는다.
 
 ### `POST /api/chat/stream`
 
@@ -441,8 +442,14 @@ data: {"type": "answer_completed", "answer": "...", "usedFallback": false, "mode
 #### 요청 본문
 
 ```ts
+interface ChatMessage {
+  role: "user" | "assistant";
+  content: string;
+}
+
 interface ChatRequestBody {
   question: string;
+  history?: ChatMessage[]; // 선택. 최근 대화 turn (default [])
   audienceGroup?: string;
   sourceGroup?: string;
   source?: string;

@@ -48,7 +48,9 @@ async def chat(
         return error
 
     try:
-        return await ask_notice_question(service, question, _query_from_body(body))
+        return await ask_notice_question(
+            service, question, _query_from_body(body), body.history
+        )
     except NoticeRepositoryError:
         logger.exception("Failed to create chat response")
         return JSONResponse(
@@ -72,10 +74,11 @@ async def chat_stream(
         return error
 
     filters = _query_from_body(body)
+    history = list(body.history)
 
     async def event_source():
         try:
-            async for event in stream_notice_question(service, question, filters):
+            async for event in stream_notice_question(service, question, filters, history):
                 yield f"data: {json.dumps(event, ensure_ascii=False)}\n\n"
         except NoticeRepositoryError:
             logger.exception("Failed to stream chat response")

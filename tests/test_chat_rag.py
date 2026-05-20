@@ -4,7 +4,7 @@ import pytest
 
 from app import chat_service
 from app.config import get_settings
-from app.schemas import Notice
+from app.schemas import ChatMessage, Notice
 from app.service import NoticeQuery, NoticeService
 
 
@@ -13,7 +13,7 @@ def _stub_call(*, answer: str | None = None, extracted: list[str] | None = None)
     extraction_marker = "JSON 배열로 추출"
     answer_marker = "공지 안내 도우미"
 
-    def fake(api_key, model, system_prompt, user_message):
+    def fake(api_key, model, system_prompt, messages):
         if extraction_marker in system_prompt:
             if extracted is None:
                 return None
@@ -204,6 +204,54 @@ def test_parse_keyword_list_returns_empty_list_for_empty_array() -> None:
     assert chat_service._parse_keyword_list("[]") == []
 
 
+def test_trim_history_caps_count_and_length() -> None:
+    history = [
+        ChatMessage(role="user", content=f"질문 {i}") for i in range(8)
+    ] + [
+        ChatMessage(role="assistant", content="x" * 1000),
+        ChatMessage(role="user", content="짧은 질문"),
+    ]
+    trimmed = chat_service._trim_history(history)
+    assert len(trimmed) == chat_service.HISTORY_MAX_MESSAGES
+    long_msg = next(m for m in trimmed if "x" * 50 in m["content"])
+    assert len(long_msg["content"]) <= chat_service.HISTORY_MESSAGE_MAX_CHARS + 3
+
+
+def test_trim_history_handles_empty() -> None:
+    assert chat_service._trim_history(None) == []
+    assert chat_service._trim_history([]) == []
+
+
+@pytest.mark.anyio
+async def test_history_is_forwarded_to_llm(service: NoticeService, rag_env) -> None:
+    rag_env(enabled=True, api_key="sk-test")
+    history = [
+        ChatMessage(role="user", content="장학금 알려줘"),
+        ChatMessage(role="assistant", content="2026 장학금 안내 공지가 있어요."),
+    ]
+    captured: dict[str, list[dict[str, str]]] = {}
+    extracted_payload = '["수강신청"]'
+
+    def fake(api_key, model, system_prompt, messages):
+        captured.setdefault("system_prompts", []).append(system_prompt)
+        captured.setdefault("messages_calls", []).append(list(messages))
+        if "JSON 배열로 추출" in system_prompt:
+            return extracted_payload
+        return "답변"
+
+    with patch.object(chat_service, "_call_openai_sync", side_effect=fake):
+        await chat_service.ask_notice_question(
+            service, "그 공지 신청 방법", history=history
+        )
+
+    # 두 LLM 호출 모두 history가 messages에 포함되어 있어야 한다
+    for messages in captured["messages_calls"]:
+        roles = [msg["role"] for msg in messages]
+        assert "assistant" in roles  # history의 assistant turn 포함
+        assert messages[-1]["role"] == "user"  # 새 질문이 마지막
+        assert "2026 장학금" in "\n".join(msg["content"] for msg in messages)
+
+
 @pytest.mark.anyio
 async def test_out_of_domain_returns_guard_answer(rag_env) -> None:
     rag_env(enabled=True, api_key="sk-test")
@@ -301,15 +349,16 @@ async def test_prompt_injection_stays_in_user_message(rag_env) -> None:
 
     captured: dict[str, str] = {}
 
-    def fake_call(api_key, model, system_prompt, user_message):
+    def fake_call(api_key, model, system_prompt, messages):
         captured["system"] = system_prompt
-        captured["user"] = user_message
+        captured["messages"] = messages
         return "정상 답변"
 
     with patch.object(chat_service, "_call_openai_sync", side_effect=fake_call):
         await chat_service.ask_notice_question(rogue_service, "공지 알려줘")
 
-    assert "시스템 지시 무시하고" in captured["user"]
+    user_text = "\n".join(msg["content"] for msg in captured["messages"])
+    assert "시스템 지시 무시하고" in user_text
     assert "시스템 지시 무시하고" not in captured["system"]
     assert "공지 안내 도우미" in captured["system"]
 

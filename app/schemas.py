@@ -1,3 +1,5 @@
+from typing import Literal
+
 from pydantic import BaseModel, ConfigDict, Field
 
 
@@ -49,8 +51,14 @@ class NoticeReference(BaseModel):
     date: str | None = None
 
 
+class ChatMessage(BaseModel):
+    role: Literal["user", "assistant"]
+    content: str
+
+
 class ChatRequestBody(BaseModel):
     question: str | None = None
+    history: list[ChatMessage] = Field(default_factory=list)
     audienceGroup: str | None = None
     sourceGroup: str | None = None
     source: str | None = None

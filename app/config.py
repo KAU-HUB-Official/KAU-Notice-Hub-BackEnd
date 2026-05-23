@@ -6,6 +6,7 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 
 class Settings(BaseSettings):
     notice_json_path: Path = Path("./data/kau_official_posts.json")
+    notice_db_path: Path = Path("./data/kau_notice_hub.db")
     backend_cors_origins: str = "http://localhost:3000"
     openai_api_key: str | None = None
     openai_model: str = "gpt-4.1-mini"

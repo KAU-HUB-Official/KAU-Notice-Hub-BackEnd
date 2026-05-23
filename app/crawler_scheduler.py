@@ -13,6 +13,7 @@ from pathlib import Path
 from types import TracebackType
 
 from app.config import Settings
+from app.ingest import ingest_json_snapshot
 
 logger = logging.getLogger("app.crawler_scheduler")
 
@@ -88,6 +89,15 @@ def publish_crawler_snapshot(settings: Settings) -> CrawlerPublishResult | None:
                 final_path,
                 total_records,
             )
+            try:
+                ingest_json_snapshot(
+                    json_path=final_path,
+                    db_path=settings.notice_db_path,
+                )
+            except Exception:
+                logger.exception(
+                    "ingest into SQLite failed; serving will fall back to JSON"
+                )
             return CrawlerPublishResult(
                 output_path=final_path,
                 total_records=total_records,

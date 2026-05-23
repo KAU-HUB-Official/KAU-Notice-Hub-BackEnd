@@ -4,8 +4,10 @@ import pytest
 
 from app import chat_service
 from app.config import get_settings
+from app.repository import NoticeSearchQuery, NoticeSearchResult
 from app.schemas import ChatMessage, Notice
 from app.service import NoticeQuery, NoticeService
+from app.service_pipeline import legacy_search
 
 
 def _stub_call(*, answer: str | None = None, extracted: list[str] | None = None):
@@ -34,6 +36,9 @@ class MemoryRepository:
 
     async def get_by_id(self, notice_id: str) -> Notice | None:
         return next((notice for notice in self.notices if notice.id == notice_id), None)
+
+    async def search(self, query: NoticeSearchQuery) -> NoticeSearchResult:
+        return legacy_search(self.notices, query)
 
 
 def make_notice(notice_id: str, title: str, content: str = "본문") -> Notice:

@@ -7,8 +7,9 @@
 
 - FastAPI 서버는 공지 조회 API를 안정적으로 제공한다.
 - 크롤러 코드는 `app/crawler`에 포함하고, FastAPI lifespan에서 시작한 백그라운드 task가 주기 실행한다.
-- 크롤러 결과는 JSON 파일로 저장한다.
-- 백엔드는 JSON 파일 변경을 감지해 최신 데이터를 다시 읽는다.
+- 크롤러 결과는 JSON 파일(`NOTICE_JSON_PATH`)로 atomic하게 게시된다. JSON은 안전망/아카이브 역할이다.
+- JSON 게시 직후 `app/ingest.py`가 동일 데이터를 SQLite DB(`NOTICE_DB_PATH`)에 atomic하게 반영한다.
+- 백엔드는 SQLite DB를 읽어 응답한다. DB가 없으면 기동 시 JSON에서 자동 부트스트랩한다.
 - Redis, Celery, 별도 queue, 복잡한 worker는 MVP에서 사용하지 않는다.
 
 ## 현재 MVP 구조
@@ -21,11 +22,10 @@ FastAPI app startup
   -> 1년 초과 일반공지 삭제
   -> 선택적으로 이미지/HWP 기반 content 보강
   -> 다음 전체 스냅샷을 임시 JSON 파일로 생성
-  -> 검증 성공 시 atomic rename/replace
-  -> NOTICE_JSON_PATH 교체
-  -> FastAPI 백엔드는 다음 요청에서 mtime 변경 감지
-  -> 메모리 캐시 재로드
-  -> 최신 공지 API 응답
+  -> 검증 성공 시 atomic rename/replace로 NOTICE_JSON_PATH 교체
+  -> app/ingest.py가 동일 데이터를 임시 .db에 작성
+  -> atomic rename으로 NOTICE_DB_PATH 교체
+  -> 다음 API 요청은 새 SQLite 커넥션에서 최신 데이터 조회
 ```
 
 핵심은 **크롤링 실행을 API 요청 처리 경로 밖의 백그라운드 task로 분리**하는 것이다.

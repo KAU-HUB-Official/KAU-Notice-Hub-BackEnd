@@ -7,19 +7,9 @@ from app.classification import (
     classify_notice_audience,
     classify_notice_source_group,
     classify_notice_source_groups,
-    filter_by_audience_group,
-    filter_by_source_group,
-    get_all_audience_groups,
-    get_all_departments,
-    get_all_source_groups,
-    get_all_sources,
-    get_clean_categories,
-    normalize_filter_value,
-    should_use_source_filter,
 )
-from app.repository import NoticeRepository
-from app.schemas import Notice, NoticeFacets, NoticeListResult
-from app.search import filter_notices, rank_notices
+from app.repository import NoticeRepository, NoticeSearchQuery
+from app.schemas import Notice, NoticeListResult
 
 
 @dataclass(frozen=True)
@@ -56,74 +46,44 @@ class NoticeService:
     def __init__(self, repository: NoticeRepository) -> None:
         self.repository = repository
 
-    def enrich_notice(self, notice: Notice) -> Notice:
-        source_groups = classify_notice_source_groups(notice)
-        return notice.model_copy(
-            update={
-                "audienceGroup": classify_notice_audience(notice),
-                "sourceGroup": classify_notice_source_group(notice),
-                "sourceGroups": source_groups,
-            }
-        )
-
     async def list_notices(self, query: NoticeQuery) -> NoticeListResult:
-        notices = await self.repository.list_all()
         page = clamp_page(query.page)
         page_size = clamp_page_size(query.page_size)
-
-        audience_filtered = filter_by_audience_group(notices, query.audience_group)
-        source_groups = get_all_source_groups(audience_filtered)
-        normalized_source_group = normalize_filter_value(query.source_group)
-        effective_source_group = (
-            normalized_source_group
-            if normalized_source_group and normalized_source_group in source_groups
-            else None
+        result = await self.repository.search(
+            NoticeSearchQuery(
+                q=query.q,
+                audience_group=query.audience_group,
+                source_group=query.source_group,
+                source=query.source,
+                category=query.category,
+                department=query.department,
+                page=page,
+                page_size=page_size,
+            )
         )
-        source_group_filtered = filter_by_source_group(
-            audience_filtered,
-            effective_source_group,
-        )
-        source_filter_enabled = should_use_source_filter(query.audience_group)
-
-        facets = NoticeFacets(
-            audienceGroups=get_all_audience_groups(notices),
-            sourceGroups=source_groups,
-            sources=(
-                get_all_sources(source_group_filtered, query.audience_group, effective_source_group)
-                if source_filter_enabled
-                else []
-            ),
-            categories=get_clean_categories(source_group_filtered),
-            departments=get_all_departments(source_group_filtered),
-        )
-
-        filtered = filter_notices(
-            source_group_filtered,
-            q=query.q,
-            source=query.source if source_filter_enabled else None,
-            category=normalize_filter_value(query.category),
-            department=normalize_filter_value(query.department),
-        )
-
-        ranked = rank_notices(filtered, query.q)
-        total = len(ranked)
-        total_pages = max(1, ceil(total / page_size))
+        total_pages = max(1, ceil(result.total / page_size))
         current_page = min(page, total_pages)
-        start = (current_page - 1) * page_size
-        end = start + page_size
 
         return NoticeListResult(
-            items=[self.enrich_notice(item.notice) for item in ranked[start:end]],
-            total=total,
+            items=result.items,
+            total=result.total,
             page=current_page,
             pageSize=page_size,
             totalPages=total_pages,
-            facets=facets,
+            facets=result.facets,
         )
 
     async def get_notice_by_id(self, notice_id: str) -> Notice | None:
         notice = await self.repository.get_by_id(notice_id)
-        return self.enrich_notice(notice) if notice else None
+        if notice is None or notice.audienceGroup is not None:
+            return notice
+        return notice.model_copy(
+            update={
+                "audienceGroup": classify_notice_audience(notice),
+                "sourceGroup": classify_notice_source_group(notice),
+                "sourceGroups": classify_notice_source_groups(notice),
+            }
+        )
 
     async def find_relevant_notices(
         self,
@@ -163,4 +123,3 @@ class NoticeService:
             )
         )
         return latest.items
-

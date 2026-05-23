@@ -1,6 +1,6 @@
 # KAU Notice Hub BackEnd
 
-FastAPI 기반 공지 API 서버다. MVP 저장소는 JSON 파일이며, `app/crawler`의 크롤러가 전체 스냅샷 JSON을 atomic 교체한다.
+FastAPI 기반 공지 API 서버다. 크롤러는 전체 스냅샷 JSON을 atomic 교체하고, 그 직후 `app/ingest.py`가 SQLite DB(`NOTICE_DB_PATH`)에 반영한다. API는 SQLite를 읽고, DB가 없으면 JSON에서 자동 부트스트랩한다.
 
 ## 문서
 

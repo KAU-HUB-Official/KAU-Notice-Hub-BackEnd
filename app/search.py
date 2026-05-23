@@ -101,6 +101,10 @@ def build_search_text(notice: Notice) -> str:
     return "\n".join(value for value in values if value).lower()
 
 
+def compact_search_text(searchable_text: str) -> str:
+    return compact(searchable_text)
+
+
 def recency_boost(notice_date: str, today: date_cls | None = None) -> int:
     parsed = datetime.fromisoformat(notice_date).date()
     reference = today or date_cls.today()

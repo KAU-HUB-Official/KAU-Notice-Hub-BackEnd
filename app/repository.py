@@ -1,17 +1,37 @@
 from __future__ import annotations
 
 import json
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Protocol
 
 from app.config import get_settings
 from app.normalize import normalize_notice
-from app.schemas import Notice
+from app.schemas import Notice, NoticeFacets
 
 
 class NoticeRepositoryError(RuntimeError):
     pass
+
+
+@dataclass(frozen=True)
+class NoticeSearchQuery:
+    q: str | None = None
+    audience_group: str | None = None
+    source_group: str | None = None
+    source: str | None = None
+    category: str | None = None
+    department: str | None = None
+    page: int = 1
+    page_size: int = 20
+
+
+@dataclass(frozen=True)
+class NoticeSearchResult:
+    items: list[Notice]
+    total: int
+    facets: NoticeFacets
+    effective_source_group: str | None = None
 
 
 class NoticeRepository(Protocol):
@@ -19,6 +39,9 @@ class NoticeRepository(Protocol):
         ...
 
     async def get_by_id(self, notice_id: str) -> Notice | None:
+        ...
+
+    async def search(self, query: NoticeSearchQuery) -> NoticeSearchResult:
         ...
 
 
@@ -42,6 +65,14 @@ class JsonNoticeRepository:
     async def get_by_id(self, notice_id: str) -> Notice | None:
         notices = await self.list_all()
         return next((notice for notice in notices if notice.id == notice_id), None)
+
+    async def search(self, query: NoticeSearchQuery) -> NoticeSearchResult:
+        # In-memory fallback: delegate to legacy in-process pipeline.
+        # Imported lazily to avoid circular import with service module.
+        from app.service_pipeline import legacy_search
+
+        notices = await self.list_all()
+        return legacy_search(notices, query)
 
     def _read_and_normalize(self) -> CacheEntry:
         try:
@@ -82,4 +113,3 @@ class JsonNoticeRepository:
             notices=notices,
         )
         return self._cache
-

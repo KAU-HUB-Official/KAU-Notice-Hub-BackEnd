@@ -29,6 +29,7 @@ def test_publish_crawler_snapshot_replaces_file_after_validation(
     result = publish_crawler_snapshot(
         Settings(
             notice_json_path=final_path,
+            notice_db_path=tmp_path / "notices.db",
             crawler_max_pages=7,
             crawler_min_records=1,
             crawler_min_retain_ratio=0.5,
@@ -61,6 +62,7 @@ def test_publish_crawler_snapshot_keeps_file_on_large_record_drop(
         publish_crawler_snapshot(
             Settings(
                 notice_json_path=final_path,
+                notice_db_path=tmp_path / "notices.db",
                 crawler_min_records=1,
                 crawler_min_retain_ratio=0.5,
             )
@@ -91,6 +93,7 @@ def test_publish_crawler_snapshot_allows_drop_when_old_records_are_stale(
     result = publish_crawler_snapshot(
         Settings(
             notice_json_path=final_path,
+            notice_db_path=tmp_path / "notices.db",
             crawler_min_records=1,
             crawler_min_retain_ratio=0.5,
         )

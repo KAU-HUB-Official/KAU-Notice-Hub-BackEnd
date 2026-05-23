@@ -8,6 +8,10 @@ from app.schemas import Notice
 from app.service import NoticeService
 
 
+from app.repository import NoticeSearchQuery, NoticeSearchResult
+from app.service_pipeline import legacy_search
+
+
 class MemoryRepository:
     def __init__(self, notices: list[Notice]) -> None:
         self.notices = notices
@@ -18,6 +22,9 @@ class MemoryRepository:
     async def get_by_id(self, notice_id: str) -> Notice | None:
         return next((notice for notice in self.notices if notice.id == notice_id), None)
 
+    async def search(self, query: NoticeSearchQuery) -> NoticeSearchResult:
+        return legacy_search(self.notices, query)
+
 
 class FailingRepository:
     async def list_all(self) -> list[Notice]:
@@ -25,6 +32,9 @@ class FailingRepository:
 
     async def get_by_id(self, notice_id: str) -> Notice | None:
         raise NoticeRepositoryError(f"private path leaked for {notice_id}: /data/kau_official_posts.json")
+
+    async def search(self, query: NoticeSearchQuery) -> NoticeSearchResult:
+        raise NoticeRepositoryError("private path leaked: /data/kau_official_posts.json")
 
 
 def make_notice(

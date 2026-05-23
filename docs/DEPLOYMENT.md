@@ -6,11 +6,56 @@
 현재 MVP 구성:
 
 - FastAPI API 서버
-- JSON 파일 저장소
+- SQLite DB(`NOTICE_DB_PATH`) — API 응답을 만드는 운영 저장소
+- JSON 파일 — 크롤러가 atomic 게시하는 전체 스냅샷, SQLite 부트스트랩 원천이자 백업
 - `app/crawler`에 포함된 크롤러와 API 프로세스 내 백그라운드 스케줄러
-- 공유 데이터 volume의 `/data/kau_official_posts.json`
+- 공유 데이터 volume의 `/data/kau_official_posts.json`와 `/data/kau_notice_hub.db`
 - 선택적 Caddy reverse proxy
 - GitHub Actions 기반 Lightsail 자동 배포
+
+## Lightsail 인스턴스 메모리 가드
+
+운영 인스턴스(Lightsail Mem 911MiB)에서 OOM kill을 막기 위한 두 가지 안전망. **코드 변경과 별개로 1회만 실행**한다.
+
+### swap 추가 (D)
+
+```bash
+sudo fallocate -l 2G /swapfile
+sudo chmod 600 /swapfile
+sudo mkswap /swapfile && sudo swapon /swapfile
+echo '/swapfile none swap sw 0 0' | sudo tee -a /etc/fstab
+free -h   # Swap: 2.0Gi 확인
+```
+
+### systemd 메모리 가드 (E)
+
+API systemd unit (또는 docker-compose의 `mem_limit`/`memswap_limit`)에 다음을 추가하면 OOM kill 전에 cgroup이 회수 압박을 가한다. systemd 사용 시 unit 파일에 추가하고 `sudo systemctl daemon-reload && sudo systemctl restart <unit>`.
+
+```ini
+[Service]
+Restart=always
+RestartSec=2
+MemoryHigh=600M
+MemoryMax=750M
+```
+
+docker-compose 사용 시 `api` 서비스에 추가:
+
+```yaml
+deploy:
+  resources:
+    limits:
+      memory: 750M
+```
+
+## 배포 후 DB 마이그레이션
+
+스키마 버전이 바뀌면(`SCHEMA_VERSION` 상수) 첫 부팅 시 자동으로 기존 DB를 삭제하고 JSON에서 재 ingest한다. 수동 강제 재 ingest는 다음 한 줄:
+
+```bash
+rm -f /data/kau_notice_hub.db /data/kau_notice_hub.db.lock
+# 다음 요청 또는 다음 크롤러 publish에 자동 재생성
+```
 
 ## 로컬 실행
 

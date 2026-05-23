@@ -3,11 +3,14 @@
 ## 범위
 이 문서는 KAU Notice Hub 독립 백엔드의 데이터 모델을 정의한다.
 
-초기 MVP 백엔드는 단순하게 시작한다.
+저장 구조:
 
-- 실행 저장소는 크롤러가 생성한 JSON 파일로 시작한다.
+- 크롤러는 전체 공지 스냅샷 JSON 파일(`NOTICE_JSON_PATH`)을 atomic하게 게시한다. 안전망/아카이브 역할.
+- JSON 게시 직후 `app/ingest.py`가 동일 데이터를 SQLite DB(`NOTICE_DB_PATH`)에 atomic하게 반영한다.
+- API는 SQLite DB(`app/sqlite_repository.py`)에서 응답을 만든다.
+- DB 파일이 없으면 부팅 시 JSON에서 자동 부트스트랩하고, JSON도 없으면 `JsonNoticeRepository`로 폴백한다.
 
-이 ERD는 JSON 저장소에서 정규화해 사용하는 논리 모델을 설명한다.
+이 ERD는 SQLite의 실제 스키마와 API 응답으로의 매핑을 정의한다.
 
 ## 핵심 개념
 | 개념 | 설명 |
@@ -229,10 +232,28 @@ interface Notice {
 | `tags` | MVP에서는 category와 sources에서 파생 |
 | `attachments` | `notice_attachments` 행 목록 |
 
-## MVP JSON 형태
-크롤러 JSON은 초기 저장 포맷으로 유지할 수 있다.
+## 실제 SQLite 스키마
 
-백엔드 서버가 실행 중이어도 크롤러는 별도 주기 작업으로 실행할 수 있다. 크롤러 결과 파일 갱신, atomic 교체, 백엔드 캐시 재로드 정책은 [CRAWLING_UPDATE.md](CRAWLING_UPDATE.md)를 따른다.
+`app/db.py`가 다음 테이블을 정의하며, `app/ingest.py`가 JSON 스냅샷을 읽어 atomic하게 다시 만든다. 스키마 버전은 `db.SCHEMA_VERSION`이고 `schema_meta` 테이블에 저장된다. 버전이 안 맞으면 부팅 시 자동 재 ingest.
+
+- `notices(id PK, title, content, summary, url, category, department, published_at, audience_group, source_group, searchable_text, searchable_compact)`
+- `notice_sources(notice_id, source_name, source_order)` — 한 공지의 여러 출처
+- `notice_source_groups(notice_id, source_group, source_group_order)` — 한 공지의 여러 중분류
+- `notice_attachments(notice_id, attachment_order, name, url)` — 첨부파일 순서 유지
+- `notice_tags(notice_id, tag, tag_order)` — 정규화 단계에서 만들어진 태그
+- `schema_meta(key, value)` — 스키마 버전 등 메타데이터
+
+핵심 인덱스:
+
+- `notices(published_at DESC)`, `notices(audience_group)`, `notices(source_group)`, `notices(category)`, `notices(department)`
+- `notice_sources(source_name)`, `notice_source_groups(source_group)`
+
+분류값(`audience_group`, `source_groups`)은 ingest 시점에 `app/classification.py`로 계산해 컬럼/테이블에 영구 저장한다. API는 SQL `WHERE` + `LIMIT/OFFSET`로 페이지네이션·필터링을 수행한다. 검색(`q`)은 `searchable_text` LIKE로 candidate를 가져오고 Python에서 가중 랭킹.
+
+## MVP JSON 형태
+크롤러 JSON은 SQLite의 원천 데이터 포맷으로 유지된다.
+
+백엔드 서버가 실행 중이어도 크롤러는 별도 주기 작업으로 실행할 수 있다. 크롤러 결과 파일 갱신, atomic 교체, SQLite 동기화 정책은 [CRAWLING_UPDATE.md](CRAWLING_UPDATE.md)를 따른다.
 
 권장 원천 레코드:
 

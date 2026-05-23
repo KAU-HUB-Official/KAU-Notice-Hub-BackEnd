@@ -106,7 +106,7 @@ def _fill_missing_content_from_attachments(post: Post) -> None:
         labels.append(label)
 
     if labels:
-        post.content = "[첨부파일 공지]\n" + "\n".join(f"- {label}" for label in labels)
+        post.content = "**[첨부파일 공지]**\n\n" + "\n".join(f"- {label}" for label in labels)
 
 
 def _asset_labels(assets: list[dict]) -> list[str]:
@@ -137,14 +137,20 @@ def _fill_missing_content_from_body_assets(
         return
 
     if inline_images:
-        lines = [f"[이미지 본문] 텍스트 본문 없음 (이미지 {len(inline_images)}개)"]
-        lines.extend(f"- {label}" for label in _asset_labels(inline_images))
+        labels = _asset_labels(inline_images)
+        lines = [f"**[이미지 본문]** 텍스트 본문 없음 (이미지 {len(inline_images)}개)"]
+        if labels:
+            lines.append("")
+            lines.extend(f"- {label}" for label in labels)
         post.content = "\n".join(lines)
         return
 
     if inline_embeds:
-        lines = [f"[동영상 본문] 텍스트 본문 없음 (동영상 {len(inline_embeds)}개)"]
-        lines.extend(f"- {label}" for label in _asset_labels(inline_embeds))
+        labels = _asset_labels(inline_embeds)
+        lines = [f"**[동영상 본문]** 텍스트 본문 없음 (동영상 {len(inline_embeds)}개)"]
+        if labels:
+            lines.append("")
+            lines.extend(f"- {label}" for label in labels)
         post.content = "\n".join(lines)
 
 

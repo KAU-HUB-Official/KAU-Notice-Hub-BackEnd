@@ -5,7 +5,6 @@ from datetime import datetime, timezone
 from urllib.parse import urljoin, urlparse
 
 from bs4 import BeautifulSoup
-from bs4.element import NavigableString, Tag
 
 from ..models.post import Post
 from ..parsers.base_parser import BaseParser
@@ -95,7 +94,7 @@ class KAULMSParser(BaseParser):
         soup = BeautifulSoup(html, "html.parser")
 
         title = self._extract_title(soup)
-        content = self._extract_content_text(soup)
+        content = self._extract_content(soup, detail_url)
         published_at = self._extract_published_at(soup)
         category_raw = self._extract_category(soup)
         attachments = self._extract_attachments(soup, detail_url)
@@ -118,45 +117,11 @@ class KAULMSParser(BaseParser):
             return ""
         return self.normalize_whitespace(node.get_text(" ", strip=True))
 
-    def _extract_content_text(self, soup: BeautifulSoup) -> str:
+    def _extract_content(self, soup: BeautifulSoup, detail_url: str) -> str:
         content_node = soup.select_one("div.ubboard_view .content .text_to_html")
         if not content_node:
             content_node = soup.select_one("div.ubboard_view .content")
-        if not content_node:
-            return ""
-
-        lines: list[str] = []
-
-        for child in content_node.children:
-            if isinstance(child, NavigableString):
-                text = self.normalize_whitespace(str(child))
-                if text:
-                    lines.append(text)
-                continue
-
-            if not isinstance(child, Tag):
-                continue
-
-            if child.name == "br":
-                lines.append("")
-                continue
-
-            text = self.normalize_whitespace(child.get_text(" ", strip=True))
-            if text:
-                lines.append(text)
-
-        if lines:
-            return self.normalize_newlines("\n".join(lines))
-
-        text = self.normalize_whitespace(content_node.get_text(" ", strip=True))
-        if text:
-            return self.normalize_newlines(text)
-
-        image_count = len(content_node.select("img"))
-        if image_count > 0:
-            return f"[이미지 본문] 텍스트 본문 없음 (이미지 {image_count}개)"
-
-        return ""
+        return self.render_content_markdown(content_node, base_url=detail_url)
 
     def _extract_published_at(self, soup: BeautifulSoup) -> str | None:
         for node in soup.select("div.ubboard_view .date, div.ubboard_view .writer"):

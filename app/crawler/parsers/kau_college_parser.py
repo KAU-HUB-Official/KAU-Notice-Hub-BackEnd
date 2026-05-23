@@ -118,7 +118,7 @@ class KAUCollegeParser(BaseParser):
 
         title = self.normalize_whitespace(str(result.get("nttSj") or ""))
         content_html = str(result.get("nttCn") or "")
-        content = self._extract_content_text(content_html)
+        content = self._extract_content(content_html, detail_url)
 
         published_at = self._extract_published_at(str(result.get("frstRegisterPnttm") or ""))
 
@@ -155,45 +155,13 @@ class KAUCollegeParser(BaseParser):
             return data
         return None
 
-    def _extract_content_text(self, content_html: str) -> str:
+    def _extract_content(self, content_html: str, detail_url: str) -> str:
         if not content_html.strip():
             return ""
 
+        # nttCn 필드는 HTML 조각이므로 BeautifulSoup으로 감싼 뒤 markdown으로 변환한다.
         soup = BeautifulSoup(content_html, "html.parser")
-
-        # 본문 텍스트에서 불필요한 태그는 제거한다.
-        for tag in soup(["script", "style"]):
-            tag.decompose()
-
-        for br in soup.find_all("br"):
-            br.replace_with("\n")
-
-        raw_lines = [
-            self.normalize_whitespace(line)
-            for line in soup.get_text("\n", strip=True).split("\n")
-        ]
-        lines = [line for line in raw_lines if line]
-
-        if lines:
-            return self.normalize_newlines("\n".join(lines))
-
-        # 이미지 본문 fallback
-        image_alts: list[str] = []
-        image_count = 0
-        for img in soup.select("img"):
-            image_count += 1
-            alt = self.normalize_whitespace(str(img.get("alt") or ""))
-            if alt:
-                image_alts.append(alt)
-
-        if image_alts:
-            deduped = list(dict.fromkeys(image_alts))
-            return "\n".join(f"[이미지] {alt}" for alt in deduped)
-
-        if image_count > 0:
-            return f"[이미지 본문] 텍스트 본문 없음 (이미지 {image_count}개)"
-
-        return ""
+        return self.render_content_markdown(soup, base_url=detail_url)
 
     def _extract_published_at(self, raw_datetime: str) -> str | None:
         match = re.search(r"(\d{4})[./-](\d{1,2})[./-](\d{1,2})", raw_datetime)

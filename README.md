@@ -1,6 +1,6 @@
 # KAU Notice Hub BackEnd
 
-FastAPI 기반 공지 API 서버다. 크롤러는 전체 스냅샷 JSON을 atomic 교체하고, 그 직후 `app/ingest.py`가 SQLite DB(`NOTICE_DB_PATH`)에 반영한다. API는 SQLite를 읽고, DB가 없으면 JSON에서 자동 부트스트랩한다.
+FastAPI 기반 공지 API 서버다. 크롤러는 전체 스냅샷 JSON을 atomic 교체하고, 그 직후 `app/ingest.py`가 SQLite DB(`NOTICE_DB_PATH`)에 반영한다. API는 SQLite를 읽고, DB가 없으면 JSON에서 자동 부트스트랩한다. 공지 `content`는 Markdown 문자열로 저장되며, 프론트엔드는 Markdown renderer로 상세 페이지를 그린다.
 
 ## 문서
 
@@ -79,6 +79,18 @@ GitHub Actions의 `CI / test`는 push와 pull request에서 실행된다. `main`
 NOTICE_JSON_PATH=./data/kau_official_posts.json \
 bash scripts/run_incremental_crawl_publish.sh
 ```
+
+## 기존 공지 본문을 Markdown으로 일괄 재파싱
+
+신규 크롤은 자동으로 Markdown 본문을 만들지만 마이그레이션 이전에 수집된 공지는 plain text다. 기존 JSON의 모든 공지를 detail 페이지에서 다시 fetch 후 새 파서로 재파싱해 `content`만 Markdown으로 교체:
+
+```bash
+# in-place (atomic rename, 안전)
+.venv/bin/python -m scripts.refresh_markdown_content \
+  --input data/kau_official_posts.json --sleep 0.3
+```
+
+`--limit N` 옵션으로 처음 N건만 시범 실행, `--sleep` 초로 KAU 서버 요청 간격을 조절한다. 약 2,000건 기준 0.3s 간격으로 20–30분 소요. 실패한 공지는 기존 content를 유지하므로 중간에 끊겨도 안전.
 
 ## 내장 크롤러 스케줄러
 

@@ -5,7 +5,6 @@ from datetime import datetime, timezone
 from urllib.parse import urlencode, urljoin, urlparse
 
 from bs4 import BeautifulSoup
-from bs4.element import NavigableString, Tag
 
 from ..config import LIBRARY_SOURCE_NAME, LIBRARY_SOURCE_TYPE
 from ..models.post import Post
@@ -103,7 +102,7 @@ class KAULibraryParser(BaseParser):
         soup = BeautifulSoup(html, "html.parser")
 
         title = self._extract_title(soup)
-        content = self._extract_content_text(soup)
+        content = self._extract_content(soup, detail_url)
         published_at = self._extract_published_at(soup)
         category_raw = self._extract_category(soup)
         attachments = self._extract_attachments(soup, detail_url)
@@ -127,57 +126,10 @@ class KAULibraryParser(BaseParser):
             return ""
         return self.normalize_whitespace(node.get_text(" ", strip=True))
 
-    def _extract_content_text(self, soup: BeautifulSoup) -> str:
+    def _extract_content(self, soup: BeautifulSoup, detail_url: str) -> str:
         # 상세 본문은 div.view_content
         content_node = soup.select_one("div.view_content")
-        if not content_node:
-            return ""
-
-        lines: list[str] = []
-
-        for child in content_node.children:
-            if isinstance(child, NavigableString):
-                text = self.normalize_whitespace(str(child))
-                if text:
-                    lines.append(text)
-                continue
-
-            if not isinstance(child, Tag):
-                continue
-
-            if child.name == "br":
-                lines.append("")
-                continue
-
-            text = self.normalize_whitespace(child.get_text(" ", strip=True))
-            if text:
-                lines.append(text)
-
-        if lines:
-            return self.normalize_newlines("\n".join(lines))
-
-        text = self.normalize_whitespace(content_node.get_text(" ", strip=True))
-        if text:
-            return self.normalize_newlines(text)
-
-        image_titles: list[str] = []
-        image_count = 0
-        for img in content_node.select("img"):
-            image_count += 1
-            alt = self.normalize_whitespace(
-                str(img.get("alt") or img.get("title") or "")
-            )
-            if alt:
-                image_titles.append(alt)
-
-        if image_titles:
-            deduped = list(dict.fromkeys(image_titles))
-            return "\n".join(f"[이미지] {alt}" for alt in deduped)
-
-        if image_count > 0:
-            return f"[이미지 본문] 텍스트 본문 없음 (이미지 {image_count}개)"
-
-        return ""
+        return self.render_content_markdown(content_node, base_url=detail_url)
 
     def _extract_published_at(self, soup: BeautifulSoup) -> str | None:
         # 작성일은 sc_view_header의 meta(ul > li) 내 날짜 문자열로 제공된다.

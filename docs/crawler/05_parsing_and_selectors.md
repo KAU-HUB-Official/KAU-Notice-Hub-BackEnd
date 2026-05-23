@@ -1,5 +1,19 @@
 # 파싱 규칙과 셀렉터
 
+## 본문 추출 공용 정책
+
+모든 파서는 본문 컨테이너를 selector로 찾은 뒤 `BaseParser.render_content_markdown(node, base_url=detail_url)`에 위임해 **Markdown** 문자열을 반환한다. 이 메서드는 `app/crawler/utils/markdown_converter.py`의 `markdownify` 래퍼를 사용한다.
+
+규칙:
+
+- 헤딩은 ATX(`# ## ###`), 목록은 `-`/`1.`, 표는 GFM 표 문법으로 변환된다.
+- `<a href>`, `<img src>` 등 상대 URL은 `detail_url` 기준 절대 URL로 치환된다.
+- `<script>`, `<style>`, `<iframe>` 같은 노이즈 태그는 텍스트까지 완전히 제거된다.
+- 본문이 이미지로만 구성된 경우 `![alt](src)`만 모아 반환 (최대 10장, 초과 시 `_… 외 이미지 N장_`).
+- 본문도 이미지도 비어 있으면 빈 문자열을 반환하고, `board_crawler.py`의 fallback이 첨부/inline asset에서 `**[첨부파일 공지]**` 등 Markdown 헤더로 채운다.
+
+각 파서는 selector만 책임지므로 아래 절은 selector 정의에 집중한다.
+
 ## KAU 공식 공지 (`kau_official_parser.py`)
 
 ### 목록

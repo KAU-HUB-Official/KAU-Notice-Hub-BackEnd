@@ -89,7 +89,7 @@ erDiagram
 | --- | --- | --- | --- |
 | `id` | `varchar` | 예 | 안정적인 공지 ID. 크롤러가 제공하지 않으면 제목/날짜/출처 기반으로 생성하고 중복을 보정한다. |
 | `title` | `text` | 예 | 공지 제목. fallback: `제목 없음 공지 N`. |
-| `content` | `text` | 예 | 공지 본문. fallback: `본문 정보가 비어 있습니다.` |
+| `content` | `text` | 예 | 공지 본문. **Markdown(CommonMark + GFM 표) 문자열.** 헤딩(`#`), 목록(`-`, `1.`), 표, 링크(`[text](url)`), 이미지(`![alt](url)`)를 사용한다. 본문이 비면 `**[이미지 본문]**`, `**[동영상 본문]**`, `**[첨부파일 공지]**` 같은 fallback 헤더로 시작한다. 마지막 fallback: `본문 정보가 비어 있습니다.` |
 | `summary` | `text` | 아니오 | 요약. 없으면 본문에서 생성한다. |
 | `url` | `text` | 아니오 | 원문 공지 URL. |
 | `category` | `varchar` | 아니오 | `category`, `category_raw`, `type` 중 첫 번째 정규화 값. |

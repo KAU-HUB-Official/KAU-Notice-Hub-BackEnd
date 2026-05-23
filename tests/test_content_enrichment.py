@@ -153,9 +153,14 @@ def make_service(
 
 
 def test_fallback_content_detection() -> None:
+    # 기존 plain-text 형식 (마이그레이션 이전 JSON에 남아 있을 수 있음)
     assert is_fallback_content("[이미지 본문] 텍스트 본문 없음 (이미지 1개)")
     assert is_fallback_content("[동영상 본문] 텍스트 본문 없음 (동영상 1개)")
     assert is_fallback_content("[첨부파일 공지]\n- notice.hwp")
+    # 신규 Markdown 형식
+    assert is_fallback_content("**[이미지 본문]** 텍스트 본문 없음 (이미지 1개)")
+    assert is_fallback_content("**[동영상 본문]** 텍스트 본문 없음 (동영상 1개)")
+    assert is_fallback_content("**[첨부파일 공지]**\n\n- notice.hwp")
     assert is_fallback_content("본문 정보가 비어 있습니다.")
     assert not is_fallback_content("수강신청 기간 안내 본문입니다.")
 
@@ -271,7 +276,7 @@ def test_missing_content_uses_inline_image_fallback_before_required_check() -> N
         inline_embeds=[],
     )
 
-    assert post.content.startswith("[이미지 본문] 텍스트 본문 없음 (이미지 1개)")
+    assert post.content.startswith("**[이미지 본문]** 텍스트 본문 없음 (이미지 1개)")
     assert "등록 안내 이미지" in post.content
 
 
@@ -301,7 +306,7 @@ def test_missing_content_uses_inline_embed_fallback_before_required_check() -> N
         ],
     )
 
-    assert post.content.startswith("[동영상 본문] 텍스트 본문 없음 (동영상 1개)")
+    assert post.content.startswith("**[동영상 본문]** 텍스트 본문 없음 (동영상 1개)")
     assert "안내 영상" in post.content
 
 

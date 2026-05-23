@@ -77,7 +77,7 @@ class KAUCardNoticeParser(BaseParser):
         soup = BeautifulSoup(html, "html.parser")
 
         title = self._extract_title(soup)
-        content = self._extract_content_text(soup)
+        content = self._extract_content(soup, detail_url)
         published_at = self._extract_published_at(soup)
         category_raw = self._extract_category(soup)
         attachments = self._extract_attachments(soup, detail_url)
@@ -100,43 +100,9 @@ class KAUCardNoticeParser(BaseParser):
             return ""
         return self.normalize_whitespace(node.get_text(" ", strip=True))
 
-    def _extract_content_text(self, soup: BeautifulSoup) -> str:
+    def _extract_content(self, soup: BeautifulSoup, detail_url: str) -> str:
         content_node = soup.select_one("div.view_conts")
-        if not content_node:
-            return ""
-
-        for tag in content_node(["script", "style"]):
-            tag.decompose()
-
-        for br in content_node.find_all("br"):
-            br.replace_with("\n")
-
-        raw_lines = [
-            self.normalize_whitespace(line)
-            for line in content_node.get_text("\n", strip=True).split("\n")
-        ]
-        lines = [line for line in raw_lines if line]
-        if lines:
-            return self.normalize_newlines("\n".join(lines))
-
-        image_labels: list[str] = []
-        image_count = 0
-        for img in content_node.select("img"):
-            image_count += 1
-            label = self.normalize_whitespace(
-                str(img.get("alt") or img.get("title") or "")
-            )
-            if label:
-                image_labels.append(label)
-
-        if image_labels:
-            deduped = list(dict.fromkeys(image_labels))
-            return "\n".join(f"[image] {label}" for label in deduped)
-
-        if image_count > 0:
-            return f"[image content] no text body (images: {image_count})"
-
-        return ""
+        return self.render_content_markdown(content_node, base_url=detail_url)
 
     def _extract_published_at(self, soup: BeautifulSoup) -> str | None:
         for node in soup.select("div.view_header ul.view_info li"):

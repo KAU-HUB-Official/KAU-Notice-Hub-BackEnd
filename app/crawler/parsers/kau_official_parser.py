@@ -5,7 +5,6 @@ from datetime import datetime, timezone
 from urllib.parse import urljoin, urlparse
 
 from bs4 import BeautifulSoup
-from bs4.element import NavigableString, Tag
 
 from ..config import SOURCE_NAME, SOURCE_TYPE
 from ..models.post import Post
@@ -101,7 +100,7 @@ class KAUOfficialParser(BaseParser):
         soup = BeautifulSoup(html, "html.parser")
 
         title = self._extract_title(soup)
-        content = self._extract_content_text(soup)
+        content = self._extract_content(soup, detail_url)
         published_at = self._extract_published_at(soup)
         category_raw = self._extract_category(soup)
         attachments = self._extract_attachments(soup, detail_url)
@@ -125,69 +124,10 @@ class KAUOfficialParser(BaseParser):
             return ""
         return self.normalize_whitespace(title_node.get_text(" ", strip=True))
 
-    def _extract_content_text(self, soup: BeautifulSoup) -> str:
-        # 상세 본문은 div.view_conts 영역이다.
+    def _extract_content(self, soup: BeautifulSoup, detail_url: str) -> str:
+        # 상세 본문은 div.view_conts 영역이다. Markdown으로 변환한다.
         content_node = soup.select_one("div.view_conts")
-        if not content_node:
-            return ""
-
-        lines: list[str] = []
-
-        # span 단위로 잘게 분할된 HTML이 많아, 직계 블록 단위로 텍스트를 합쳐 줄바꿈을 보존한다.
-        for child in content_node.children:
-            if isinstance(child, NavigableString):
-                raw_text = self.normalize_whitespace(str(child))
-                if raw_text:
-                    lines.append(raw_text)
-                continue
-
-            if not isinstance(child, Tag):
-                continue
-
-            if child.name == "br":
-                lines.append("")
-                continue
-
-            text = self.normalize_whitespace(child.get_text(" ", strip=True))
-            if text:
-                lines.append(text)
-
-        if not lines:
-            text = self.normalize_whitespace(content_node.get_text(" ", strip=True))
-            if text:
-                return self.normalize_newlines(text)
-
-            # 일부 게시글은 본문이 이미지로만 구성되어 텍스트가 비어있다.
-            image_fallback = self._extract_image_only_content(content_node)
-            if image_fallback:
-                return image_fallback
-
-            return ""
-
-        text = "\n".join(lines)
-        return self.normalize_newlines(text)
-
-    def _extract_image_only_content(self, content_node: Tag) -> str:
-        image_count = 0
-        image_alts: list[str] = []
-
-        for img in content_node.select("img"):
-            image_count += 1
-            alt = self.normalize_whitespace((img.get("alt") or "").replace("\xa0", " "))
-            if alt:
-                image_alts.append(alt)
-
-        if image_alts:
-            deduped = list(dict.fromkeys(image_alts))
-            lines = [f"[이미지] {alt}" for alt in deduped[:10]]
-            if len(deduped) > 10:
-                lines.append(f"... 외 {len(deduped) - 10}개")
-            return "\n".join(lines)
-
-        if image_count > 0:
-            return f"[이미지 본문] 텍스트 본문 없음 (이미지 {image_count}개)"
-
-        return ""
+        return self.render_content_markdown(content_node, base_url=detail_url)
 
     def _extract_published_at(self, soup: BeautifulSoup) -> str | None:
         # 작성일은 div.view_header 내 li.date 텍스트(예: 작성일2026-04-07)로 노출된다.

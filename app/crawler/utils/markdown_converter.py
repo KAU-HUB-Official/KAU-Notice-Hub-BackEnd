@@ -61,6 +61,7 @@ def html_node_to_markdown(
         bullets="-",
     )
     markdown = _normalize_emphasis(markdown)
+    markdown = _split_inline_bullets(markdown)
     return _collapse_blank_lines(markdown).strip()
 
 
@@ -146,6 +147,56 @@ _CJK_LEFT_EMPHASIS_RE = re.compile(
 _CJK_RIGHT_EMPHASIS_RE = re.compile(
     rf"(\*\*|__)([^\n*_]+?)\1(?={_CJK_PATTERN})"
 )
+
+
+# 라인 안에 박힌 bullet 후보들 — `-`, `•`, `▪`, `○`, `◇`, `◆`
+_INLINE_BULLET_CHARS = r"\-•▪○◇◆"
+
+# 다중 공백 (2+) 다음에 bullet character + 공백/탭이 오면 줄바꿈으로 정규화.
+# 예: "스토어:        • 이케아 고양점" → "스토어:\n• 이케아 고양점"
+# 직전이 비공백이어야 줄 시작과 구분.
+_MULTISPACE_BEFORE_BULLET_RE = re.compile(
+    rf"(?<=\S)[ \t]{{2,}}(?=[{_INLINE_BULLET_CHARS}][ \t])"
+)
+
+# 닫는 괄호/종결 부호 직후 (공백 없거나 한 칸) bullet character가 오면 줄바꿈.
+# 예: "(예정)- 모집 부분" → "(예정)\n- 모집 부분"
+# 정상 표현 "오늘 - 내일" 같은 패턴을 보호하려고 종결 부호 뒤에만.
+_CLOSING_BEFORE_BULLET_RE = re.compile(
+    rf"(?<=[\)\]\.!?。．])[ \t]*(?=[{_INLINE_BULLET_CHARS}][ \t])"
+)
+
+# 단어 + 바로 붙은 "- 라벨:" 또는 "- 라벨 " 패턴 → 줄바꿈 추가.
+# 예: "인턴- 인턴십 기간:" → "인턴\n- 인턴십 기간:"
+#     "12 월- 인턴십 운영" → "12 월\n- 인턴십 운영"
+# 정상 "오늘 - 내일", "2026.5 - 2026.6" 같은 표현은 dash 앞에 공백이 있어서 매치 안 됨.
+_INLINE_DASH_LABEL_RE = re.compile(
+    r"(?<=[^\s\-\d])(?=-[ \t]+[가-힣A-Za-z][가-힣A-Za-z\d]{0,14}[ \t:])"
+)
+
+
+def _split_inline_bullets(text: str) -> str:
+    """원본 HTML이 <br> 없이 &nbsp; 시퀀스로 줄바꿈을 흉내낸 경우 정규화.
+
+    markdownify가 NBSP를 일반 공백으로 보존하면서 한 단락에 모든 항목이
+    뭉쳐 나오는 케이스를 잡는다.
+    """
+    if not text:
+        return text
+
+    # NBSP(\xa0) 단독 시퀀스를 일반 공백으로
+    text = text.replace("\xa0", " ")
+
+    # 닫는 괄호/종결 부호 + bullet → 줄바꿈
+    text = _CLOSING_BEFORE_BULLET_RE.sub("\n", text)
+
+    # 다중 공백 + bullet → 줄바꿈
+    text = _MULTISPACE_BEFORE_BULLET_RE.sub("\n", text)
+
+    # 단어 + 공백 없이 "- 라벨" 패턴 → 줄바꿈
+    text = _INLINE_DASH_LABEL_RE.sub("\n", text)
+
+    return text
 
 
 def _normalize_emphasis(text: str) -> str:

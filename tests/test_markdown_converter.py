@@ -140,6 +140,74 @@ def test_normalize_cjk_adjacent_strong_is_unwrapped() -> None:
     assert "**" not in md
 
 
+def test_split_inline_bullets_after_multispace() -> None:
+    # <p>안에 &nbsp; 시퀀스로 들여쓰기를 흉내낸 패턴
+    node = _node(
+        "<div><p>스토어:&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;"
+        "• 이케아 고양점, 이케아 강동점</p></div>"
+    )
+    md = html_node_to_markdown(node)
+    assert "스토어:" in md
+    assert "\n• 이케아 고양점" in md or "스토어:\n• 이케아 고양점" in md
+
+
+def test_split_inline_bullets_after_closing_punctuation() -> None:
+    # (예정)- 모집 부분 → 줄바꿈
+    node = _node(
+        "<div><p>모집 기간: 2026.5.15 - 6.10 (예정)- 모집 부분: 물류</p></div>"
+    )
+    md = html_node_to_markdown(node)
+    assert "(예정)\n- 모집 부분" in md
+
+
+def test_split_inline_bullets_dash_with_label() -> None:
+    # 단어 + - + 라벨: → 줄바꿈
+    node = _node(
+        "<div><p>물류/ 세일즈/ 이케아 푸드 인턴- 인턴십 기간: 2026 년 7 월</p></div>"
+    )
+    md = html_node_to_markdown(node)
+    assert "인턴\n- 인턴십 기간" in md
+
+
+def test_split_inline_bullets_preserves_date_ranges() -> None:
+    # 정상 dash 범위 표현은 깨면 안 됨
+    cases = [
+        "<p>기간: 2026.5 - 6.10</p>",
+        "<p>오늘 - 내일</p>",
+        "<p>2026 년 7 월 - 12 월</p>",
+        "<p>- 모집 기간: 5월</p>",  # 라인 시작 정상 bullet
+    ]
+    for html in cases:
+        md = html_node_to_markdown(_node(f"<div>{html}</div>"))
+        assert "\n-" not in md and "\n•" not in md, f"잘못 분리됨: {html} → {md!r}"
+
+
+def test_split_inline_bullets_user_ikea_case() -> None:
+    # 사용자가 실제로 발견한 케이스 시뮬레이션 (한 단락 통째)
+    inline = (
+        "(이케아 코리아 인턴십 - 스토어 현장에서 리테일의 기초를 배우고, "
+        "어디서든 통하는 커리어를 시작하세요.)      - 모집 기간: 2026 년 5 월 15 일 - "
+        "6 월 10 일 (예정)- 모집 부분: 물류/ 세일즈/ 이케아 푸드 인턴- 인턴십 기간: "
+        "2026 년 7 월 - 12 월- 인턴십 운영 스토어:        • 이케아 고양점, 이케아 강동점"
+        "     - 자격        • 나이, 학력, 전공, 어학 성적 무관"
+    )
+    node = _node(f"<div><p>{inline}</p></div>")
+    md = html_node_to_markdown(node)
+    # 사용자 시각으로 의미 단위가 줄바꿈으로 분리됐는지
+    for fragment in [
+        "- 모집 기간:",
+        "- 모집 부분:",
+        "- 인턴십 기간:",
+        "- 인턴십 운영 스토어:",
+        "• 이케아 고양점",
+        "- 자격",
+        "• 나이, 학력, 전공",
+    ]:
+        assert fragment in md, f"{fragment!r} 누락"
+    # 정상 dash (스토어 현장에서 -, 5 월 15 일 -, 7 월 -)는 보존
+    assert "인턴십 - 스토어" in md
+
+
 def test_normalize_keeps_well_formed_strong() -> None:
     # 양쪽 공백 + 단독 strong은 정상 렌더되므로 보존
     node = _node(

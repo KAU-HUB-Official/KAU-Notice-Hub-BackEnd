@@ -87,3 +87,67 @@ def test_make_image_only_markdown_dedupes_by_src() -> None:
 def test_make_image_only_markdown_returns_empty_when_no_src() -> None:
     soup = BeautifulSoup('<div><img alt="A"></div>', "html.parser")
     assert make_image_only_markdown(soup.select("img")) == ""
+
+
+def test_normalize_bullet_impersonation_in_strong() -> None:
+    # `<strong>-</strong>제출항목` 같은 패턴이 진짜 bullet으로 풀려야 함
+    node = _node(
+        "<div><p>아래 구글폼 항목을 작성하여 기한 내 제출해주시기 바랍니다.</p>"
+        "<p><strong>-</strong>제출항목 : 필명 / 소속 / 학번</p></div>"
+    )
+    md = html_node_to_markdown(node)
+    assert "- 제출항목 : 필명 / 소속 / 학번" in md
+    assert "**-**" not in md
+
+
+def test_normalize_various_bullet_glyphs_in_strong() -> None:
+    node = _node(
+        "<div>"
+        "<p><strong>•</strong>대상</p>"
+        "<p><strong>▪</strong>일정</p>"
+        "<p><strong>○</strong>장소</p>"
+        "</div>"
+    )
+    md = html_node_to_markdown(node)
+    for line in ["- 대상", "- 일정", "- 장소"]:
+        assert line in md, f"{line!r} not in markdown:\n{md}"
+
+
+def test_normalize_decorative_only_strong_is_stripped() -> None:
+    node = _node(
+        "<div>"
+        "<p><strong>:</strong>안녕</p>"
+        "<p><strong>  </strong>빈 강조</p>"
+        "</div>"
+    )
+    md = html_node_to_markdown(node)
+    assert ":안녕" in md
+    assert "빈 강조" in md
+    assert "**" not in md
+
+
+def test_normalize_cjk_adjacent_strong_is_unwrapped() -> None:
+    # CommonMark left/right-flanking rule을 한국어에서 위반하는 패턴
+    node = _node(
+        "<div>"
+        "<p>이것은 <strong>매우 중요한</strong>안내입니다.</p>"
+        "<p>마감<strong>5월 31일</strong>까지</p>"
+        "</div>"
+    )
+    md = html_node_to_markdown(node)
+    assert "매우 중요한안내" in md
+    assert "마감5월 31일까지" in md
+    assert "**" not in md
+
+
+def test_normalize_keeps_well_formed_strong() -> None:
+    # 양쪽 공백 + 단독 strong은 정상 렌더되므로 보존
+    node = _node(
+        "<div>"
+        "<p>이것은 <strong>매우 중요한</strong> 안내입니다.</p>"
+        "<p><strong>중요 공지</strong></p>"
+        "</div>"
+    )
+    md = html_node_to_markdown(node)
+    assert "**매우 중요한**" in md
+    assert "**중요 공지**" in md

@@ -60,6 +60,7 @@ def html_node_to_markdown(
         strip=list(_STRIP_TAGS),
         bullets="-",
     )
+    markdown = _normalize_emphasis(markdown)
     return _collapse_blank_lines(markdown).strip()
 
 
@@ -116,6 +117,66 @@ def _preprocess(html: str, *, base_url: str | None) -> str:
 def _collapse_blank_lines(text: str) -> str:
     text = text.replace("\r", "")
     return re.sub(r"\n{3,}", "\n\n", text)
+
+
+# CJK 글자 (한글/한자/히라가나/가타가나)
+_CJK_PATTERN = (
+    r"[぀-ゟ"  # Hiragana
+    r"゠-ヿ"  # Katakana
+    r"㐀-䶿"  # CJK Extension A
+    r"一-鿿"  # CJK Unified
+    r"가-힯]"  # Hangul Syllables
+)
+
+# 강조 안에 의미 있는 문자가 없는 경우(공백/기호/구두점만)
+_EMPHASIS_DECORATIVE_RE = re.compile(
+    r"(\*\*|__)\s*([\-\*•▪○◇◆▶▷※·:;,.\s]*)\s*\1"
+)
+
+# bullet 흉내 — `**-**텍스트` 같은 패턴을 실제 dash + 공백 형태로 (라인 시작 한정)
+_BULLET_LIKE_RE = re.compile(
+    r"^(\s*)(?:\*\*|__)\s*([\-•▪○])\s*(?:\*\*|__)\s*",
+    flags=re.MULTILINE,
+)
+
+# CJK 인접 강조 (CommonMark left/right flanking 위반): `한글**굵게**한글`
+_CJK_LEFT_EMPHASIS_RE = re.compile(
+    rf"(?<={_CJK_PATTERN})(\*\*|__)([^\n*_]+?)\1"
+)
+_CJK_RIGHT_EMPHASIS_RE = re.compile(
+    rf"(\*\*|__)([^\n*_]+?)\1(?={_CJK_PATTERN})"
+)
+
+
+def _normalize_emphasis(text: str) -> str:
+    """markdownify 결과에서 의미 없는/깨질 강조 마크업을 정리한다.
+
+    크롤링 원본 HTML에 ``<strong>-</strong>제출항목`` 같은 식으로 단일
+    기호만 강조한 경우, markdownify는 ``**-**제출항목``을 만들어 시각적으로
+    어색하고 CommonMark + 한국어 right-flanking rule도 깨진다.
+
+    적용 순서:
+    1. bullet 흉내(`**-**텍스트`, `**•**텍스트`)는 실제 `- 텍스트` 형태로
+    2. 공백/구두점만 들어간 강조는 강조 마크 제거 (`****`, `**: **` 등)
+    3. CJK 인접 강조는 강조 마크 제거 (어차피 렌더되지 않음)
+    """
+    if not text:
+        return text
+
+    # 1) bullet-impersonation을 진짜 dash 리스트 모양으로 풀어준다.
+    text = _BULLET_LIKE_RE.sub(r"\1- ", text)
+
+    # 2) decorative-only (공백/기호만) 강조 제거. 반복 적용해 중첩도 정리.
+    previous = None
+    while previous != text:
+        previous = text
+        text = _EMPHASIS_DECORATIVE_RE.sub(r"\2", text)
+
+    # 3) CJK 인접 강조는 raw로 풀어준다.
+    text = _CJK_LEFT_EMPHASIS_RE.sub(r"\2", text)
+    text = _CJK_RIGHT_EMPHASIS_RE.sub(r"\2", text)
+
+    return text
 
 
 def _escape_alt(value: str) -> str:

@@ -17,7 +17,8 @@ dependencies = [
 [project.optional-dependencies]
 dev = [
   "pytest>=8.0.0",
-  "httpx>=0.27.0"
+  "httpx>=0.27.0",
+  "pyyaml>=6.0"
 ]
 
 [build-system]
@@ -31,3 +32,6 @@ exclude = ["data*", "docs*", "scripts*", "tests*"]
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 pythonpath = ["."]
+markers = [
+  "eval: 운영 데이터 기반 retrieval 품질 측정 (pytest -m eval 로만 실행)"
+]

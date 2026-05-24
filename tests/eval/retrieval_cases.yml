@@ -1,0 +1,102 @@
+# 공지 검색 (retrieval) 회귀/품질 평가셋.
+#
+# 형식
+# - id: 고유 식별자
+# - question: 실제 사용자 검색어 또는 챗봇 질문
+# - filters: 백엔드 NoticeSearchQuery 필터 (선택)
+# - tags: 케이스 분류 (broad/qualifier-noise/temporal/scoped/baseline-ok)
+# - must_include_titles: 상위 10건 안에 반드시 들어와야 하는 공지의 제목 substring.
+#   substring이 retrieved.title 안에 있으면 hit으로 계산.
+# - notes: 라벨링 근거나 회귀 맥락
+#
+# 라벨링 기준 시점: data/kau_official_posts.json (~2026-05-14 스냅샷).
+# 운영 데이터가 갱신되어 정답 공지가 prune되면 must_include_titles를 재라벨링.
+
+# ---------- P0 회귀 케이스 (현재 코드에서 0건 또는 누락) ----------
+
+- id: q-001
+  question: "공모전 알려줘"
+  tags: [baseline-broken, qualifier-noise]
+  must_include_titles:
+    - "문화체육관광 인공지능"
+    - "농어촌 기본소득 시범사업 숏폼 공모전"
+    - "국가승인통계 활용 디지털콘텐츠 공모전"
+  notes: |
+    "알려줘" stop word가 phrase에 포함돼 SQL phrase AND 결합으로 0건이 됨.
+    현재 q="공모전"은 101건 매치하므로, 그 중 상위 공모전 공지가 들어와야 한다.
+
+- id: q-002
+  question: "공모전 정보 알려줘"
+  tags: [baseline-broken, qualifier-noise]
+  must_include_titles:
+    - "문화체육관광 인공지능"
+    - "농어촌 기본소득 시범사업 숏폼 공모전"
+    - "국가승인통계 활용 디지털콘텐츠 공모전"
+  notes: |
+    "정보" qualifier 추가만으로 깨지던 케이스 (사용자가 실제로 보고).
+
+- id: q-003
+  question: "6개월 이내 대회 공모전 정보 모아줘"
+  tags: [baseline-broken, temporal, qualifier-noise]
+  must_include_titles:
+    - "문화체육관광 인공지능"
+    - "농어촌 기본소득 시범사업 숏폼 공모전"
+  notes: |
+    시간 표현 "6개월 이내"가 검색어로 처리되면서 0건. 시간 필터는 별도 처리
+    필요하지만 retrieval candidate에는 들어가야 한다.
+
+- id: q-004
+  question: "기숙사 입사 신청"
+  tags: [baseline-broken, multi-term, synonym]
+  must_include_titles:
+    - "생활관 입사"
+  notes: |
+    "기숙사"라는 사용자 표현 vs 공식 "생활관" 표현 차이. 동의어 사전이
+    expansion 해야 매치된다. baseline 데이터(5/14)엔 동계방학 생활관 입사
+    추가 모집 공지 정도가 있다.
+
+- id: q-005
+  question: "대학원 입시 일정"
+  tags: [baseline-broken, multi-term]
+  must_include_titles:
+    - "일반대학원"
+  notes: |
+    대학원 입시/모집/합격자 발표 등이 매치되어야 한다.
+
+- id: q-006
+  question: "이번 학기 시험 일정"
+  tags: [baseline-broken, temporal, multi-term]
+  must_include_titles:
+    - "기말시험 안내"
+  notes: |
+    "이번 학기" 시간 표현 + "시험 일정" 다중 term이 합쳐져 0건. 시험 안내 공지 매치 필요.
+
+- id: q-007
+  question: "취업 박람회 언제 열려"
+  tags: [baseline-broken, multi-term]
+  must_include_titles:
+    - "취업"
+  notes: |
+    "취업 박람회" phrase 매치 안 되어 0건. 취업 또는 박람회 단일 매치라도 들어와야.
+
+# ---------- Baseline에서도 통과해야 하는 케이스 (회귀 가드) ----------
+
+- id: q-008
+  question: "공모전"
+  tags: [baseline-ok, broad]
+  must_include_titles:
+    - "문화체육관광 인공지능"
+    - "농어촌 기본소득 시범사업 숏폼 공모전"
+    - "국가승인통계 활용 디지털콘텐츠 공모전"
+
+- id: q-009
+  question: "수강신청"
+  tags: [baseline-ok, broad]
+  must_include_titles:
+    - "수강신청 안내"
+
+- id: q-010
+  question: "장학금"
+  tags: [baseline-ok, broad]
+  must_include_titles:
+    - "장학금"

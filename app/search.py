@@ -105,6 +105,55 @@ def compact_search_text(searchable_text: str) -> str:
     return compact(searchable_text)
 
 
+# 같은 의미군의 term들. 사용자가 한 표현만 검색해도 다른 표현이 들어간 공지가
+# 매치되도록 SQL candidate 단계에서 OR로 확장된다.
+SYNONYM_GROUPS: tuple[frozenset[str], ...] = (
+    frozenset({"기숙사", "생활관"}),
+    frozenset({"공모전", "대회", "경진대회", "공모"}),
+    frozenset({"장학", "장학금", "장학생"}),
+    frozenset({"입시", "입학", "신입생"}),
+    frozenset({"시험", "기말시험", "중간시험"}),
+    frozenset({"박람회", "설명회"}),
+    frozenset({"AI융합대", "AI융합대학", "AI융합"}),
+    frozenset({"항공경영대", "항공경영대학", "항공·경영대학"}),
+    frozenset({"공과대", "공과대학"}),
+    frozenset({"휴학", "휴학신청"}),
+    frozenset({"복학", "복학신청"}),
+    frozenset({"채용", "모집", "선발"}),
+    frozenset({"인턴", "인턴십"}),
+)
+
+
+def expand_search_terms(terms: list[str]) -> list[str]:
+    """`SYNONYM_GROUPS`에 해당하는 term을 같은 군의 다른 표현으로 확장한다.
+
+    중복은 case-insensitive 기준으로 제거하고, 원래 term 순서를 보존한다.
+    """
+    expanded: list[str] = []
+    seen: set[str] = set()
+    for term in terms:
+        if not term:
+            continue
+        lower = term.lower()
+        if lower in seen:
+            continue
+        seen.add(lower)
+        expanded.append(term)
+        matched_group: frozenset[str] | None = None
+        for group in SYNONYM_GROUPS:
+            if lower in {member.lower() for member in group}:
+                matched_group = group
+                break
+        if matched_group is None:
+            continue
+        for synonym in matched_group:
+            if synonym.lower() in seen:
+                continue
+            seen.add(synonym.lower())
+            expanded.append(synonym)
+    return expanded
+
+
 def recency_boost(notice_date: str, today: date_cls | None = None) -> int:
     parsed = datetime.fromisoformat(notice_date).date()
     reference = today or date_cls.today()

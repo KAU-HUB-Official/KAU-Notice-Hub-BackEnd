@@ -23,6 +23,7 @@ from app.schemas import Notice, NoticeAttachment, NoticeFacets
 from app.search import (
     compact,
     compact_search_text,
+    expand_search_terms,
     extract_search_terms,
     normalize_whitespace,
     rank_notices,
@@ -239,23 +240,30 @@ def _search_with_query(
 ) -> tuple[list[Notice], int]:
     normalized = normalize_whitespace(q).lower()
     compact_query = compact(normalized)
-    terms = extract_search_terms(q)
+    terms = expand_search_terms(extract_search_terms(q))
 
-    candidate_clauses = ["(n.searchable_text LIKE ? OR n.searchable_compact LIKE ?)"]
+    # phrase + 각 term을 OR로 합친다. 이전엔 AND여서 본문에 phrase가 그대로 등장하지
+    # 않으면 결과가 0건이 되는 P0 버그가 있었다.
+    candidate_or_parts: list[str] = [
+        "n.searchable_text LIKE ?",
+        "n.searchable_compact LIKE ?",
+    ]
     candidate_params: list[object] = [
         f"%{normalized}%",
         f"%{compact_query}%",
     ]
-    if terms:
-        term_clauses = []
-        for term in terms:
-            term_clauses.append("(n.searchable_text LIKE ? OR n.searchable_compact LIKE ?)")
-            candidate_params.extend([f"%{term}%", f"%{compact(term)}%"])
-        candidate_clauses.append("(" + " OR ".join(term_clauses) + ")")
+    for term in terms:
+        candidate_or_parts.append("n.searchable_text LIKE ?")
+        candidate_or_parts.append("n.searchable_compact LIKE ?")
+        candidate_params.extend([f"%{term}%", f"%{compact(term)}%"])
 
-    where_sql = " WHERE " + " AND ".join(where_clauses + candidate_clauses) if (
-        where_clauses or candidate_clauses
-    ) else ""
+    candidate_clause = "(" + " OR ".join(candidate_or_parts) + ")"
+
+    # 외부 filter(audience/source_group/...)는 AND, 키워드 매칭은 OR group.
+    filter_parts = list(where_clauses)
+    if candidate_clause:
+        filter_parts.append(candidate_clause)
+    where_sql = (" WHERE " + " AND ".join(filter_parts)) if filter_parts else ""
 
     total = conn.execute(
         f"SELECT COUNT(*) FROM notices n{where_sql}",
@@ -319,17 +327,17 @@ def _apply_text_filter(
         if not terms:
             continue
 
-        matched_count = 0
+        # 한 term이라도 매치하면 후보로 인정한다. 최종 순위는 rank_notices의
+        # 가중 점수 (title 7, summary 4, tags 3, ...) + recency boost가 결정.
+        # 이전엔 min(2, len(terms)) 빡빡한 필터가 후보를 너무 잘라냈다.
         for term in terms:
             if term in searchable:
-                matched_count += 1
-                continue
+                matched.append(notice)
+                break
             compact_term = compact(term)
             if compact_term and compact_term in compact_searchable:
-                matched_count += 1
-        required = min(2, len(terms))
-        if matched_count >= required:
-            matched.append(notice)
+                matched.append(notice)
+                break
     return matched
 
 

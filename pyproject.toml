@@ -32,6 +32,10 @@ exclude = ["data*", "docs*", "scripts*", "tests*"]
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 pythonpath = ["."]
+# 기본 실행은 eval 마크 제외. CI는 운영 데이터(data/*.db, data/*.json)가 없어
+# eval 테스트가 NoticeRepositoryError로 실패한다. 운영에서는 명시적으로
+# `pytest -m eval`로 호출한다.
+addopts = "-m 'not eval'"
 markers = [
   "eval: 운영 데이터 기반 retrieval 품질 측정 (pytest -m eval 로만 실행)"
 ]

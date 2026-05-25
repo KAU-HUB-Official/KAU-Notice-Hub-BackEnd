@@ -182,6 +182,51 @@ def test_split_inline_bullets_preserves_date_ranges() -> None:
         assert "\n-" not in md and "\n•" not in md, f"잘못 분리됨: {html} → {md!r}"
 
 
+def test_split_inline_bullets_single_space_with_safe_bullet() -> None:
+    # "자격 • 나이 • 총 경력" — 단일 공백 + • 도 분리되어야
+    node = _node(
+        "<div><p>자격 • 나이, 학력, 전공 • 총 경력 2 년 이하 • 재직 이력 없는 사람</p></div>"
+    )
+    md = html_node_to_markdown(node)
+    for line in [
+        "자격",
+        "• 나이, 학력, 전공",
+        "• 총 경력 2 년 이하",
+        "• 재직 이력 없는 사람",
+    ]:
+        assert line in md, f"{line!r} not in:\n{md}"
+
+
+def test_split_inline_bullets_label_with_safe_bullet_items() -> None:
+    # "스토어: • A, • B" 같은 라벨+항목 한 줄
+    node = _node(
+        "<div><p>인턴십 운영 스토어: • 이케아 고양점, 이케아 강동점</p></div>"
+    )
+    md = html_node_to_markdown(node)
+    assert "인턴십 운영 스토어:\n• 이케아 고양점" in md
+
+
+def test_strip_dangling_strong_markers() -> None:
+    # 라인 끝/시작에 짝 안 맞는 ** 제거
+    node = _node(
+        "<div><p>스토어 현장에서 시작하세요.) **</p>"
+        "<p>인턴십 기간: 2026 년 7 월 - 12 월**</p></div>"
+    )
+    md = html_node_to_markdown(node)
+    assert "**" not in md
+    assert "시작하세요.)" in md
+    assert "인턴십 기간: 2026 년 7 월 - 12 월" in md
+
+
+def test_strip_does_not_break_balanced_strong() -> None:
+    # markdownify가 만든 정상 strong(짝 맞춤)은 보존
+    node = _node(
+        "<div><p><strong>참여방식 : 당일 현장 참여 or 사전신청 참여</strong></p></div>"
+    )
+    md = html_node_to_markdown(node)
+    assert "**참여방식 : 당일 현장 참여 or 사전신청 참여**" in md
+
+
 def test_split_inline_bullets_user_ikea_case() -> None:
     # 사용자가 실제로 발견한 케이스 시뮬레이션 (한 단락 통째)
     inline = (

@@ -152,11 +152,20 @@ _CJK_RIGHT_EMPHASIS_RE = re.compile(
 # 라인 안에 박힌 bullet 후보들 — `-`, `•`, `▪`, `○`, `◇`, `◆`
 _INLINE_BULLET_CHARS = r"\-•▪○◇◆"
 
+# 한국어 본문에서 거의 항상 "항목 구분" 의미로 쓰이는 bullet 글자.
+# dash와 달리 단일 공백으로 분리해도 정상 표현이 깨질 위험이 낮다.
+_SAFE_BULLET_CHARS = r"•▪○◇◆"
+
 # 다중 공백 (2+) 다음에 bullet character + 공백/탭이 오면 줄바꿈으로 정규화.
-# 예: "스토어:        • 이케아 고양점" → "스토어:\n• 이케아 고양점"
-# 직전이 비공백이어야 줄 시작과 구분.
+# dash(`-`)는 "오늘 - 내일" 같은 정상 표현과 구분하려고 다중 공백 조건이 필요하다.
 _MULTISPACE_BEFORE_BULLET_RE = re.compile(
     rf"(?<=\S)[ \t]{{2,}}(?=[{_INLINE_BULLET_CHARS}][ \t])"
+)
+
+# 안전한 bullet 글자(•/▪/○ 등)는 단일 공백으로도 분리한다.
+# 예: "자격 • 나이 • 총 경력" → "자격\n• 나이\n• 총 경력"
+_SINGLE_SPACE_BEFORE_SAFE_BULLET_RE = re.compile(
+    rf"(?<=\S)[ \t]+(?=[{_SAFE_BULLET_CHARS}][ \t])"
 )
 
 # 닫는 괄호/종결 부호 직후 (공백 없거나 한 칸) bullet character가 오면 줄바꿈.
@@ -190,13 +199,35 @@ def _split_inline_bullets(text: str) -> str:
     # 닫는 괄호/종결 부호 + bullet → 줄바꿈
     text = _CLOSING_BEFORE_BULLET_RE.sub("\n", text)
 
-    # 다중 공백 + bullet → 줄바꿈
+    # 다중 공백 + dash/bullet → 줄바꿈
     text = _MULTISPACE_BEFORE_BULLET_RE.sub("\n", text)
+
+    # 단일 공백 + 안전한 bullet 글자(•/▪/○ 등) → 줄바꿈
+    text = _SINGLE_SPACE_BEFORE_SAFE_BULLET_RE.sub("\n", text)
 
     # 단어 + 공백 없이 "- 라벨" 패턴 → 줄바꿈
     text = _INLINE_DASH_LABEL_RE.sub("\n", text)
 
+    # 라인 끝/시작에 짝 안 맞는 ** 노이즈 제거 (강조 매칭이 깨진 잔재)
+    text = _strip_dangling_strong_markers(text)
+
     return text
+
+
+def _strip_dangling_strong_markers(text: str) -> str:
+    """한 라인 안의 ``**`` 개수가 홀수면 마지막 dangling marker를 제거한다.
+
+    원본 HTML에서 strong 태그가 라인을 넘어 닫히거나 markdownify가 짝을 맞추지
+    못한 결과로 라인 끝/시작에 의미 없는 ``**`` 가 남는 경우를 정리한다.
+    """
+    lines: list[str] = []
+    for line in text.split("\n"):
+        if line.count("**") % 2 == 1:
+            tail_idx = line.rfind("**")
+            if tail_idx >= 0:
+                line = (line[:tail_idx] + line[tail_idx + 2 :]).rstrip()
+        lines.append(line)
+    return "\n".join(lines)
 
 
 def _normalize_emphasis(text: str) -> str:

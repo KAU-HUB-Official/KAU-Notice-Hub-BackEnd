@@ -227,6 +227,37 @@ def test_strip_does_not_break_balanced_strong() -> None:
     assert "**참여방식 : 당일 현장 참여 or 사전신청 참여**" in md
 
 
+def test_strip_accidental_code_indent_from_footer_signature() -> None:
+    # 푸터/서명을 가운데 정렬하려고 라인 시작에 많은 공백을 넣은 케이스
+    node = _node(
+        "<div>"
+        "<p>본문 끝.</p>"
+        "<p>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;"
+        "&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;"
+        "<strong>생  활  관</strong></p>"
+        "</div>"
+    )
+    md = html_node_to_markdown(node)
+    # leading whitespace가 제거돼 코드 블록으로 인식되지 않아야
+    assert "\n    **생" not in md, "여전히 4+ space로 시작 — 코드 블록 위험"
+    # 다중 공백이 collapse되더라도 strong이 살아 있어야
+    assert "**생" in md and "활" in md and "관**" in md
+
+
+def test_strip_accidental_code_indent_preserves_list_continuation() -> None:
+    # numbered list item 안의 sub-continuation은 보존 (앞이 빈 줄 아니므로)
+    node = _node(
+        "<div>"
+        "<p>3. 내용 : 도시락 배부"
+        "<br />&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;"
+        "&nbsp;&nbsp;&nbsp;&nbsp;* 외국인 학생 우선</p>"
+        "</div>"
+    )
+    md = html_node_to_markdown(node)
+    # sub-item 들여쓰기는 그대로 (앞 라인이 빈 줄이 아님)
+    assert "* 외국인 학생 우선" in md
+
+
 def test_split_inline_bullets_user_ikea_case() -> None:
     # 사용자가 실제로 발견한 케이스 시뮬레이션 (한 단락 통째)
     inline = (

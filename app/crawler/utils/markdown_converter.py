@@ -211,7 +211,23 @@ def _split_inline_bullets(text: str) -> str:
     # 라인 끝/시작에 짝 안 맞는 ** 노이즈 제거 (강조 매칭이 깨진 잔재)
     text = _strip_dangling_strong_markers(text)
 
+    # 빈 줄 직후 4+ space 들여쓰기 라인이 accidental 코드 블록으로 인식되는 것 방지
+    text = _strip_accidental_code_indent(text)
+
     return text
+
+
+# Markdown spec: 빈 줄 또는 문서 시작 직후 4+ space 들여쓰기 라인은 indented code block.
+# 원본 HTML이 &nbsp; 시퀀스로 가운데 정렬/들여쓰기를 흉내낸 라인(예: 푸터 "                **생 활 관**")
+# 이 코드 블록으로 인식돼 검은 배경 + raw `**`로 보이는 부작용을 잡는다.
+# list item 안의 continuation(앞 라인이 빈 줄 아님)은 영향 없음.
+_ACCIDENTAL_CODE_INDENT_RE = re.compile(
+    r"(\A|\n[ \t]*\n)([ \t]{4,})(\S)"
+)
+
+
+def _strip_accidental_code_indent(text: str) -> str:
+    return _ACCIDENTAL_CODE_INDENT_RE.sub(lambda m: f"{m.group(1)}{m.group(3)}", text)
 
 
 def _strip_dangling_strong_markers(text: str) -> str:

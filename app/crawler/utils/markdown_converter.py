@@ -211,6 +211,9 @@ def _split_inline_bullets(text: str) -> str:
     # 라인 끝/시작에 짝 안 맞는 ** 노이즈 제거 (강조 매칭이 깨진 잔재)
     text = _strip_dangling_strong_markers(text)
 
+    # 한 단락에 뭉친 "가.", "1)" marker를 줄바꿈으로 분리
+    text = _split_inline_markers(text)
+
     # 빈 줄 직후 4+ space 들여쓰기 라인이 accidental 코드 블록으로 인식되는 것 방지
     text = _strip_accidental_code_indent(text)
 
@@ -235,15 +238,59 @@ def _strip_dangling_strong_markers(text: str) -> str:
 
     원본 HTML에서 strong 태그가 라인을 넘어 닫히거나 markdownify가 짝을 맞추지
     못한 결과로 라인 끝/시작에 의미 없는 ``**`` 가 남는 경우를 정리한다.
+
+    GFM 표 라인(``|`` 로 시작/끝)은 셀별로 검사한다. 잘못된 HTML이
+    ``<td><strong>A</td><td>B</strong></td>`` 식으로 셀 경계를 가로지른 strong을
+    만들면, markdownify는 ``| **A | B** |`` 같이 셀당 ``**`` 가 1개씩만 남는
+    결과를 만든다. 라인 전체 개수로는 짝수(2)라 놓치므로 셀 단위로 잘라낸다.
     """
     lines: list[str] = []
     for line in text.split("\n"):
-        if line.count("**") % 2 == 1:
-            tail_idx = line.rfind("**")
-            if tail_idx >= 0:
-                line = (line[:tail_idx] + line[tail_idx + 2 :]).rstrip()
+        stripped = line.strip()
+        if stripped.startswith("|") and stripped.endswith("|"):
+            line = _strip_dangling_in_table_row(line)
+        elif line.count("**") % 2 == 1:
+            line = _drop_last_strong_marker(line)
         lines.append(line)
     return "\n".join(lines)
+
+
+def _strip_dangling_in_table_row(line: str) -> str:
+    cells = line.split("|")
+    for i, cell in enumerate(cells):
+        if cell.count("**") % 2 == 1:
+            cells[i] = _drop_last_strong_marker(cell)
+    return "|".join(cells)
+
+
+def _drop_last_strong_marker(text: str) -> str:
+    tail_idx = text.rfind("**")
+    if tail_idx < 0:
+        return text
+    return (text[:tail_idx] + text[tail_idx + 2 :]).rstrip()
+
+
+# 한국어 공지에서 흔한 항목 마커: "가.", "나.", "다.", "라.", "마.", "바.", "사."
+# + 숫자) (1), 2), 3), …)
+# marker가 텍스트 중간에 박혀 있으면(<br> 없이) 줄바꿈 없이 다 뭉친다.
+# 직전이 종결 부호/괄호 닫힘/한글일 때 줄바꿈을 추가한다.
+_NUMERIC_MARKER_RE = re.compile(
+    r"(?<=[가-힣\)\]\d])(?=\d+\)\s+\S)"
+)
+_HANGUL_MARKER_RE = re.compile(
+    r"(?<=[\.\)\]\d])(?=[가-사]\.\s+[가-힣A-Za-z])"
+)
+
+
+def _split_inline_markers(text: str) -> str:
+    """한 단락에 뭉친 marker(`1) `, `가. `)를 줄바꿈으로 분리한다.
+
+    한국어 marker만 잡고, dash/숫자/한글 어미 등 정상 표현을 보호하려고 직전
+    문자를 제한한다.
+    """
+    text = _NUMERIC_MARKER_RE.sub("\n", text)
+    text = _HANGUL_MARKER_RE.sub("\n", text)
+    return text
 
 
 def _normalize_emphasis(text: str) -> str:

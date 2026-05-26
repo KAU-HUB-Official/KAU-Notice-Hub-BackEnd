@@ -227,6 +227,52 @@ def test_strip_does_not_break_balanced_strong() -> None:
     assert "**참여방식 : 당일 현장 참여 or 사전신청 참여**" in md
 
 
+def test_strip_dangling_strong_in_table_cells() -> None:
+    # 잘못된 HTML이 셀 경계 가로지른 strong을 만든 경우
+    # markdownify가 "| **A | B** |" 같이 셀당 ** 1개씩 남기는 케이스
+    raw_markdown = (
+        "|  |  |\n"
+        "| --- | --- |\n"
+        "| **대회내용 | 일정** |\n"
+        "| **공고 및 홍보 | 2026년 5월 18일** |\n"
+        "| **경진대회** | **2026년 6월 29일** |\n"
+    )
+    from app.crawler.utils.markdown_converter import _strip_dangling_strong_markers
+
+    out = _strip_dangling_strong_markers(raw_markdown)
+    assert "| **대회내용 |" not in out
+    assert "| 대회내용| 일정|" in out
+    assert "| 공고 및 홍보| 2026년 5월 18일|" in out
+    # 셀별로 짝이 맞는 strong은 보존
+    assert "| **경진대회** | **2026년 6월 29일** |" in out
+
+
+def test_split_inline_markers_numeric_and_hangul() -> None:
+    from app.crawler.utils.markdown_converter import _split_inline_markers
+
+    raw = "관심 바랍니다.가. 대회 개요1) 대회명 : 2026 양자정보경진대회(해커톤)2) 주최/주관 : 과학기술정보통신부"
+    out = _split_inline_markers(raw)
+    for line in [
+        "가. 대회 개요",
+        "1) 대회명 : 2026 양자정보경진대회(해커톤)",
+        "2) 주최/주관 : 과학기술정보통신부",
+    ]:
+        assert line in out, f"{line!r} 누락:\n{out}"
+
+
+def test_split_inline_markers_preserves_normal_sentences() -> None:
+    # 정상 한국어 어미 "~다."는 분리하지 않아야
+    from app.crawler.utils.markdown_converter import _split_inline_markers
+
+    cases = [
+        "참여한다. 다른 학교는",  # 어미 다.
+        "맞다. 알겠다",  # 어미
+        "원하면 1번 또는 2번 선택",  # 숫자 일반 표현
+    ]
+    for ok in cases:
+        assert _split_inline_markers(ok) == ok, f"분리되면 안 됨: {ok!r}"
+
+
 def test_strip_accidental_code_indent_from_footer_signature() -> None:
     # 푸터/서명을 가운데 정렬하려고 라인 시작에 많은 공백을 넣은 케이스
     node = _node(

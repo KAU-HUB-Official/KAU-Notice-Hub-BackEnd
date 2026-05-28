@@ -24,6 +24,7 @@ EM_TAG_PATTERN = re.compile(
     r"<(?:em|i)\b[^>]*>(.*?)</(?:em|i)>",
     flags=re.IGNORECASE | re.DOTALL,
 )
+MARKER_SPACING_RE = re.compile(r"([▪※])(?=\S)")
 DECORATIVE_SECTION_RE = re.compile(
     r"(^|(?<=\S)\s+)-\s*((?:다\s*음)|(?:아\s*래))\s*-\s*"
 )
@@ -38,6 +39,12 @@ INLINE_MAJOR_ITEM_DASH_RE = re.compile(
 INLINE_SECTION_HEADING_RE = re.compile(
     r"(\d{1,2}\.\s+(?:제출절차|문의\s*사항|문의사항))[ \t]+(?=\S)"
 )
+EMAIL_MAILTO_RE = re.compile(
+    r"\[([A-Za-z0-9._%+\-]+@[A-Za-z0-9.\-]+\.[A-Za-z]{2,})\]"
+    r"\(mailto:[^)]+\)",
+    flags=re.IGNORECASE,
+)
+TABLE_SEPARATOR_CELL_RE = re.compile(r":?-{3,}:?")
 
 
 def _to_string_value(value: Any) -> str | None:
@@ -131,9 +138,14 @@ def normalize_content_markdown(content: str) -> str:
 
 def _normalize_markdown_structure(content: str) -> str:
     value = _normalize_inline_html_in_markdown(content)
+    value = EMAIL_MAILTO_RE.sub(lambda m: f"[{m.group(1)}](mailto:{m.group(1)})", value)
+    value = _normalize_flow_tables(value)
     lines: list[str] = []
     for line in value.splitlines():
         stripped = line.strip()
+        if not stripped:
+            lines.append("")
+            continue
         if stripped.startswith("|") and stripped.endswith("|"):
             lines.append(line)
             continue
@@ -147,9 +159,57 @@ def _normalize_markdown_structure(content: str) -> str:
         normalized = PROFESSOR_LIST_DASH_RE.sub("\n- ", normalized)
         normalized = INLINE_MAJOR_ITEM_DASH_RE.sub("\n- ", normalized)
         normalized = INLINE_SECTION_HEADING_RE.sub(r"\1\n", normalized)
-        lines.extend(normalized.splitlines())
+        normalized = MARKER_SPACING_RE.sub(r"\1 ", normalized)
+        lines.extend(part.rstrip() for part in normalized.splitlines())
 
     return re.sub(r"\n{3,}", "\n\n", "\n".join(lines)).strip()
+
+
+def _normalize_flow_tables(content: str) -> str:
+    lines = content.splitlines()
+    normalized: list[str] = []
+    index = 0
+    while index < len(lines):
+        line = lines[index]
+        if (
+            _is_empty_table_row(line)
+            and index + 1 < len(lines)
+            and _is_table_separator_row(lines[index + 1])
+        ):
+            index += 2
+            while index < len(lines) and _is_table_row(lines[index]):
+                text = _table_row_to_plain_text(lines[index])
+                if text:
+                    normalized.append(text)
+                index += 1
+            continue
+        normalized.append(line)
+        index += 1
+    return "\n".join(normalized)
+
+
+def _is_table_row(line: str) -> bool:
+    stripped = line.strip()
+    return stripped.startswith("|") and stripped.endswith("|")
+
+
+def _table_cells(line: str) -> list[str]:
+    return [cell.strip() for cell in line.strip().strip("|").split("|")]
+
+
+def _is_empty_table_row(line: str) -> bool:
+    cells = _table_cells(line)
+    return bool(cells) and all(not cell for cell in cells)
+
+
+def _is_table_separator_row(line: str) -> bool:
+    cells = _table_cells(line)
+    return bool(cells) and all(TABLE_SEPARATOR_CELL_RE.fullmatch(cell) for cell in cells)
+
+
+def _table_row_to_plain_text(line: str) -> str:
+    cells = [cell for cell in _table_cells(line) if cell]
+    return " ".join(cells)
 
 
 def _format_decorative_section(match: re.Match[str]) -> str:

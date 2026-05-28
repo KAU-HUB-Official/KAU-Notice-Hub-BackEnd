@@ -70,7 +70,7 @@ def test_normalize_converts_raw_html_content_to_markdown() -> None:
         0,
     )
 
-    assert notice.content == "**중요**  \n신청 안내"
+    assert notice.content == "**중요**\n신청 안내"
     assert "<p>" not in notice.content
     assert "<br" not in notice.content
 
@@ -149,3 +149,37 @@ def test_normalize_splits_repeated_major_professor_dash_items() -> None:
     assert "해당 전공주임교수\n- AI 융합경영전공" in notice.content
     assert "\n- AI 융합물류전공" in notice.content
     assert "\n- IT-Biz 융합전공" in notice.content
+
+
+def test_normalize_converts_empty_header_flow_table_to_text() -> None:
+    notice = normalize_notice(
+        {
+            "title": "제출절차",
+            "content": (
+                "4. 제출절차\n"
+                "|  |  |  |  |  |\n"
+                "| --- | --- | --- | --- | --- |\n"
+                "| 이수확인서 작성 및 성적증명서 발급 | → | 주임교수 이수 확인 | → | "
+                "▪e-mail접수 [jchae@kau.ac.kr](mailto:bmsong@kau.ac.kr)  ▪사무실 접수 |\n"
+                "| 별첨 양식 다운로드 |\n"
+                "5. 문의 사항"
+            ),
+        },
+        0,
+    )
+
+    assert "| --- |" not in notice.content
+    assert "4. 제출절차\n이수확인서 작성 및 성적증명서 발급 → 주임교수 이수 확인 →" in notice.content
+    assert "\n▪ e-mail접수 [jchae@kau.ac.kr](mailto:jchae@kau.ac.kr)" in notice.content
+    assert "\n▪ 사무실 접수" in notice.content
+    assert "\n별첨 양식 다운로드\n5. 문의 사항" in notice.content
+
+
+def test_normalize_preserves_blank_lines_when_run_twice() -> None:
+    raw = "문단1\n\n문단2\n\n1. 항목"
+
+    once = normalize_notice({"title": "본문", "content": raw}, 0).content
+    twice = normalize_notice({"title": "본문", "content": once}, 0).content
+
+    assert once == raw
+    assert twice == raw

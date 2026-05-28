@@ -104,12 +104,21 @@ def _preprocess(html: str, *, base_url: str | None) -> str:
     for tag in soup.find_all(list(_STRIP_TAGS)):
         tag.decompose()
 
-    if base_url:
-        for tag_name, attr in _URL_ATTRS:
-            for tag in soup.find_all(tag_name):
-                value = (tag.get(attr) or "").strip()
-                if not value or value.startswith(("javascript:", "mailto:", "tel:", "#")):
-                    continue
+    for tag_name, attr in _URL_ATTRS:
+        for tag in soup.find_all(tag_name):
+            value = (tag.get(attr) or "").strip()
+            if not value:
+                continue
+            lowered = value.lower()
+            if lowered.startswith("data:"):
+                if tag_name in {"img", "source"}:
+                    tag.decompose()
+                else:
+                    tag.attrs.pop(attr, None)
+                continue
+            if lowered.startswith(("javascript:", "mailto:", "tel:", "#")):
+                continue
+            if base_url:
                 tag[attr] = urljoin(base_url, value)
 
     return soup.decode()

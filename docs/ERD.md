@@ -1,195 +1,198 @@
 # ERD
 
 ## 범위
-이 문서는 KAU Notice Hub 독립 백엔드의 데이터 모델을 정의한다.
+
+이 문서는 KAU Notice Hub 백엔드의 현재 데이터 모델을 정의한다.
 
 저장 구조:
 
-- 크롤러는 전체 공지 스냅샷 JSON 파일(`NOTICE_JSON_PATH`)을 atomic하게 게시한다. 안전망/아카이브 역할.
-- JSON 게시 직후 `app/ingest.py`가 동일 데이터를 SQLite DB(`NOTICE_DB_PATH`)에 atomic하게 반영한다.
-- API는 SQLite DB(`app/sqlite_repository.py`)에서 응답을 만든다.
-- DB 파일이 없으면 부팅 시 JSON에서 자동 부트스트랩하고, JSON도 없으면 `JsonNoticeRepository`로 폴백한다.
-
-이 ERD는 SQLite의 실제 스키마와 API 응답으로의 매핑을 정의한다.
+- 크롤러는 전체 공지 스냅샷 JSON 파일(`NOTICE_JSON_PATH`)을 atomic하게 게시한다. JSON은 SQLite 부트스트랩 원천이자 안전망이다.
+- JSON 게시 직후 서버 내장 크롤러 스케줄러는 `app/ingest.py`로 동일 데이터를 SQLite DB(`NOTICE_DB_PATH`)에 atomic하게 반영한다.
+- API는 SQLite DB(`app/sqlite_repository.py`)를 우선 읽어 응답한다.
+- DB 파일이 없거나 스키마 버전이 맞지 않으면 JSON에서 자동 부트스트랩한다.
+- JSON 부트스트랩도 실패하면 `JsonNoticeRepository`로 폴백한다.
 
 ## 핵심 개념
+
 | 개념 | 설명 |
 | --- | --- |
 | 공지 | 사용자에게 노출되는 정규화된 공지 데이터 |
 | 공지 출처 | 한 공지가 속한 원본 홈페이지. 한 공지가 여러 출처를 가질 수 있음 |
-| 분류 | `CLASSIFICATION.md` 기준으로 계산되는 대상자 대분류/중분류 |
+| 중분류 | `CLASSIFICATION.md` 기준으로 계산되는 source group. 한 공지가 여러 중분류에 매칭될 수 있음 |
 | 첨부파일 | 원본 공지에 연결된 파일 |
+| 태그 | 검색/표시에 쓰는 정규화 태그 |
 
 ## 분류 필드
+
 분류 기준은 [CLASSIFICATION.md](CLASSIFICATION.md)를 따른다.
 
 | 필드 | 의미 | 현재 처리 방식 |
 | --- | --- | --- |
-| `audienceGroup` | 대상자 대분류 | 요청 시점 계산 |
-| `sourceGroup` | 대표 중분류 | 요청 시점 계산 |
-| `sourceGroups` | 매칭된 전체 중분류 | 요청 시점 계산 |
-| `source` | 대표 출처 홈페이지 | 원천 데이터에서 정규화 |
-| `sources` | 전체 출처 홈페이지 목록 | 원천 데이터에서 정규화 |
+| `audienceGroup` | 대상자 대분류 | ingest 시점 계산 후 `notices.audience_group`에 저장. JSON fallback은 요청 시점 계산 |
+| `sourceGroup` | 대표 중분류 | ingest 시점 계산 후 `notices.source_group`에 저장 |
+| `sourceGroups` | 매칭된 전체 중분류 | ingest 시점 계산 후 `notice_source_groups`에 순서대로 저장 |
+| `source` | 대표 출처 홈페이지 | `notice_sources.source_order = 0` |
+| `sources` | 전체 출처 홈페이지 목록 | `notice_sources`를 `source_order` 순서로 반환 |
 
-초기 MVP에서 분류값은 수동 편집 데이터가 아니라, 항상 결정적 함수로 계산한다.
+분류값은 수동 편집 데이터가 아니라 `app/classification.py`의 결정적 함수로 계산한다.
 
 ## Mermaid ERD
+
 ```mermaid
 erDiagram
   notices ||--o{ notice_sources : has
+  notices ||--o{ notice_source_groups : classified_as
   notices ||--o{ notice_attachments : has
-  notices ||--o{ notice_classifications : classified_as
+  notices ||--o{ notice_tags : has
 
   notices {
-    varchar id PK
+    text id PK
     text title
     text content
     text summary
     text url
-    varchar category
-    varchar department
-    date published_at
-    timestamptz crawled_at
+    text category
+    text department
+    text published_at
+    text audience_group
+    text source_group
     text searchable_text
-    timestamptz created_at
-    timestamptz updated_at
+    text searchable_compact
   }
 
   notice_sources {
-    bigint id PK
-    varchar notice_id FK
-    varchar source_name
+    text notice_id FK
+    text source_name
     integer source_order
-    timestamptz created_at
   }
 
-  notice_classifications {
-    bigint id PK
-    varchar notice_id FK
-    varchar audience_group
-    varchar source_group
-    timestamptz created_at
+  notice_source_groups {
+    text notice_id FK
+    text source_group
+    integer source_group_order
   }
 
   notice_attachments {
-    bigint id PK
-    varchar notice_id FK
+    text notice_id FK
+    integer attachment_order
     text name
     text url
-    integer attachment_order
-    timestamptz created_at
+  }
+
+  notice_tags {
+    text notice_id FK
+    text tag
+    integer tag_order
   }
 ```
 
-## 테이블
+`schema_meta(key, value)`는 `SCHEMA_VERSION`을 저장하는 메타 테이블이다.
+
+## 실제 SQLite 스키마
+
+`app/db.py`가 테이블과 인덱스를 정의한다. 스키마 버전은 `db.SCHEMA_VERSION`이며 현재 버전은 `2`다. 버전이 맞지 않으면 부팅 시 기존 DB를 제거하고 JSON에서 다시 ingest한다.
+
 ### `notices`
+
 정규화된 공지 1건을 저장한다.
 
 | 컬럼 | 타입 | 필수 | 설명 |
 | --- | --- | --- | --- |
-| `id` | `varchar` | 예 | 안정적인 공지 ID. 크롤러가 제공하지 않으면 제목/날짜/출처 기반으로 생성하고 중복을 보정한다. |
-| `title` | `text` | 예 | 공지 제목. fallback: `제목 없음 공지 N`. |
-| `content` | `text` | 예 | 공지 본문. **Markdown(CommonMark + GFM 표) 문자열.** 헤딩(`#`), 목록(`-`, `1.`), 표, 링크(`[text](url)`), 이미지(`![alt](url)`)를 사용한다. 본문이 비면 `**[이미지 본문]**`, `**[동영상 본문]**`, `**[첨부파일 공지]**` 같은 fallback 헤더로 시작한다. 마지막 fallback: `본문 정보가 비어 있습니다.` |
-| `summary` | `text` | 아니오 | 요약. 없으면 본문에서 생성한다. |
-| `url` | `text` | 아니오 | 원문 공지 URL. |
-| `category` | `varchar` | 아니오 | `category`, `category_raw`, `type` 중 첫 번째 정규화 값. |
-| `department` | `varchar` | 아니오 | 부서/기관명. |
-| `published_at` | `date` | 아니오 | `date`, `published_at`, `created_at`, `updated_at`에서 정규화한 게시일. |
-| `crawled_at` | `timestamptz` | 아니오 | 크롤러 수집 시각. |
-| `searchable_text` | `text` | 아니오 | 단순 검색용 사전 계산 텍스트. |
-| `created_at` | `timestamptz` | 예 | DB 행 생성 시각. |
-| `updated_at` | `timestamptz` | 예 | DB 행 수정 시각. |
+| `id` | `text` | 예 | 안정적인 공지 ID. 중복 ID는 ingest 시 suffix로 보정 |
+| `title` | `text` | 예 | 공지 제목 |
+| `content` | `text` | 예 | Markdown(CommonMark + GFM 표) 문자열 |
+| `summary` | `text` | 아니오 | 요약. 없으면 정규화 단계에서 본문 기반으로 생성 가능 |
+| `url` | `text` | 아니오 | 원문 공지 URL |
+| `category` | `text` | 아니오 | 정규화된 category |
+| `department` | `text` | 아니오 | 부서/기관명 |
+| `published_at` | `text` | 아니오 | `YYYY-MM-DD` 게시일 문자열 |
+| `audience_group` | `text` | 아니오 | 계산된 대상자 대분류 |
+| `source_group` | `text` | 아니오 | 대표 중분류 |
+| `searchable_text` | `text` | 아니오 | 검색 후보 선별용 텍스트 |
+| `searchable_compact` | `text` | 아니오 | 공백/구두점 제거 검색 텍스트 |
 
-권장 인덱스:
+인덱스:
 
-```sql
-CREATE INDEX idx_notices_published_at ON notices (published_at DESC);
-CREATE INDEX idx_notices_category ON notices (category);
-CREATE INDEX idx_notices_department ON notices (department);
-```
-
-MVP 검색은 메모리 문자열 매칭으로 처리한다.
+- `idx_notices_published_at`
+- `idx_notices_audience_group`
+- `idx_notices_source_group`
+- `idx_notices_category`
+- `idx_notices_department`
 
 ### `notice_sources`
+
 공지별 전체 출처 홈페이지를 저장한다.
 
 | 컬럼 | 타입 | 필수 | 설명 |
 | --- | --- | --- | --- |
-| `id` | `bigint` | 예 | 대체 기본키. |
-| `notice_id` | `varchar` | 예 | `notices.id` FK. |
-| `source_name` | `varchar` | 예 | 정규화된 출처 홈페이지 이름. |
-| `source_order` | `integer` | 예 | `0`이면 대표 출처. |
-| `created_at` | `timestamptz` | 예 | DB 행 생성 시각. |
+| `notice_id` | `text` | 예 | `notices.id` FK |
+| `source_name` | `text` | 예 | 정규화된 출처 홈페이지 이름 |
+| `source_order` | `integer` | 예 | `0`이면 대표 출처 |
+
+기본키는 `(notice_id, source_name)`이다. `source_name`에는 `idx_notice_sources_source_name` 인덱스가 있다.
 
 규칙:
 
 - 원천 `source_name`은 문자열 또는 배열일 수 있다.
 - 첫 번째 정규화 source는 API의 `Notice.source`가 된다.
 - 전체 정규화 source는 API의 `Notice.sources`가 된다.
-- source 필터는 대표 출처만 보지 않고 모든 출처를 대상으로 매칭해야 한다.
+- source 필터는 대표 출처만 보지 않고 모든 출처를 대상으로 매칭한다.
 
-권장 인덱스:
+### `notice_source_groups`
 
-```sql
-CREATE INDEX idx_notice_sources_notice_id ON notice_sources (notice_id);
-CREATE INDEX idx_notice_sources_source_name ON notice_sources (source_name);
-CREATE UNIQUE INDEX uq_notice_sources_notice_source
-  ON notice_sources (notice_id, source_name);
-```
-
-### `notice_classifications`
-분류 결과의 논리 구조를 나타낸다.
+공지별 전체 중분류를 저장한다.
 
 | 컬럼 | 타입 | 필수 | 설명 |
 | --- | --- | --- | --- |
-| `id` | `bigint` | 예 | 대체 기본키. |
-| `notice_id` | `varchar` | 예 | `notices.id` FK. |
-| `audience_group` | `varchar` | 예 | 대상자 대분류. 예: `전 구성원 공통`. |
-| `source_group` | `varchar` | 아니오 | 중분류. 중분류가 없는 대분류에서는 null 가능. |
-| `created_at` | `timestamptz` | 예 | DB 행 생성 시각. |
+| `notice_id` | `text` | 예 | `notices.id` FK |
+| `source_group` | `text` | 예 | 계산된 중분류 |
+| `source_group_order` | `integer` | 예 | API 반환 순서 |
+
+기본키는 `(notice_id, source_group)`이다. `source_group`에는 `idx_notice_source_groups_source_group` 인덱스가 있다.
 
 규칙:
 
-- MVP JSON 구현에서는 이 값을 요청 시점에 계산한다.
 - 한 공지가 여러 중분류에 매칭되면 여러 row를 저장한다.
-- 중분류가 없는 대분류는 `source_group = null` 행을 하나 저장하는 방식을 권장한다.
-
-권장 인덱스:
-
-```sql
-CREATE INDEX idx_notice_classifications_notice_id
-  ON notice_classifications (notice_id);
-
-CREATE INDEX idx_notice_classifications_audience_group
-  ON notice_classifications (audience_group);
-
-CREATE INDEX idx_notice_classifications_audience_source_group
-  ON notice_classifications (audience_group, source_group);
-```
+- API의 `sourceGroup`은 `notices.source_group`, `sourceGroups`는 이 테이블에서 만든다.
 
 ### `notice_attachments`
+
 공지 첨부파일을 저장한다.
 
 | 컬럼 | 타입 | 필수 | 설명 |
 | --- | --- | --- | --- |
-| `id` | `bigint` | 예 | 대체 기본키. |
-| `notice_id` | `varchar` | 예 | `notices.id` FK. |
-| `name` | `text` | 예 | 첨부파일 표시명. fallback: `첨부파일`. |
-| `url` | `text` | 예 | 첨부파일 URL. |
-| `attachment_order` | `integer` | 예 | 원본 순서. |
-| `created_at` | `timestamptz` | 예 | DB 행 생성 시각. |
+| `notice_id` | `text` | 예 | `notices.id` FK |
+| `attachment_order` | `integer` | 예 | 원본 순서 |
+| `name` | `text` | 예 | 첨부파일 표시명 |
+| `url` | `text` | 예 | 첨부파일 URL |
 
-권장 인덱스:
+기본키는 `(notice_id, attachment_order)`이다.
 
-```sql
-CREATE INDEX idx_notice_attachments_notice_id
-  ON notice_attachments (notice_id);
+### `notice_tags`
 
-CREATE UNIQUE INDEX uq_notice_attachments_notice_url
-  ON notice_attachments (notice_id, url);
-```
+공지 태그를 저장한다.
+
+| 컬럼 | 타입 | 필수 | 설명 |
+| --- | --- | --- | --- |
+| `notice_id` | `text` | 예 | `notices.id` FK |
+| `tag` | `text` | 예 | 정규화 태그 |
+| `tag_order` | `integer` | 예 | API 반환 순서 |
+
+기본키는 `(notice_id, tag)`이다.
+
+### `schema_meta`
+
+스키마 메타데이터를 저장한다.
+
+| 컬럼 | 타입 | 필수 | 설명 |
+| --- | --- | --- | --- |
+| `key` | `text` | 예 | 메타데이터 키 |
+| `value` | `text` | 예 | 메타데이터 값 |
+
+현재 `key='version'`에 `SCHEMA_VERSION` 값을 저장한다.
 
 ## API 논리 모델
+
 DB 모델은 프론트엔드가 사용하는 `Notice` 객체로 변환된다.
 
 ```ts
@@ -222,38 +225,19 @@ interface Notice {
 | `url` | `notices.url` |
 | `source` | `source_order = 0`인 `notice_sources.source_name` |
 | `sources` | `source_order` 순서의 전체 `notice_sources.source_name` |
-| `audienceGroup` | 요청 시점 계산값 또는 `notice_classifications.audience_group` |
-| `sourceGroup` | 분류 순서상 첫 번째 중분류 |
-| `sourceGroups` | 분류 순서상 전체 중분류 |
+| `audienceGroup` | `notices.audience_group` |
+| `sourceGroup` | `notices.source_group` |
+| `sourceGroups` | `source_group_order` 순서의 전체 `notice_source_groups.source_group` |
 | `category` | `notices.category` |
 | `department` | `notices.department` |
-| `date` | `notices.published_at`의 `YYYY-MM-DD` 문자열 |
+| `date` | `notices.published_at` |
 | `summary` | `notices.summary` |
-| `tags` | MVP에서는 category와 sources에서 파생 |
-| `attachments` | `notice_attachments` 행 목록 |
+| `tags` | `tag_order` 순서의 전체 `notice_tags.tag` |
+| `attachments` | `attachment_order` 순서의 `notice_attachments` 행 목록 |
 
-## 실제 SQLite 스키마
+## JSON 원천 형태
 
-`app/db.py`가 다음 테이블을 정의하며, `app/ingest.py`가 JSON 스냅샷을 읽어 atomic하게 다시 만든다. 스키마 버전은 `db.SCHEMA_VERSION`이고 `schema_meta` 테이블에 저장된다. 버전이 안 맞으면 부팅 시 자동 재 ingest.
-
-- `notices(id PK, title, content, summary, url, category, department, published_at, audience_group, source_group, searchable_text, searchable_compact)`
-- `notice_sources(notice_id, source_name, source_order)` — 한 공지의 여러 출처
-- `notice_source_groups(notice_id, source_group, source_group_order)` — 한 공지의 여러 중분류
-- `notice_attachments(notice_id, attachment_order, name, url)` — 첨부파일 순서 유지
-- `notice_tags(notice_id, tag, tag_order)` — 정규화 단계에서 만들어진 태그
-- `schema_meta(key, value)` — 스키마 버전 등 메타데이터
-
-핵심 인덱스:
-
-- `notices(published_at DESC)`, `notices(audience_group)`, `notices(source_group)`, `notices(category)`, `notices(department)`
-- `notice_sources(source_name)`, `notice_source_groups(source_group)`
-
-분류값(`audience_group`, `source_groups`)은 ingest 시점에 `app/classification.py`로 계산해 컬럼/테이블에 영구 저장한다. API는 SQL `WHERE` + `LIMIT/OFFSET`로 페이지네이션·필터링을 수행한다. 검색(`q`)은 `searchable_text` LIKE로 candidate를 가져오고 Python에서 가중 랭킹.
-
-## MVP JSON 형태
-크롤러 JSON은 SQLite의 원천 데이터 포맷으로 유지된다.
-
-백엔드 서버가 실행 중이어도 크롤러는 별도 주기 작업으로 실행할 수 있다. 크롤러 결과 파일 갱신, atomic 교체, SQLite 동기화 정책은 [CRAWLING_UPDATE.md](CRAWLING_UPDATE.md)를 따른다.
+크롤러 JSON은 SQLite의 원천 데이터 포맷으로 유지된다. 크롤러 결과 파일 갱신, atomic 교체, SQLite 동기화 정책은 [CRAWLING_UPDATE.md](CRAWLING_UPDATE.md)를 따른다.
 
 권장 원천 레코드:
 

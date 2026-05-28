@@ -9,7 +9,7 @@
 app/classification.py
 ```
 
-분류값은 저장된 수동 값이 아니라 요청 시점에 결정적 함수로 계산한다.
+분류값은 사람이 수동 저장하는 값이 아니라 `app/classification.py`의 결정적 함수로 계산한다. SQLite 경로에서는 `app/ingest.py`가 JSON 스냅샷을 DB로 옮길 때 `audience_group`, 대표 `source_group`, 전체 `source_groups`를 계산해 저장한다. JSON fallback 경로에서는 요청 시점에 같은 함수를 사용해 계산한다.
 
 ## 대상자 대분류
 
@@ -96,4 +96,3 @@ app/classification.py
 - `sources`: 전체 source 배열
 
 복수 source 공지는 모든 관련 source facet에 노출된다. 특정 대분류/중분류의 source facet을 계산할 때는 source를 하나씩 분리해 현재 필터 범위에 맞는 source만 노출한다.
-

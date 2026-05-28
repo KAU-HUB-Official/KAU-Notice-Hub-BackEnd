@@ -4,6 +4,7 @@ services:
       context: .
     environment:
       NOTICE_JSON_PATH: /data/kau_official_posts.json
+      NOTICE_DB_PATH: /data/kau_notice_hub.db
       BACKEND_CORS_ORIGINS: ${BACKEND_CORS_ORIGINS:-http://localhost:3000}
       OPENAI_API_KEY: ${OPENAI_API_KEY:-}
       OPENAI_MODEL: ${OPENAI_MODEL:-gpt-4.1-mini}

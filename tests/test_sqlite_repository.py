@@ -5,6 +5,7 @@ from pathlib import Path
 
 import pytest
 
+from app.db import connect, initialize_schema
 from app.ingest import ingest_json_snapshot
 from app.repository import NoticeRepositoryError
 from app.sqlite_repository import SqliteNoticeRepository
@@ -81,6 +82,45 @@ def test_sqlite_repository_get_by_id_missing(populated_db: Path) -> None:
     repository = SqliteNoticeRepository(populated_db)
     notice = asyncio.run(repository.get_by_id("no-such-id"))
     assert notice is None
+
+
+def test_sqlite_repository_normalizes_legacy_html_content_on_read(tmp_path: Path) -> None:
+    db_path = tmp_path / "legacy.db"
+    conn = connect(db_path)
+    try:
+        initialize_schema(conn)
+        conn.execute(
+            """
+            INSERT INTO notices (
+                id, title, content, summary, url, category, department,
+                published_at, audience_group, source_group,
+                searchable_text, searchable_compact
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                "legacy",
+                "레거시 HTML 공지",
+                '<p><img src="data:image/png;base64,AAAA" alt="본문"></p>',
+                None,
+                None,
+                None,
+                None,
+                None,
+                None,
+                None,
+                "",
+                "",
+            ),
+        )
+    finally:
+        conn.close()
+
+    repository = SqliteNoticeRepository(db_path)
+    notice = asyncio.run(repository.get_by_id("legacy"))
+
+    assert notice is not None
+    assert notice.content == "**[이미지 본문]**\n\n원문 공지에서 이미지를 확인해주세요."
+    assert "data:image" not in notice.content
 
 
 def test_ingest_replaces_existing_db_atomically(tmp_path) -> None:

@@ -1,16 +1,17 @@
-# RAG 구현 계획
+# RAG 구현 기준
 
 ## 범위
 
-이 문서는 KAU Notice Hub 백엔드의 `/api/chat`에 키워드 검색 기반 RAG를 붙이기 위한 최소 구현 계획을 정의한다.
+이 문서는 KAU Notice Hub 백엔드의 `/api/chat` 키워드 검색 기반 RAG 동작 기준을 정의한다.
 
 목표는 사용자의 질문에 대해 기존 local search로 관련 공지를 찾고, 찾은 공지만 근거로 한국어 답변을 생성하는 것이다. 벡터 검색, 임베딩 인덱스, 별도 vector DB는 도입하지 않는다.
 
 ## 현재 상태
 
-- 공지 데이터 저장소는 `NOTICE_JSON_PATH`가 가리키는 JSON 전체 스냅샷이다.
+- 공지 API는 `NOTICE_DB_PATH` SQLite DB를 우선 읽는다. DB가 없거나 스키마가 다르면 `NOTICE_JSON_PATH` JSON 전체 스냅샷에서 자동 부트스트랩하고, 부트스트랩 실패 시 JSON repository로 폴백한다.
 - `/api/notices`는 키워드 기반 local search와 필터를 사용한다.
-- `/api/chat`은 `NoticeService.find_relevant_notices()`로 관련 공지를 찾고 local fallback 답변을 반환한다. references 응답과 prompt context(`build_context`)는 이미 구성돼 있고, LLM 호출 분기만 빠진 상태다.
+- `/api/chat`은 `NoticeService.find_relevant_notices()`로 관련 공지를 찾고, `RAG_ENABLED=true`와 `OPENAI_API_KEY`가 있을 때 OpenAI Responses API로 답변을 생성한다. 비활성화, 키 부재, 호출 실패, references 0건은 local fallback으로 응답한다.
+- `POST /api/chat/stream`은 같은 파이프라인을 SSE 이벤트(`search_started`, `search_completed`, `answer_completed`)로 반환한다.
 - 이미지/HWP 공지는 content enrichment로 `content` 품질을 높일 수 있다.
 
 ## 기본 결정
@@ -63,7 +64,7 @@ OPENAI_MODEL=gpt-4.1-mini
 - `OPENAI_API_KEY`와 `OPENAI_MODEL`은 content enrichment에서 이미 사용 중이므로 그대로 재사용한다.
 - temperature, content 길이 같은 값은 코드 상수로 시작하고 필요해질 때 env로 분리한다.
 
-## 변경 대상
+## 관련 파일
 
 | 영역      | 파일                                                        |
 | --------- | ----------------------------------------------------------- |
@@ -72,7 +73,7 @@ OPENAI_MODEL=gpt-4.1-mini
 | 테스트    | `tests/test_chat_rag.py` 또는 기존 `tests/test_api.py` 확장 |
 | 문서      | `docs/API_SPEC.md`, `docs/DEPLOYMENT.md`, 본 문서           |
 
-새 파일과 새 디렉토리는 만들지 않는다. `chat_service.py`에 OpenAI 호출 함수 하나를 추가하고 `ask_notice_question`이 분기한다.
+RAG provider 추상화나 `app/rag/` 디렉토리는 두지 않는다. 호출과 fallback 분기는 `app/chat_service.py` 안에 둔다.
 
 ## Prompt 원칙
 
@@ -176,15 +177,15 @@ curl -sS -X POST http://localhost:8000/api/chat \
   -d '{"question":"장학금 신청 관련 최근 공지 알려줘"}'
 ```
 
-## 구현 순서
+## 구현 기준 체크리스트
 
-1. `app/config.py`에 `RAG_ENABLED`, `RAG_MAX_REFERENCES` 설정 추가
-2. `.env.example`, `docker-compose.yml`에 두 변수 반영
-3. `app/chat_service.py`에 OpenAI 호출 함수 추가, `ask_notice_question`에서 분기
-4. 실패/비활성화 시 기존 fallback 유지
-5. 단위 테스트 추가
-6. `docs/API_SPEC.md`(`/api/chat` 응답 동작), `docs/DEPLOYMENT.md` 갱신
-7. 실제 공지 JSON으로 smoke test
+1. `RAG_ENABLED=false`가 기본값이어야 한다.
+2. `RAG_ENABLED=true`라도 `OPENAI_API_KEY`가 없으면 local fallback이어야 한다.
+3. OpenAI 호출 성공 시 `usedFallback=false`, `model=OPENAI_MODEL`을 반환한다.
+4. OpenAI 호출 실패, references 0건, 도메인 외 질문은 `usedFallback=true`를 반환한다.
+5. `history`는 최근 10개, 메시지당 500자까지만 prompt에 포함한다.
+6. API 응답에는 내부 prompt, API key, raw OpenAI 응답을 노출하지 않는다.
+7. RAG 흐름이나 prompt를 바꾸면 `tests/test_chat_rag.py`와 실제 OpenAI 호출 smoke를 함께 확인한다.
 
 ## 추후 검토 (이 계획 밖)
 

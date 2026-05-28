@@ -91,6 +91,7 @@ http://localhost:8000/openapi.json
 | 이름 | 예시 | 설명 |
 | --- | --- | --- |
 | `NOTICE_JSON_PATH` | `/data/kau_official_posts.json` | API 서버가 읽는 전체 공지 JSON 스냅샷 |
+| `NOTICE_DB_PATH` | `/data/kau_notice_hub.db` | API 서버가 우선 읽고 ingest가 atomic 교체하는 SQLite DB |
 | `BACKEND_CORS_ORIGINS` | `https://kau-notice.example.com` | 쉼표로 구분한 허용 frontend origin |
 | `BACKEND_PORT` | `8000` | Docker host에 바인딩할 API 포트. compose에서는 `127.0.0.1`에만 바인딩 |
 | `API_DOMAIN` | `api.kau-notice.example.com` 또는 `:80` | Caddy가 받을 host. 도메인이 없으면 `:80` |
@@ -121,6 +122,7 @@ http://localhost:8000/openapi.json
 
 ```env
 NOTICE_JSON_PATH=./data/kau_official_posts.json
+NOTICE_DB_PATH=./data/kau_notice_hub.db
 BACKEND_CORS_ORIGINS=http://localhost:3000
 OPENAI_API_KEY=
 OPENAI_MODEL=gpt-4.1-mini
@@ -199,8 +201,10 @@ docker compose --profile tools run --rm crawler
 ```text
 api
   -> reads /data/kau_official_posts.json
+  -> reads /data/kau_notice_hub.db first when available
   -> runs bundled app/crawler scheduler every 10800 seconds
   -> writes /data/kau_official_posts.json atomically
+  -> ingests the published JSON into /data/kau_notice_hub.db atomically
 
 crawler
   -> optional one-off/manual tool profile
@@ -375,5 +379,5 @@ docker compose logs -f caddy
 | JSON 파싱 실패 | crawler tmp 검증 로그, API 이전 정상 캐시 유지 여부 |
 | 크롤링 실패 | `docker compose logs api`, 기존 JSON 유지 여부 |
 | CORS 에러 | `BACKEND_CORS_ORIGINS`와 frontend origin |
-| 데이터 미갱신 | `CRAWLER_SCHEDULER_ENABLED`, JSON mtime, API repository reload |
+| 데이터 미갱신 | `CRAWLER_SCHEDULER_ENABLED`, JSON mtime, SQLite ingest 로그, `NOTICE_DB_PATH` |
 | Swagger 미노출 | `/docs`, `/openapi.json` 응답 상태 |

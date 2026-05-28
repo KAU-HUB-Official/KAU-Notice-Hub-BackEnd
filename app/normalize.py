@@ -4,12 +4,40 @@ import re
 from datetime import datetime
 from typing import Any
 
+from app.crawler.utils.markdown_converter import html_node_to_markdown
 from app.schemas import Notice, NoticeAttachment
 
 
 RawNotice = dict[str, Any]
 
 DATE_PATTERN = re.compile(r"(\d{4}-\d{2}-\d{2})")
+HTML_FRAGMENT_PATTERN = re.compile(
+    r"</?(?:p|div|section|article|table|thead|tbody|tr|td|th|ul|ol|li|h[1-6]|img)\b",
+    flags=re.IGNORECASE,
+)
+BR_TAG_PATTERN = re.compile(r"<br\s*/?>", flags=re.IGNORECASE)
+STRONG_TAG_PATTERN = re.compile(
+    r"<(?:strong|b)\b[^>]*>(.*?)</(?:strong|b)>",
+    flags=re.IGNORECASE | re.DOTALL,
+)
+EM_TAG_PATTERN = re.compile(
+    r"<(?:em|i)\b[^>]*>(.*?)</(?:em|i)>",
+    flags=re.IGNORECASE | re.DOTALL,
+)
+DECORATIVE_SECTION_RE = re.compile(
+    r"(^|(?<=\S)\s+)-\s*((?:다\s*음)|(?:아\s*래))\s*-\s*"
+)
+DOTTED_NUMBER_MARKER_RE = re.compile(
+    r"(?<=[가-힣A-Za-z\)\]\"”'\.])[ \t]+(?=\d{1,2}\.\s+[가-힣A-Za-z])"
+)
+INLINE_NOTICE_MARKER_RE = re.compile(r"(?<=\S)[ \t]+(?=[▪※]\s*)")
+PROFESSOR_LIST_DASH_RE = re.compile(r"(?<=전공주임교수)[ \t]+-[ \t]+")
+INLINE_MAJOR_ITEM_DASH_RE = re.compile(
+    r"(?<=\))[ \t]+-[ \t]+(?=[A-Za-z가-힣\- ]{1,30}전공\b)"
+)
+INLINE_SECTION_HEADING_RE = re.compile(
+    r"(\d{1,2}\.\s+(?:제출절차|문의\s*사항|문의사항))[ \t]+(?=\S)"
+)
 
 
 def _to_string_value(value: Any) -> str | None:
@@ -83,6 +111,66 @@ def strip_html(input_value: str) -> str:
     )
     without_tags = re.sub(r"<[^>]+>", " ", without_styles)
     return re.sub(r"\s+", " ", without_tags).strip()
+
+
+def normalize_content_markdown(content: str) -> str:
+    value = content.strip()
+    if not value:
+        return ""
+
+    if HTML_FRAGMENT_PATTERN.search(value):
+        markdown = html_node_to_markdown(value)
+        if markdown:
+            return _normalize_markdown_structure(markdown)
+        if "<img" in value.lower():
+            return "**[이미지 본문]**\n\n원문 공지에서 이미지를 확인해주세요."
+        return _normalize_markdown_structure(strip_html(value) or value)
+
+    return _normalize_markdown_structure(value)
+
+
+def _normalize_markdown_structure(content: str) -> str:
+    value = _normalize_inline_html_in_markdown(content)
+    lines: list[str] = []
+    for line in value.splitlines():
+        stripped = line.strip()
+        if stripped.startswith("|") and stripped.endswith("|"):
+            lines.append(line)
+            continue
+
+        normalized = DECORATIVE_SECTION_RE.sub(
+            _format_decorative_section,
+            line,
+        )
+        normalized = DOTTED_NUMBER_MARKER_RE.sub("\n", normalized)
+        normalized = INLINE_NOTICE_MARKER_RE.sub("\n", normalized)
+        normalized = PROFESSOR_LIST_DASH_RE.sub("\n- ", normalized)
+        normalized = INLINE_MAJOR_ITEM_DASH_RE.sub("\n- ", normalized)
+        normalized = INLINE_SECTION_HEADING_RE.sub(r"\1\n", normalized)
+        lines.extend(normalized.splitlines())
+
+    return re.sub(r"\n{3,}", "\n\n", "\n".join(lines)).strip()
+
+
+def _format_decorative_section(match: re.Match[str]) -> str:
+    prefix = "\n\n" if match.group(1) else ""
+    label = match.group(2).replace(" ", "")
+    return f"{prefix}{label}\n\n"
+
+
+def _normalize_inline_html_in_markdown(content: str) -> str:
+    lines: list[str] = []
+    for line in content.splitlines():
+        stripped = line.strip()
+        if stripped.startswith("|") and stripped.endswith("|"):
+            lines.append(BR_TAG_PATTERN.sub(" / ", line))
+        else:
+            lines.append(BR_TAG_PATTERN.sub("\n", line))
+
+    value = "\n".join(lines)
+    value = STRONG_TAG_PATTERN.sub(lambda m: f"**{m.group(1).strip()}**", value)
+    value = EM_TAG_PATTERN.sub(lambda m: f"*{m.group(1).strip()}*", value)
+    return value.strip()
 
 
 def make_summary(content: str, fallback: str | None = None) -> str:
@@ -159,10 +247,11 @@ def normalize_tags(raw: RawNotice, sources: list[str], categories: list[str]) ->
 
 def normalize_notice(raw: RawNotice, index: int) -> Notice:
     title = _first_string(raw, ["title", "subject", "name"]) or f"제목 없음 공지 {index + 1}"
-    content = (
+    raw_content = (
         _first_string(raw, ["content", "body", "text", "description"])
         or "본문 정보가 비어 있습니다."
     )
+    content = normalize_content_markdown(raw_content)
 
     sources = _first_string_list(raw, ["source", "source_name", "source_type", "board"])
     source = sources[0] if sources else None
@@ -200,4 +289,3 @@ def normalize_notice(raw: RawNotice, index: int) -> Notice:
         tags=normalize_tags(raw, sources, categories),
         attachments=normalize_attachments(raw.get("attachments")),
     )
-

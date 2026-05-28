@@ -14,6 +14,7 @@ from app.classification import (
 )
 from app.config import get_settings
 from app.db import SCHEMA_VERSION, connect, initialize_schema, read_schema_version
+from app.normalize import normalize_content_markdown
 from app.repository import (
     NoticeRepositoryError,
     NoticeSearchQuery,
@@ -570,7 +571,7 @@ def _row_to_notice(
     return Notice(
         id=notice_id,
         title=row["title"],
-        content=row["content"],
+        content=normalize_content_markdown(row["content"]),
         url=row["url"],
         source=sources[0] if sources else None,
         sources=sources or None,

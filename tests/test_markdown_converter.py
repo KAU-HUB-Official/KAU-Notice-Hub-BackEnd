@@ -89,6 +89,11 @@ def test_make_image_only_markdown_returns_empty_when_no_src() -> None:
     assert make_image_only_markdown(soup.select("img")) == ""
 
 
+def test_html_node_to_markdown_drops_data_uri_images() -> None:
+    node = _node('<div><p><img src="data:image/png;base64,AAAA" alt="inline"></p></div>')
+    assert html_node_to_markdown(node) == ""
+
+
 def test_normalize_bullet_impersonation_in_strong() -> None:
     # `<strong>-</strong>제출항목` 같은 패턴이 진짜 bullet으로 풀려야 함
     node = _node(

@@ -2,18 +2,19 @@
 
 ## 범위
 
-이 문서는 KAU Notice Hub FastAPI 백엔드의 현재 MVP API 계약을 정의한다.
+이 문서는 KAU Notice Hub FastAPI 백엔드의 현재 API 계약을 정의한다.
 
 현재 백엔드는 아래 구성을 기준으로 한다.
 
 - FastAPI 서버
-- JSON 파일 저장소
+- SQLite DB(`NOTICE_DB_PATH`) 우선 저장소
+- JSON 전체 스냅샷(`NOTICE_JSON_PATH`) 안전망과 부트스트랩 원천
 - 기존 Next.js MVP API와 호환되는 응답 shape
 - Swagger UI 기반 API 명세 확인
 
-MVP에서는 API 버전 관리, 인증, 관리자 API, 큐, 별도 검색엔진을 추가하지 않는다.
+현재 범위에서는 API 버전 관리, 인증, 관리자 API, 큐, 별도 검색엔진을 추가하지 않는다.
 
-크롤러 주기 실행과 JSON 갱신 방식은 [CRAWLING_UPDATE.md](CRAWLING_UPDATE.md)를 따른다.
+크롤러 주기 실행, JSON 게시, SQLite ingest 방식은 [CRAWLING_UPDATE.md](CRAWLING_UPDATE.md)를 따른다.
 
 ## 기본 URL
 
@@ -341,7 +342,8 @@ GET /api/notices?audience=학부%20재학생(학과%2F전공별)&group=공과대
 
 대표 원인:
 
-- JSON 파일 없음
+- SQLite DB 조회 실패
+- SQLite DB 부트스트랩에 필요한 JSON 파일 없음
 - JSON 최상위 타입이 배열이 아님
 - JSON 파싱 실패 및 이전 정상 캐시 없음
 
@@ -554,8 +556,12 @@ BACKEND_CORS_ORIGINS=http://localhost:3000
 | 이름                                       | 필수   | 기본값                           | 설명                                                                                 |
 | ------------------------------------------ | ------ | -------------------------------- | ------------------------------------------------------------------------------------ |
 | `NOTICE_JSON_PATH`                         | 아니오 | `./data/kau_official_posts.json` | 크롤러 JSON 파일 경로                                                                |
-| `OPENAI_API_KEY`                           | 아니오 | empty                            | content 보강에서 OpenAI provider를 사용할 때 필요. 챗봇은 현재 local fallback 사용   |
-| `OPENAI_MODEL`                             | 아니오 | `gpt-4.1-mini`                   | 챗봇용 예약값. 현재 챗봇은 local fallback 사용                                       |
+| `NOTICE_DB_PATH`                           | 아니오 | `./data/kau_notice_hub.db`       | API가 우선 읽는 SQLite DB 경로                                                       |
+| `OPENAI_API_KEY`                           | 아니오 | empty                            | content 보강과 RAG 챗봇 OpenAI 호출에 사용. 없으면 챗봇은 local fallback             |
+| `OPENAI_MODEL`                             | 아니오 | `gpt-4.1-mini`                   | RAG 챗봇과 content 보강 OpenAI 호출 기본 모델                                        |
+| `RAG_ENABLED`                              | 아니오 | `false`                          | `true`이고 API key가 있으면 `/api/chat`이 OpenAI 답변 생성                           |
+| `RAG_MAX_REFERENCES`                       | 아니오 | `6`                              | 챗봇 검색 후보와 응답 references 최대 수                                             |
+| `RAG_QUERY_EXTRACTION_ENABLED`             | 아니오 | `true`                           | RAG 활성화 시 검색 전 LLM 키워드 추출 사용                                           |
 | `CONTENT_ENRICHMENT_ENABLED`               | 아니오 | `false`                          | 이미지/HWP 기반 content 보강 활성화                                                  |
 | `CONTENT_ENRICHMENT_PROVIDER`              | 아니오 | `openai`                         | content 보강 provider                                                                |
 | `CONTENT_ENRICHMENT_MODEL`                 | 아니오 | `gpt-4.1-mini`                   | content 보강 기본 모델                                                               |

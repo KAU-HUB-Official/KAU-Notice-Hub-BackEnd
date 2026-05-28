@@ -7,13 +7,28 @@ FastAPI 기반 공지 API 서버다. 크롤러는 전체 스냅샷 JSON을 atomi
 | 문서 | 내용 |
 | --- | --- |
 | [AGENTS.md](AGENTS.md) | 에이전트 작업 규칙과 운영 체크리스트 |
+| [docs/PROJECT_STRUCTURE.md](docs/PROJECT_STRUCTURE.md) | 현재 프로젝트 구조와 런타임 흐름 |
 | [docs/API_SPEC.md](docs/API_SPEC.md) | API 계약과 Swagger UI 경로 |
 | [docs/CLASSIFICATION.md](docs/CLASSIFICATION.md) | 공지 대분류/중분류/source 필터 기준 |
 | [docs/CRAWLING_UPDATE.md](docs/CRAWLING_UPDATE.md) | 크롤러 JSON 게시 정책 |
-| [docs/RAG_PLAN.md](docs/RAG_PLAN.md) | 공지 기반 RAG 설정 및 구현 계획 |
+| [docs/RAG_PLAN.md](docs/RAG_PLAN.md) | 공지 기반 RAG 동작 기준 |
 | [docs/crawler/README.md](docs/crawler/README.md) | 통합 크롤러 구조와 운영 문서 |
 | [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md) | 로컬 실행, Docker Compose, GitHub Actions 배포 |
-| [docs/ERD.md](docs/ERD.md) | JSON 논리 모델 |
+| [docs/ERD.md](docs/ERD.md) | SQLite 스키마와 JSON 원천 모델 |
+
+## 프로젝트 구조 요약
+
+```text
+app/             FastAPI 앱, service/repository, SQLite ingest, 검색/분류
+app/api/         health, notices, chat router
+app/crawler/     KAU 공지 크롤러 client/parser/service/policy
+scripts/         수동 JSON 스냅샷 publish 스크립트
+tests/           pytest 테스트와 retrieval eval case
+docs/            API, 배포, ERD, RAG, 크롤러 운영 문서
+data/            로컬 런타임 JSON/SQLite 저장소 (.gitkeep만 커밋)
+```
+
+런타임 기준 흐름은 `NOTICE_JSON_PATH` 전체 스냅샷을 크롤러가 atomic 게시하고, `app/ingest.py`가 같은 데이터를 `NOTICE_DB_PATH` SQLite DB로 atomic 반영하는 구조다. API는 SQLite를 우선 읽고, DB를 만들 수 없을 때 JSON repository로 폴백한다.
 
 ## 로컬 실행
 

@@ -62,6 +62,7 @@ def html_node_to_markdown(
     )
     markdown = _normalize_emphasis(markdown)
     markdown = _split_inline_bullets(markdown)
+    markdown = _escape_unbalanced_backticks(markdown)
     return _collapse_blank_lines(markdown).strip()
 
 
@@ -81,7 +82,10 @@ def make_image_only_markdown(
         src = (img.get("src") or img.get("data-src") or "").strip()
         if not src:
             continue
+        if src.lower().startswith(("data:", "javascript:")):
+            continue
         absolute = urljoin(base_url, src) if base_url else src
+        absolute = _escape_markdown_url(absolute)
         if absolute in seen:
             continue
         seen.add(absolute)
@@ -104,7 +108,11 @@ def _preprocess(html: str, *, base_url: str | None) -> str:
     for tag in soup.find_all(list(_STRIP_TAGS)):
         tag.decompose()
 
+    _normalize_image_sources(soup, base_url=base_url)
+
     for tag_name, attr in _URL_ATTRS:
+        if tag_name == "img":
+            continue
         for tag in soup.find_all(tag_name):
             value = (tag.get(attr) or "").strip()
             if not value:
@@ -119,9 +127,42 @@ def _preprocess(html: str, *, base_url: str | None) -> str:
             if lowered.startswith(("javascript:", "mailto:", "tel:", "#")):
                 continue
             if base_url:
-                tag[attr] = urljoin(base_url, value)
+                value = urljoin(base_url, value)
+            tag[attr] = _escape_markdown_url(value)
 
     return soup.decode()
+
+
+def _normalize_image_sources(soup: BeautifulSoup, *, base_url: str | None) -> None:
+    """Choose a renderable image URL before markdownify sees the tree."""
+    for img in soup.find_all("img"):
+        src = (img.get("src") or "").strip()
+        data_src = (img.get("data-src") or "").strip()
+        candidate = _first_non_data_url(src, data_src)
+        if not candidate:
+            img.decompose()
+            continue
+        if base_url:
+            candidate = urljoin(base_url, candidate)
+        img["src"] = _escape_markdown_url(candidate)
+        img.attrs.pop("data-src", None)
+
+
+def _first_non_data_url(*values: str) -> str:
+    for value in values:
+        lowered = value.lower()
+        if not value or lowered.startswith(("data:", "javascript:")):
+            continue
+        return value
+    return ""
+
+
+def _escape_markdown_url(value: str) -> str:
+    return (
+        value.replace(" ", "%20")
+        .replace("(", "%28")
+        .replace(")", "%29")
+    )
 
 
 def _collapse_blank_lines(text: str) -> str:
@@ -300,6 +341,36 @@ def _split_inline_markers(text: str) -> str:
     text = _NUMERIC_MARKER_RE.sub("\n", text)
     text = _HANGUL_MARKER_RE.sub("\n", text)
     return text
+
+
+def _escape_unbalanced_backticks(text: str) -> str:
+    """Escape literal year abbreviations such as ``(`25)``.
+
+    Korean notices often use a backtick as a visual apostrophe. A single
+    backtick starts an inline code span in Markdown, so escape only lines with
+    an odd number of unescaped backticks.
+    """
+    lines: list[str] = []
+    for line in text.split("\n"):
+        if _count_unescaped_backticks(line) % 2 == 1:
+            line = line.replace("`", "\\`")
+        lines.append(line)
+    return "\n".join(lines)
+
+
+def _count_unescaped_backticks(line: str) -> int:
+    count = 0
+    escaped = False
+    for char in line:
+        if escaped:
+            escaped = False
+            continue
+        if char == "\\":
+            escaped = True
+            continue
+        if char == "`":
+            count += 1
+    return count
 
 
 def _normalize_emphasis(text: str) -> str:

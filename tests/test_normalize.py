@@ -105,6 +105,19 @@ def test_normalize_uses_image_fallback_for_data_uri_html() -> None:
     assert "data:image" not in notice.content
 
 
+def test_normalize_uses_image_fallback_when_markdown_image_is_removed() -> None:
+    notice = normalize_notice(
+        {
+            "title": "이미지 Markdown 공지",
+            "content": "![이미지](data:image/png;base64,AAAA)",
+        },
+        0,
+    )
+
+    assert notice.content == "**[이미지 본문]**\n\n원문 공지에서 이미지를 확인해주세요."
+    assert "data:image" not in notice.content
+
+
 def test_normalize_splits_decorative_section_and_inline_numbered_items() -> None:
     notice = normalize_notice(
         {
@@ -175,6 +188,62 @@ def test_normalize_converts_empty_header_flow_table_to_text() -> None:
     assert "\n별첨 양식 다운로드\n5. 문의 사항" in notice.content
 
 
+def test_normalize_converts_orphan_table_rows_to_text() -> None:
+    notice = normalize_notice(
+        {
+            "title": "고아 표 행",
+            "content": "| 등록기간 | 6. 9.(화) 09:00 ~ 10.(수) 16:30 | |",
+        },
+        0,
+    )
+
+    assert notice.content == "등록기간 6. 9.(화) 09:00 ~ 10.(수) 16:30"
+
+
+def test_normalize_removes_empty_orphan_table_rows() -> None:
+    notice = normalize_notice(
+        {
+            "title": "빈 표 행",
+            "content": "앞 문장\n|  |\n뒤 문장",
+        },
+        0,
+    )
+
+    assert notice.content == "앞 문장\n\n뒤 문장"
+
+
+def test_normalize_splits_inline_circle_markers() -> None:
+    notice = normalize_notice(
+        {
+            "title": "동그라미 항목",
+            "content": "11:30~12:30 ○ 탑승자 확인○ 오리엔테이션",
+        },
+        0,
+    )
+
+    assert notice.content == "11:30~12:30\n○ 탑승자 확인\n○ 오리엔테이션"
+
+
+def test_normalize_preserves_valid_markdown_table() -> None:
+    raw = "| 구분 | 일정 |\n| --- | --- |\n| 신청 | 5/30 |"
+
+    notice = normalize_notice({"title": "표", "content": raw}, 0)
+
+    assert notice.content == raw
+
+
+def test_normalize_escapes_non_url_parenthetical_link() -> None:
+    notice = normalize_notice(
+        {
+            "title": "의도치 않은 링크",
+            "content": "과거 [반도체 소자공정 실습](구. 반도체공정) 교과목",
+        },
+        0,
+    )
+
+    assert notice.content == r"과거 \[반도체 소자공정 실습](구. 반도체공정) 교과목"
+
+
 def test_normalize_preserves_blank_lines_when_run_twice() -> None:
     raw = "문단1\n\n문단2\n\n1. 항목"
 
@@ -183,3 +252,27 @@ def test_normalize_preserves_blank_lines_when_run_twice() -> None:
 
     assert once == raw
     assert twice == raw
+
+
+def test_normalize_repairs_markdown_syntax_hazards() -> None:
+    notice = normalize_notice(
+        {
+            "title": "깨진 Markdown",
+            "content": (
+                "<!-- comment -->\n"
+                "![이미지](data:image/png;base64,AAAA)\n"
+                "![]()\n"
+                "공고명: 청년 매입임대 공고(`25년 2차)\n"
+                "[상세](https://example.com/path\n"
+                "첨부파일 참조![(붙임"
+            ),
+        },
+        0,
+    )
+
+    assert "comment" not in notice.content
+    assert "data:image" not in notice.content
+    assert "![]()" not in notice.content
+    assert r"공고명: 청년 매입임대 공고(\`25년 2차)" in notice.content
+    assert "[상세](https://example.com/path)" in notice.content
+    assert r"첨부파일 참조!\[(붙임" in notice.content

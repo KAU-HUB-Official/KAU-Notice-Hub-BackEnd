@@ -94,6 +94,38 @@ def test_html_node_to_markdown_drops_data_uri_images() -> None:
     assert html_node_to_markdown(node) == ""
 
 
+def test_html_node_to_markdown_uses_lazy_image_url_over_data_placeholder() -> None:
+    node = _node(
+        '<div><p><img src="data:image/png;base64,AAAA" '
+        'data-src="/upfile/poster (1).png" alt="포스터"></p></div>'
+    )
+
+    md = html_node_to_markdown(node, base_url="https://kau.ac.kr/notice/read")
+
+    assert "data:image" not in md
+    assert md == "![포스터](https://kau.ac.kr/upfile/poster%20%281%29.png)"
+
+
+def test_make_image_only_markdown_skips_data_uri_images() -> None:
+    soup = BeautifulSoup(
+        '<div><img src="data:image/png;base64,AAAA" alt="inline"></div>',
+        "html.parser",
+    )
+
+    assert make_image_only_markdown(soup.select("img")) == ""
+
+
+def test_html_node_to_markdown_drops_images_without_url() -> None:
+    node = _node('<div><p><img alt="empty"></p></div>')
+    assert html_node_to_markdown(node) == ""
+
+
+def test_html_node_to_markdown_escapes_unbalanced_backticks() -> None:
+    node = _node("<div><p>공고명: 청년 매입임대 공고(`25년 2차)</p></div>")
+    md = html_node_to_markdown(node)
+    assert md == r"공고명: 청년 매입임대 공고(\`25년 2차)"
+
+
 def test_normalize_bullet_impersonation_in_strong() -> None:
     # `<strong>-</strong>제출항목` 같은 패턴이 진짜 bullet으로 풀려야 함
     node = _node(

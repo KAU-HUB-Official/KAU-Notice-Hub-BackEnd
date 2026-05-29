@@ -24,14 +24,14 @@ EM_TAG_PATTERN = re.compile(
     r"<(?:em|i)\b[^>]*>(.*?)</(?:em|i)>",
     flags=re.IGNORECASE | re.DOTALL,
 )
-MARKER_SPACING_RE = re.compile(r"([▪※])(?=\S)")
+MARKER_SPACING_RE = re.compile(r"([▪※○•])(?=\S)")
 DECORATIVE_SECTION_RE = re.compile(
     r"(^|(?<=\S)\s+)-\s*((?:다\s*음)|(?:아\s*래))\s*-\s*"
 )
 DOTTED_NUMBER_MARKER_RE = re.compile(
     r"(?<=[가-힣A-Za-z\)\]\"”'\.])[ \t]+(?=\d{1,2}\.\s+[가-힣A-Za-z])"
 )
-INLINE_NOTICE_MARKER_RE = re.compile(r"(?<=\S)[ \t]+(?=[▪※]\s*)")
+INLINE_NOTICE_MARKER_RE = re.compile(r"(?<=\S)[ \t]*(?=[▪※○•]\s*)")
 PROFESSOR_LIST_DASH_RE = re.compile(r"(?<=전공주임교수)[ \t]+-[ \t]+")
 INLINE_MAJOR_ITEM_DASH_RE = re.compile(
     r"(?<=\))[ \t]+-[ \t]+(?=[A-Za-z가-힣\- ]{1,30}전공\b)"
@@ -45,6 +45,24 @@ EMAIL_MAILTO_RE = re.compile(
     flags=re.IGNORECASE,
 )
 TABLE_SEPARATOR_CELL_RE = re.compile(r":?-{3,}:?")
+IMAGE_BODY_FALLBACK = "**[이미지 본문]**\n\n원문 공지에서 이미지를 확인해주세요."
+MARKDOWN_IMAGE_RE = re.compile(r"!\[[^\]\n]*\]\(")
+HTML_COMMENT_BLOCK_RE = re.compile(r"<!--.*?-->", flags=re.DOTALL)
+HTML_COMMENT_MARKER_RE = re.compile(r"<!--|-->")
+UNSAFE_MARKDOWN_LINK_RE = re.compile(
+    r"!?\[[^\]\n]*\]\(\s*(?:javascript|data):[^\n)]*\)",
+    flags=re.IGNORECASE,
+)
+EMPTY_MARKDOWN_LINK_RE = re.compile(r"!?\[[^\]\n]*\]\(\s*\)")
+UNCLOSED_MARKDOWN_LINK_DEST_RE = re.compile(
+    r"(!?\[[^\]\n]*\]\((?:https?://|/)[^\s)\n]+)$",
+    flags=re.MULTILINE,
+)
+UNCLOSED_MARKDOWN_TEXT_RE = re.compile(r"(?<!\\)(!?)\[([^\]\n]*)$")
+NON_URL_MARKDOWN_LINK_RE = re.compile(
+    r"(?<!\\)\[([^\]\n]+)\]\(((?!https?://|mailto:|tel:|#|/)[^)]+)\)",
+    flags=re.IGNORECASE,
+)
 
 
 def _to_string_value(value: Any) -> str | None:
@@ -128,18 +146,26 @@ def normalize_content_markdown(content: str) -> str:
     if HTML_FRAGMENT_PATTERN.search(value):
         markdown = html_node_to_markdown(value)
         if markdown:
-            return _normalize_markdown_structure(markdown)
+            normalized = _normalize_markdown_structure(markdown)
+            if normalized:
+                return normalized
         if "<img" in value.lower():
-            return "**[이미지 본문]**\n\n원문 공지에서 이미지를 확인해주세요."
+            return IMAGE_BODY_FALLBACK
         return _normalize_markdown_structure(strip_html(value) or value)
 
-    return _normalize_markdown_structure(value)
+    normalized = _normalize_markdown_structure(value)
+    if normalized:
+        return normalized
+    if MARKDOWN_IMAGE_RE.search(value):
+        return IMAGE_BODY_FALLBACK
+    return normalized
 
 
 def _normalize_markdown_structure(content: str) -> str:
     value = _normalize_inline_html_in_markdown(content)
     value = EMAIL_MAILTO_RE.sub(lambda m: f"[{m.group(1)}](mailto:{m.group(1)})", value)
     value = _normalize_flow_tables(value)
+    value = _normalize_orphan_table_rows(value)
     lines: list[str] = []
     for line in value.splitlines():
         stripped = line.strip()
@@ -162,7 +188,54 @@ def _normalize_markdown_structure(content: str) -> str:
         normalized = MARKER_SPACING_RE.sub(r"\1 ", normalized)
         lines.extend(part.rstrip() for part in normalized.splitlines())
 
-    return re.sub(r"\n{3,}", "\n\n", "\n".join(lines)).strip()
+    value = "\n".join(lines)
+    value = _normalize_flow_tables(value)
+    value = _normalize_orphan_table_rows(value)
+    value = _repair_markdown_syntax(value)
+    return re.sub(r"\n{3,}", "\n\n", value).strip()
+
+
+def _repair_markdown_syntax(content: str) -> str:
+    value = HTML_COMMENT_BLOCK_RE.sub("", content)
+    value = HTML_COMMENT_MARKER_RE.sub("", value)
+    value = UNSAFE_MARKDOWN_LINK_RE.sub("", value)
+    value = EMPTY_MARKDOWN_LINK_RE.sub("", value)
+    value = UNCLOSED_MARKDOWN_LINK_DEST_RE.sub(r"\1)", value)
+    value = NON_URL_MARKDOWN_LINK_RE.sub(r"\\[\1](\2)", value)
+    value = _escape_unclosed_markdown_text(value)
+    value = _escape_unbalanced_backticks(value)
+    return value
+
+
+def _escape_unclosed_markdown_text(content: str) -> str:
+    lines: list[str] = []
+    for line in content.splitlines():
+        lines.append(UNCLOSED_MARKDOWN_TEXT_RE.sub(r"\1\\[\2", line))
+    return "\n".join(lines)
+
+
+def _escape_unbalanced_backticks(content: str) -> str:
+    lines: list[str] = []
+    for line in content.splitlines():
+        if _count_unescaped_backticks(line) % 2 == 1:
+            line = line.replace("`", "\\`")
+        lines.append(line)
+    return "\n".join(lines)
+
+
+def _count_unescaped_backticks(line: str) -> int:
+    count = 0
+    escaped = False
+    for char in line:
+        if escaped:
+            escaped = False
+            continue
+        if char == "\\":
+            escaped = True
+            continue
+        if char == "`":
+            count += 1
+    return count
 
 
 def _normalize_flow_tables(content: str) -> str:
@@ -188,6 +261,31 @@ def _normalize_flow_tables(content: str) -> str:
     return "\n".join(normalized)
 
 
+def _normalize_orphan_table_rows(content: str) -> str:
+    lines = content.splitlines()
+    normalized: list[str] = []
+    index = 0
+    while index < len(lines):
+        line = lines[index]
+        if not _is_table_row(line):
+            normalized.append(line)
+            index += 1
+            continue
+
+        if index + 1 < len(lines) and _is_table_separator_row(lines[index + 1]):
+            normalized.append(line)
+            index += 1
+            while index < len(lines) and _is_table_row(lines[index]):
+                normalized.append(lines[index])
+                index += 1
+            continue
+
+        normalized.append(_table_row_to_plain_text(line))
+        index += 1
+
+    return "\n".join(normalized)
+
+
 def _is_table_row(line: str) -> bool:
     stripped = line.strip()
     return stripped.startswith("|") and stripped.endswith("|")
@@ -203,12 +301,18 @@ def _is_empty_table_row(line: str) -> bool:
 
 
 def _is_table_separator_row(line: str) -> bool:
+    if not _is_table_row(line):
+        return False
     cells = _table_cells(line)
     return bool(cells) and all(TABLE_SEPARATOR_CELL_RE.fullmatch(cell) for cell in cells)
 
 
 def _table_row_to_plain_text(line: str) -> str:
-    cells = [cell for cell in _table_cells(line) if cell]
+    cells = [
+        cell
+        for cell in _table_cells(line)
+        if cell and not TABLE_SEPARATOR_CELL_RE.fullmatch(cell)
+    ]
     return " ".join(cells)
 
 

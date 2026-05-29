@@ -86,6 +86,22 @@ pytest -q
 
 GitHub Actions의 `CI / test`는 push와 pull request에서 실행된다. `main` 병합 또는 직접 push 전에 로컬에서도 테스트를 실행한다.
 
+## Markdown 품질 감사
+
+공지 본문 Markdown이 렌더링을 깨뜨리는지 로컬 데이터 기준으로 검사한다. API가 실제로 읽는 SQLite를 확인할 때:
+
+```bash
+python3 scripts/audit_markdown_quality.py --db data/kau_notice_hub.db --fail-on P2
+```
+
+JSON 스냅샷 자체를 확인할 때:
+
+```bash
+python3 scripts/audit_markdown_quality.py --json data/kau_official_posts.json --fail-on P2
+```
+
+`P0/P1`은 렌더링 오류 가능성이 높은 문법 문제이고, `P2`는 고아 표 행이나 inline bullet처럼 화면 품질을 떨어뜨릴 수 있는 엄격 검사 항목이다.
+
 ## k6 부하 테스트
 
 로컬 API 서버를 실행한 뒤 k6 스크립트를 실행한다. 아래 명령은 `k6` CLI가 PATH에 설치되어 있어야 한다.

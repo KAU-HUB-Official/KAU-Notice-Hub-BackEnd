@@ -86,6 +86,39 @@ pytest -q
 
 GitHub Actions의 `CI / test`는 push와 pull request에서 실행된다. `main` 병합 또는 직접 push 전에 로컬에서도 테스트를 실행한다.
 
+## k6 부하 테스트
+
+로컬 API 서버를 실행한 뒤 k6 스크립트를 실행한다. 아래 명령은 `k6` CLI가 PATH에 설치되어 있어야 한다.
+
+```bash
+uvicorn app.main:app --reload --port 8000
+k6 run load-tests/k6/api-load-test.js
+```
+
+기본 `PROFILE=smoke`는 짧은 검증용이다. 로컬에서 조금 더 긴 테스트를 돌릴 때:
+
+```bash
+PROFILE=local BASE_URL=http://localhost:8000 k6 run load-tests/k6/api-load-test.js
+```
+
+주요 옵션:
+
+| 환경변수 | 기본값 | 설명 |
+| --- | --- | --- |
+| `BASE_URL` | `http://localhost:8000` | 부하 테스트 대상 API base URL |
+| `PROFILE` | `smoke` | `smoke`, `local`, `stress`, `remote_100` 중 하나 |
+| `NOTICE_ID` | 없음 | 지정하면 상세 API를 해당 공지 ID로 호출 |
+| `INCLUDE_CHAT` | `false` | `true`면 `/api/chat`도 포함. OpenAI 설정이 켜진 환경에서는 외부 호출/비용이 생길 수 있음 |
+| `SEARCH_TERMS` | 주요 한국어 검색어 | 쉼표로 구분한 검색어 목록 |
+
+운영 서버 대상 부하 테스트는 반드시 대상 URL과 강도를 별도로 확인한 뒤 실행한다.
+
+원격 테스트 배포 서버에 100 VU 부하를 줄 때:
+
+```bash
+PROFILE=remote_100 BASE_URL=https://api.example.com k6 run load-tests/k6/api-load-test.js
+```
+
 ## 크롤러 게시
 
 기본값은 내장 크롤러(`python3 -m app.crawler.main`)를 실행한다. 별도 명령을 넘길 때는 `CRAWLER_COMMAND`가 `$CRAWLER_OUTPUT_PATH`에 병합된 전체 JSON 스냅샷을 쓰면 된다.

@@ -260,6 +260,22 @@ def test_normalize_keeps_dates_intact() -> None:
     assert "3.5 이상" in notice.content
 
 
+def test_normalize_keeps_spaced_date_followed_by_hangul() -> None:
+    # "2026. 08. 예정"의 월(08.)을 섹션 마커로 오인해 날짜를 끊으면 안 됨.
+    # 문장 종결/한글 뒤 진짜 섹션 마커(6. 문의)는 분리해야 한다.
+    notice = normalize_notice(
+        {
+            "title": "성적 통보",
+            "content": "학점교류성적 통보는 2026. 08. 예정6. 문의 : 학사팀",
+        },
+        0,
+    )
+
+    assert "2026. 08. 예정" in notice.content
+    assert "2026.\n08." not in notice.content
+    assert "예정\n6. 문의" in notice.content
+
+
 def test_normalize_converts_orphan_table_rows_to_text() -> None:
     notice = normalize_notice(
         {

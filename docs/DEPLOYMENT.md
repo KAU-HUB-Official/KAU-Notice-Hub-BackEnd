@@ -170,6 +170,12 @@ docker compose --profile proxy up -d --build
 
 운영 compose에서는 API 컨테이너 포트를 host의 `127.0.0.1:8000`에만 바인딩한다. 외부 사용자는 8000 포트로 직접 접근하지 않고 Caddy의 80/443을 통해 접근한다.
 
+### uvicorn 워커와 크롤러 스케줄러
+
+API 컨테이너는 듀얼코어 호스트에 맞춰 uvicorn 워커 2개(`--workers 2`, `Dockerfile`)로 실행한다. 동시 요청을 두 워커가 나눠 처리해 단일 워커 직렬화를 완화한다.
+
+크롤러 스케줄러는 각 워커의 lifespan에서 시작되지만 **워커 간 singleton**이다. `run_crawler_scheduler`가 `.crawler-scheduler.lock`을 non-blocking으로 잡아 한 워커만 스케줄링을 돌리고, 나머지 워커는 건너뛴다. 실제 게시/ingest는 별도의 `.crawler.lock`으로도 보호되므로 이중 크롤·ingest는 발생하지 않는다. 메모리가 빠듯하면(호스트 ~911MiB) ingest 순간 사용량을 `docker stats`로 확인한다.
+
 ```text
 api
   -> 127.0.0.1:8000 only

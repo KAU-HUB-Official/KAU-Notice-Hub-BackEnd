@@ -1,3 +1,4 @@
+import asyncio
 import json
 from pathlib import Path
 
@@ -5,7 +6,12 @@ import pytest
 
 from app.config import Settings
 from app import crawler_scheduler
-from app.crawler_scheduler import publish_crawler_snapshot
+from app.crawler_scheduler import (
+    FileLock,
+    publish_crawler_snapshot,
+    run_crawler_scheduler,
+    _scheduler_lock_path,
+)
 
 
 def write_json(path: Path, data) -> None:
@@ -104,3 +110,30 @@ def test_publish_crawler_snapshot_allows_drop_when_old_records_are_stale(
     assert json.loads(final_path.read_text(encoding="utf-8")) == [
         {"id": "recent", "published_at": "2026-04-01"}
     ]
+
+
+def test_run_crawler_scheduler_is_singleton_across_workers(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # Simulate a second worker: the scheduler lock is already held elsewhere.
+    settings = Settings(
+        notice_json_path=tmp_path / "notices.json",
+        notice_db_path=tmp_path / "notices.db",
+        crawler_run_on_startup=True,
+    )
+
+    calls = 0
+
+    async def fake_run_once(_settings) -> None:
+        nonlocal calls
+        calls += 1
+
+    monkeypatch.setattr(crawler_scheduler, "_run_once", fake_run_once)
+
+    with FileLock(_scheduler_lock_path(settings)) as held:
+        assert held  # first "worker" owns the lock
+        # second worker must skip immediately (no startup crawl, no loop)
+        asyncio.run(asyncio.wait_for(run_crawler_scheduler(settings), timeout=2))
+
+    assert calls == 0

@@ -107,21 +107,40 @@ def publish_crawler_snapshot(settings: Settings) -> CrawlerPublishResult | None:
                 tmp_path.unlink()
 
 
+def _scheduler_lock_path(settings: Settings) -> Path:
+    base = settings.notice_json_path.expanduser().resolve().parent
+    return base / ".crawler-scheduler.lock"
+
+
 async def run_crawler_scheduler(settings: Settings) -> None:
     interval_seconds = max(1, settings.crawler_interval_seconds)
-    logger.info(
-        "crawler scheduler started: interval_seconds=%s run_on_startup=%s output=%s",
-        interval_seconds,
-        settings.crawler_run_on_startup,
-        settings.notice_json_path,
-    )
 
-    if settings.crawler_run_on_startup:
-        await _run_once(settings)
+    # Singleton across uvicorn workers: only the worker that wins this lock runs
+    # the scheduler loop; the rest skip so crawling/ingest isn't driven twice.
+    # This MUST be a different lock file than publish's ".crawler.lock" — flock
+    # is per open-file-description, so reusing it would deadlock this process
+    # against itself when publish_crawler_snapshot tries to lock.
+    with FileLock(_scheduler_lock_path(settings)) as acquired:
+        if not acquired:
+            logger.info(
+                "crawler scheduler not started in this worker; another worker "
+                "already holds the scheduler lock"
+            )
+            return
 
-    while True:
-        await asyncio.sleep(interval_seconds)
-        await _run_once(settings)
+        logger.info(
+            "crawler scheduler started: interval_seconds=%s run_on_startup=%s output=%s",
+            interval_seconds,
+            settings.crawler_run_on_startup,
+            settings.notice_json_path,
+        )
+
+        if settings.crawler_run_on_startup:
+            await _run_once(settings)
+
+        while True:
+            await asyncio.sleep(interval_seconds)
+            await _run_once(settings)
 
 
 async def _run_once(settings: Settings) -> None:

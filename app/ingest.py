@@ -18,6 +18,7 @@ from app.db import connect, initialize_schema
 from app.normalize import normalize_notice
 from app.schemas import Notice
 from app.search import build_search_text, compact_search_text
+from app.sqlite_repository import build_and_store_facets
 
 logger = logging.getLogger("app.ingest")
 
@@ -62,6 +63,7 @@ def ingest_json_snapshot(
         try:
             initialize_schema(conn)
             _write_notices(conn, notices)
+            build_and_store_facets(conn)
         finally:
             conn.close()
         os.replace(tmp_db, final_db)
@@ -118,8 +120,8 @@ def _write_notices(conn: sqlite3.Connection, items: list[_ClassifiedNotice]) -> 
             INSERT INTO notices (
                 id, title, content, summary, url, category, department,
                 published_at, audience_group, source_group,
-                searchable_text, searchable_compact
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                searchable_text, searchable_compact, content_markdown
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             [
                 (
@@ -135,6 +137,9 @@ def _write_notices(conn: sqlite3.Connection, items: list[_ClassifiedNotice]) -> 
                     item.representative_source_group,
                     item.searchable_text,
                     item.searchable_compact,
+                    # normalize_notice() already produced render-ready markdown,
+                    # so we persist it once here and skip re-normalizing per read.
+                    item.notice.content,
                 )
                 for item in items
             ],

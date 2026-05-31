@@ -58,6 +58,7 @@ erDiagram
     text source_group
     text searchable_text
     text searchable_compact
+    text content_markdown
   }
 
   notice_sources {
@@ -90,7 +91,7 @@ erDiagram
 
 ## 실제 SQLite 스키마
 
-`app/db.py`가 테이블과 인덱스를 정의한다. 스키마 버전은 `db.SCHEMA_VERSION`이며 현재 버전은 `2`다. 버전이 맞지 않으면 부팅 시 기존 DB를 제거하고 JSON에서 다시 ingest한다.
+`app/db.py`가 테이블과 인덱스를 정의한다. 스키마 버전은 `db.SCHEMA_VERSION`이며 현재 버전은 `3`다. 버전이 맞지 않으면 부팅 시 기존 DB를 제거하고 JSON에서 다시 ingest한다.
 
 ### `notices`
 
@@ -110,6 +111,7 @@ erDiagram
 | `source_group` | `text` | 아니오 | 대표 중분류 |
 | `searchable_text` | `text` | 아니오 | 검색 후보 선별용 텍스트 |
 | `searchable_compact` | `text` | 아니오 | 공백/구두점 제거 검색 텍스트 |
+| `content_markdown` | `text` | 아니오 | ingest 시 미리 정규화한 본문 Markdown. 읽기 경로는 이 값을 그대로 반환하고, `NULL`인 레거시 row만 읽을 때 `content`를 정규화한다 |
 
 인덱스:
 
@@ -179,6 +181,18 @@ erDiagram
 | `tag_order` | `integer` | 예 | API 반환 순서 |
 
 기본키는 `(notice_id, tag)`이다.
+
+### `notice_facets_cache`
+
+목록/검색 응답의 facet(필터 선택지) 결과를 미리 계산해 저장한다. facet은 데이터가 바뀔 때만(즉 ingest 시) 달라지므로, 요청마다 재계산하지 않고 ingest 시 한 번 계산해 둔다.
+
+| 컬럼 | 타입 | 필수 | 설명 |
+| --- | --- | --- | --- |
+| `audience` | `text` | 예 | 정규화된 audience 필터 키. 무필터는 빈 문자열 `''` |
+| `source_group` | `text` | 예 | 정규화된 source group 필터 키. 무필터는 빈 문자열 `''` |
+| `payload` | `text` | 예 | `audienceGroups`/`sourceGroups`/`sources`/`categories`/`departments`를 담은 JSON |
+
+기본키는 `(audience, source_group)`이다. ingest 시 `app/sqlite_repository.py`의 `build_and_store_facets`가 `(audience, source_group)` 조합을 모두 채운다. 읽기 경로는 이 테이블을 조회하고, 캐시 미스(레거시 DB, 알 수 없는 audience)면 기존처럼 live로 계산해 동작을 보존한다.
 
 ### `schema_meta`
 

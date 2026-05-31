@@ -1,4 +1,23 @@
-from app.normalize import normalize_notice
+from app.normalize import normalize_content_markdown, normalize_notice
+
+
+def test_normalize_content_markdown_is_idempotent() -> None:
+    # The SQLite read path stores normalize_content_markdown(content) once at
+    # ingest and returns it verbatim; legacy rows are normalized again on read.
+    # Both only stay consistent if the function is idempotent.
+    samples = [
+        "<p>본문 <b>강조</b></p><br><br>",
+        "표\t|\tA\t|\tB",
+        "- a\n- b\n\n\n\n",
+        "http://x.com  공지   2026. 08. 예정",
+        "###제목\n본문<div>중첩<span>태그</span></div>",
+        '<p><img src="data:image/png;base64,AAAA" alt="본문"></p>',
+        "1) 항목\n2) 항목\n\n\n끝",
+        "본문 정보가 비어 있습니다.",
+    ]
+    for sample in samples:
+        once = normalize_content_markdown(sample)
+        assert normalize_content_markdown(once) == once
 
 
 def test_normalize_source_string_and_summary() -> None:

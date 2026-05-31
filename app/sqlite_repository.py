@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import asyncio
+import json
+import logging
 import sqlite3
 from math import ceil
 from pathlib import Path
@@ -31,8 +33,19 @@ from app.search import (
 )
 
 
+logger = logging.getLogger("app.sqlite_repository")
+
 SEARCH_CANDIDATE_LIMIT = 500
 _SOURCE_DELIMITER = "\x1f"
+
+# notice_facets_cache stores None (no filter) for audience/source_group as this
+# empty-string sentinel, since the keys are NOT NULL TEXT primary-key columns.
+_FACET_CACHE_NULL = ""
+
+
+def _facet_cache_key(value: str | None) -> str:
+    """Map None (no filter) to the cache's empty-string sentinel."""
+    return value if value else _FACET_CACHE_NULL
 
 
 class SqliteNoticeRepository:
@@ -108,23 +121,11 @@ def _search(conn: sqlite3.Connection, query: NoticeSearchQuery) -> NoticeSearchR
     department = normalize_filter_value(query.department)
     source_filter_enabled = should_use_source_filter(query.audience_group)
 
-    source_groups_in_audience = _query_source_groups(conn, audience)
-    effective_source_group = (
-        requested_source_group
-        if requested_source_group and requested_source_group in source_groups_in_audience
-        else None
-    )
-
-    facets = NoticeFacets(
-        audienceGroups=_query_audience_groups(conn),
-        sourceGroups=source_groups_in_audience,
-        sources=(
-            _query_sources(conn, audience, effective_source_group)
-            if source_filter_enabled
-            else []
-        ),
-        categories=_query_categories(conn, audience, effective_source_group),
-        departments=_query_departments(conn, audience, effective_source_group),
+    facets, effective_source_group = _resolve_facets(
+        conn,
+        audience=audience,
+        requested_source_group=requested_source_group,
+        source_filter_enabled=source_filter_enabled,
     )
 
     where_clauses, params = _build_main_where(
@@ -219,7 +220,7 @@ def _paginate_no_query(
     rows = conn.execute(
         f"""
         SELECT id, title, content, summary, url, category, department,
-               published_at, audience_group, source_group
+               published_at, audience_group, source_group, content_markdown
         FROM notices n
         {where_sql}
         ORDER BY published_at DESC, title ASC, id ASC
@@ -275,7 +276,7 @@ def _search_with_query(
         f"""
         SELECT id, title, content, summary, url, category, department,
                published_at, audience_group, source_group,
-               searchable_text, searchable_compact
+               searchable_text, searchable_compact, content_markdown
         FROM notices n
         {where_sql}
         ORDER BY published_at DESC, title ASC, id ASC
@@ -340,6 +341,209 @@ def _apply_text_filter(
                 matched.append(notice)
                 break
     return matched
+
+
+def _resolve_facets(
+    conn: sqlite3.Connection,
+    *,
+    audience: str | None,
+    requested_source_group: str | None,
+    source_filter_enabled: bool,
+) -> tuple[NoticeFacets, str | None]:
+    """Return facets for this query, preferring the ingest-time cache.
+
+    Facets only change when the data changes (i.e. on ingest), so they are
+    precomputed once per (audience, source_group) combination and stored in
+    ``notice_facets_cache``. On a cache miss (legacy DB, unknown audience) we
+    fall back to computing them live so behaviour is unchanged.
+    """
+    cached = _facets_from_cache(
+        conn,
+        audience=audience,
+        requested_source_group=requested_source_group,
+        source_filter_enabled=source_filter_enabled,
+    )
+    if cached is not None:
+        return cached
+    return _compute_facets_live(
+        conn,
+        audience=audience,
+        requested_source_group=requested_source_group,
+        source_filter_enabled=source_filter_enabled,
+    )
+
+
+def _compute_facet_bundle(
+    conn: sqlite3.Connection,
+    *,
+    audience: str | None,
+    source_group: str | None,
+    source_filter_enabled: bool,
+) -> dict[str, list[str]]:
+    """Single source of truth for a facet payload (keys match NoticeFacets).
+
+    Both the read-time live fallback (_compute_facets_live) and the ingest-time
+    precompute (build_and_store_facets) build payloads through this function, so
+    the cached and freshly-computed shapes cannot drift apart.
+    """
+    return {
+        "audienceGroups": _query_audience_groups(conn),
+        "sourceGroups": _query_source_groups(conn, audience),
+        "sources": (
+            _query_sources(conn, audience, source_group)
+            if source_filter_enabled
+            else []
+        ),
+        "categories": _query_categories(conn, audience, source_group),
+        "departments": _query_departments(conn, audience, source_group),
+    }
+
+
+def _compute_facets_live(
+    conn: sqlite3.Connection,
+    *,
+    audience: str | None,
+    requested_source_group: str | None,
+    source_filter_enabled: bool,
+) -> tuple[NoticeFacets, str | None]:
+    source_groups_in_audience = _query_source_groups(conn, audience)
+    effective_source_group = (
+        requested_source_group
+        if requested_source_group and requested_source_group in source_groups_in_audience
+        else None
+    )
+    bundle = _compute_facet_bundle(
+        conn,
+        audience=audience,
+        source_group=effective_source_group,
+        source_filter_enabled=source_filter_enabled,
+    )
+    return NoticeFacets(**bundle), effective_source_group
+
+
+def _facets_from_cache(
+    conn: sqlite3.Connection,
+    *,
+    audience: str | None,
+    requested_source_group: str | None,
+    source_filter_enabled: bool,
+) -> tuple[NoticeFacets, str | None] | None:
+    base = _read_facet_row(conn, audience, None)
+    if base is None:
+        return None
+    source_groups_in_audience = base.get("sourceGroups", [])
+    effective_source_group = (
+        requested_source_group
+        if requested_source_group and requested_source_group in source_groups_in_audience
+        else None
+    )
+    # audienceGroups (global) and sourceGroups (audience-level) are identical
+    # across every source_group row for an audience, so the effective row holds
+    # a complete, correct bundle on its own.
+    payload = (
+        base
+        if effective_source_group is None
+        else _read_facet_row(conn, audience, effective_source_group)
+    )
+    if payload is None:
+        return None
+    facets = NoticeFacets(
+        audienceGroups=payload.get("audienceGroups", []),
+        sourceGroups=payload.get("sourceGroups", []),
+        # Re-gate defensively; matches the live path's source_filter_enabled.
+        sources=payload.get("sources", []) if source_filter_enabled else [],
+        categories=payload.get("categories", []),
+        departments=payload.get("departments", []),
+    )
+    return facets, effective_source_group
+
+
+def _read_facet_row(
+    conn: sqlite3.Connection, audience: str | None, source_group: str | None
+) -> dict | None:
+    try:
+        row = conn.execute(
+            "SELECT payload FROM notice_facets_cache "
+            "WHERE audience = ? AND source_group = ?",
+            (_facet_cache_key(audience), _facet_cache_key(source_group)),
+        ).fetchone()
+    except sqlite3.Error as exc:
+        # Abnormal: the cache table is unreadable (corruption, locking, etc.).
+        # A normal cache miss is `row is None` below and stays silent.
+        logger.warning(
+            "facet cache read failed (audience=%r, source_group=%r); "
+            "falling back to live computation: %s",
+            audience,
+            source_group,
+            exc,
+        )
+        return None
+    if row is None:
+        return None
+    try:
+        payload = json.loads(row[0])
+    except (TypeError, ValueError) as exc:
+        logger.warning(
+            "facet cache payload is corrupt (audience=%r, source_group=%r); "
+            "falling back to live computation: %s",
+            audience,
+            source_group,
+            exc,
+        )
+        return None
+    return payload if isinstance(payload, dict) else None
+
+
+def build_and_store_facets(conn: sqlite3.Connection) -> None:
+    """Precompute facets for every (audience, source_group) combination.
+
+    Called from ingest after the notices are written. The combination space is
+    bounded (audiences come from a fixed list, source groups from another), so
+    this runs once per ingest instead of on every API request. The rebuild
+    (DELETE + INSERT) runs in a single transaction so the cache is never left
+    partially populated.
+    """
+    present_audiences = [
+        row[0]
+        for row in conn.execute(
+            "SELECT DISTINCT audience_group FROM notices "
+            "WHERE audience_group IS NOT NULL"
+        ).fetchall()
+        if row[0]
+    ]
+
+    rows: list[tuple[str, str, str]] = []
+    for audience in [None, *present_audiences]:
+        source_filter_enabled = should_use_source_filter(audience)
+        source_groups_in_audience = _query_source_groups(conn, audience)
+        for source_group in [None, *source_groups_in_audience]:
+            payload = _compute_facet_bundle(
+                conn,
+                audience=audience,
+                source_group=source_group,
+                source_filter_enabled=source_filter_enabled,
+            )
+            rows.append(
+                (
+                    _facet_cache_key(audience),
+                    _facet_cache_key(source_group),
+                    json.dumps(payload, ensure_ascii=False),
+                )
+            )
+
+    conn.execute("BEGIN")
+    try:
+        conn.execute("DELETE FROM notice_facets_cache")
+        if rows:
+            conn.executemany(
+                "INSERT OR REPLACE INTO notice_facets_cache "
+                "(audience, source_group, payload) VALUES (?, ?, ?)",
+                rows,
+            )
+        conn.execute("COMMIT")
+    except Exception:
+        conn.execute("ROLLBACK")
+        raise
 
 
 def _query_audience_groups(conn: sqlite3.Connection) -> list[str]:
@@ -533,7 +737,7 @@ def _fetch_all(conn: sqlite3.Connection) -> list[Notice]:
     rows = conn.execute(
         """
         SELECT id, title, content, summary, url, category, department,
-               published_at, audience_group, source_group
+               published_at, audience_group, source_group, content_markdown
         FROM notices
         ORDER BY published_at DESC, id ASC
         """
@@ -545,7 +749,7 @@ def _fetch_one(conn: sqlite3.Connection, notice_id: str) -> Notice | None:
     row = conn.execute(
         """
         SELECT id, title, content, summary, url, category, department,
-               published_at, audience_group, source_group
+               published_at, audience_group, source_group, content_markdown
         FROM notices WHERE id = ?
         """,
         (notice_id,),
@@ -568,10 +772,18 @@ def _row_to_notice(
     source_groups = source_groups_map.get(notice_id, [])
     audience_group = _column_or_none(row, "audience_group")
     representative_source_group = _column_or_none(row, "source_group")
+    # content_markdown is precomputed at ingest; only legacy rows that bypassed
+    # ingest (NULL column) need normalizing on read.
+    precomputed_markdown = _column_or_none(row, "content_markdown")
+    content = (
+        precomputed_markdown
+        if precomputed_markdown is not None
+        else normalize_content_markdown(row["content"])
+    )
     return Notice(
         id=notice_id,
         title=row["title"],
-        content=normalize_content_markdown(row["content"]),
+        content=content,
         url=row["url"],
         source=sources[0] if sources else None,
         sources=sources or None,

@@ -24,11 +24,20 @@ FastAPI app startup
   -> 다음 전체 스냅샷을 임시 JSON 파일로 생성
   -> 검증 성공 시 atomic rename/replace로 NOTICE_JSON_PATH 교체
   -> app/ingest.py가 동일 데이터를 임시 .db에 작성
+  -> ingest 시 모든 (audience, source_group) 조합의 facet을 미리 계산해 notice_facets_cache에 저장
   -> atomic rename으로 NOTICE_DB_PATH 교체
   -> 다음 API 요청은 새 SQLite 커넥션에서 최신 데이터 조회
 ```
 
 핵심은 **크롤링 실행을 API 요청 처리 경로 밖의 백그라운드 task로 분리**하는 것이다.
+
+### ingest 시 facet 미리 계산
+
+목록/검색 응답의 facet(필터 선택지)은 데이터가 바뀔 때만(즉 ingest 시) 달라진다. 따라서 요청마다 재계산하지 않고 ingest 시 `app/ingest.py`가 `build_and_store_facets`로 한 번 계산해 `notice_facets_cache` 테이블에 저장한다. API 읽기 경로는 이 캐시를 조회하고, 캐시 미스(이전 스키마 DB, 데이터에 없는 audience)면 기존처럼 live로 계산해 동작을 보존한다. 본문 Markdown도 같은 원리로 ingest 시 `content_markdown` 컬럼에 미리 정규화해 둔다. 자세한 스키마는 `docs/ERD.md`를 참고한다.
+
+### 스키마 버전 변경 시 재ingest
+
+`app/db.py`의 `SCHEMA_VERSION`이 바뀌면, 다음 앱 기동 시 `app/dependencies.py`가 버전 불일치를 감지해 기존 `NOTICE_DB_PATH`를 제거하고 JSON에서 자동으로 다시 ingest한다. 수동 조치는 필요 없지만, 배포 직후 첫 크롤러 게시/ingest가 완료되기 전까지는 부트스트랩 ingest가 첫 요청 경로에서 한 번 실행될 수 있다.
 
 ## 증분 수집과 JSON 스냅샷
 증분 수집을 사용해도 MVP JSON 저장소에서는 최종 게시 파일을 **전체 스냅샷**으로 유지한다.

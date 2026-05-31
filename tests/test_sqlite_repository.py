@@ -7,7 +7,7 @@ import pytest
 
 from app.db import connect, initialize_schema
 from app.ingest import ingest_json_snapshot
-from app.repository import NoticeRepositoryError
+from app.repository import NoticeRepositoryError, NoticeSearchQuery
 from app.sqlite_repository import SqliteNoticeRepository
 
 
@@ -206,6 +206,162 @@ def test_ingest_persists_attachment_order(tmp_path) -> None:
     notice = asyncio.run(repository.get_by_id("n-1"))
     assert notice is not None
     assert [a.name for a in notice.attachments] == ["a.pdf", "b.pdf", "c.pdf"]
+
+
+def test_ingest_populates_facet_cache(populated_db: Path) -> None:
+    conn = connect(populated_db)
+    try:
+        count = conn.execute(
+            "SELECT COUNT(*) FROM notice_facets_cache"
+        ).fetchone()[0]
+    finally:
+        conn.close()
+    # At minimum the no-filter (audience='', source_group='') bundle exists.
+    assert count >= 1
+
+
+def test_facet_cache_matches_live_computation(populated_db: Path) -> None:
+    repository = SqliteNoticeRepository(populated_db)
+
+    conn = connect(populated_db)
+    try:
+        audiences = [
+            row[0]
+            for row in conn.execute(
+                "SELECT DISTINCT audience_group FROM notices "
+                "WHERE audience_group IS NOT NULL"
+            ).fetchall()
+            if row[0]
+        ]
+    finally:
+        conn.close()
+
+    queries = [NoticeSearchQuery()]
+    queries += [NoticeSearchQuery(audience_group=a) for a in audiences]
+
+    cached = [asyncio.run(repository.search(q)) for q in queries]
+
+    # Wipe the cache so the repository falls back to live computation.
+    conn = connect(populated_db)
+    try:
+        conn.execute("DELETE FROM notice_facets_cache")
+    finally:
+        conn.close()
+
+    for query, cached_result in zip(queries, cached):
+        live_result = asyncio.run(repository.search(query))
+        assert cached_result.facets == live_result.facets
+        assert (
+            cached_result.effective_source_group
+            == live_result.effective_source_group
+        )
+
+
+def test_ingest_precomputes_content_markdown(tmp_path: Path) -> None:
+    json_path = tmp_path / "notices.json"
+    db_path = tmp_path / "notices.db"
+    _write_json(
+        json_path,
+        [
+            {
+                "id": "html-1",
+                "title": "HTML 공지",
+                "content": "<p>본문 <b>강조</b></p>",
+                "published_at": "2026-04-20",
+            }
+        ],
+    )
+    ingest_json_snapshot(json_path=json_path, db_path=db_path)
+
+    conn = connect(db_path)
+    try:
+        row = conn.execute(
+            "SELECT content, content_markdown FROM notices WHERE id = ?",
+            ("html-1",),
+        ).fetchone()
+    finally:
+        conn.close()
+
+    # The column is populated and already holds render-ready markdown.
+    assert row["content_markdown"] is not None
+    assert row["content_markdown"] == row["content"]
+    assert "<p>" not in row["content_markdown"]
+
+    # The read path returns the precomputed value verbatim.
+    repository = SqliteNoticeRepository(db_path)
+    notice = asyncio.run(repository.get_by_id("html-1"))
+    assert notice is not None
+    assert notice.content == row["content_markdown"]
+
+
+def test_new_code_reads_legacy_v2_db_without_crashing(tmp_path: Path) -> None:
+    # A pre-v3 DB has no content_markdown column and no notice_facets_cache.
+    # New code must self-heal (ALTER + cache table) instead of crashing.
+    db_path = tmp_path / "legacy_v2.db"
+    conn = sqlite3.connect(db_path)
+    try:
+        conn.executescript(
+            """
+            CREATE TABLE notices(
+                id TEXT PRIMARY KEY, title TEXT NOT NULL, content TEXT NOT NULL,
+                summary TEXT, url TEXT, category TEXT, department TEXT,
+                published_at TEXT, audience_group TEXT, source_group TEXT,
+                searchable_text TEXT, searchable_compact TEXT);
+            CREATE TABLE notice_sources(notice_id TEXT, source_name TEXT,
+                source_order INTEGER, PRIMARY KEY(notice_id, source_name));
+            CREATE TABLE notice_source_groups(notice_id TEXT, source_group TEXT,
+                source_group_order INTEGER, PRIMARY KEY(notice_id, source_group));
+            CREATE TABLE notice_attachments(notice_id TEXT, attachment_order INTEGER,
+                name TEXT, url TEXT, PRIMARY KEY(notice_id, attachment_order));
+            CREATE TABLE notice_tags(notice_id TEXT, tag TEXT, tag_order INTEGER,
+                PRIMARY KEY(notice_id, tag));
+            CREATE TABLE schema_meta(key TEXT PRIMARY KEY, value TEXT NOT NULL);
+            INSERT INTO schema_meta VALUES('version', '2');
+            INSERT INTO notices(id, title, content, searchable_text, searchable_compact)
+                VALUES('x', '레거시 공지', '<p>HTML 본문</p>', 'html 본문', 'html본문');
+            """
+        )
+        conn.commit()
+    finally:
+        conn.close()
+
+    repository = SqliteNoticeRepository(db_path)
+
+    result = asyncio.run(repository.search(NoticeSearchQuery()))
+    assert len(result.items) == 1
+    # Legacy NULL content_markdown -> normalized on read (no raw HTML leaks).
+    assert "<p>" not in result.items[0].content
+
+    notice = asyncio.run(repository.get_by_id("x"))
+    assert notice is not None
+    assert "<p>" not in notice.content
+
+
+def test_unknown_audience_falls_back_to_live_facets(populated_db: Path) -> None:
+    from app import sqlite_repository as repo_module
+
+    repository = SqliteNoticeRepository(populated_db)
+    unknown = "존재하지않는대상그룹"
+
+    # The cache has no row for an audience that was never ingested.
+    conn = connect(populated_db)
+    try:
+        assert repo_module._read_facet_row(conn, unknown, None) is None
+        live_facets, live_effective = repo_module._compute_facets_live(
+            conn,
+            audience=unknown,
+            requested_source_group=None,
+            source_filter_enabled=False,
+        )
+    finally:
+        conn.close()
+
+    result = asyncio.run(
+        repository.search(NoticeSearchQuery(audience_group=unknown))
+    )
+    # Falls back to live computation and stays consistent (no crash).
+    assert result.facets == live_facets
+    assert result.effective_source_group == live_effective
 
 
 def test_schema_creates_expected_tables(populated_db: Path) -> None:

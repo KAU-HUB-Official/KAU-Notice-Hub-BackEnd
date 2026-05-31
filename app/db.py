@@ -3,7 +3,10 @@ from __future__ import annotations
 import sqlite3
 from pathlib import Path
 
-SCHEMA_VERSION = 2
+# Bump on any schema change. Increments are one-way: on a version mismatch
+# app/dependencies.py deletes the DB and re-ingests from JSON (no down-migration).
+# v2 -> v3: added notices.content_markdown and the notice_facets_cache table.
+SCHEMA_VERSION = 3
 
 SCHEMA_STATEMENTS: tuple[str, ...] = (
     """
@@ -19,7 +22,8 @@ SCHEMA_STATEMENTS: tuple[str, ...] = (
         audience_group TEXT,
         source_group TEXT,
         searchable_text TEXT,
-        searchable_compact TEXT
+        searchable_compact TEXT,
+        content_markdown TEXT
     )
     """,
     """
@@ -56,6 +60,14 @@ SCHEMA_STATEMENTS: tuple[str, ...] = (
     )
     """,
     """
+    CREATE TABLE IF NOT EXISTS notice_facets_cache (
+        audience TEXT NOT NULL,
+        source_group TEXT NOT NULL,
+        payload TEXT NOT NULL,
+        PRIMARY KEY (audience, source_group)
+    )
+    """,
+    """
     CREATE TABLE IF NOT EXISTS schema_meta (
         key TEXT PRIMARY KEY,
         value TEXT NOT NULL
@@ -77,12 +89,49 @@ def connect(db_path: str | Path) -> sqlite3.Connection:
     conn = sqlite3.connect(path, isolation_level=None)
     conn.row_factory = sqlite3.Row
     conn.execute("PRAGMA foreign_keys = ON")
+    # Read-oriented, per-connection tuning. We deliberately do NOT enable WAL
+    # here: ingest publishes a new DB via os.replace() on the single .db file,
+    # which is incompatible with WAL's -wal/-shm sidecar files. These pragmas
+    # create no sidecar files and are safe with the atomic file swap.
+    #
+    # Connections are short-lived (one per request, see SqliteNoticeRepository),
+    # so values are kept modest to stay well within the deployment memory budget
+    # (Lightsail ~911MiB, MemoryMax 750M; see docs/DEPLOYMENT.md). mmap_size is
+    # sized to cover the whole DB (~24MB today) with headroom; mmap pages are
+    # shared read-only across connections via the OS page cache, so the resident
+    # cost is bounded by the file size, not multiplied per connection.
+    conn.execute("PRAGMA temp_store = MEMORY")
+    conn.execute("PRAGMA cache_size = -8000")  # ~8MB page cache per connection
+    conn.execute("PRAGMA mmap_size = 67108864")  # 64MB memory-mapped reads
     return conn
+
+
+def _ensure_column(
+    conn: sqlite3.Connection, table: str, column: str, decl: str
+) -> None:
+    """Add a column to an existing table if it is missing (idempotent).
+
+    `CREATE TABLE IF NOT EXISTS` does NOT add new columns to a table that
+    already exists, so a pre-existing older DB opened by newer code would lack
+    columns the queries reference. This self-heals that case.
+    """
+    existing = {row[1] for row in conn.execute(f"PRAGMA table_info({table})")}
+    if column in existing:
+        return
+    try:
+        conn.execute(f"ALTER TABLE {table} ADD COLUMN {column} {decl}")
+    except sqlite3.OperationalError:
+        # Lost a race with a concurrent initializer; the column now exists.
+        pass
 
 
 def initialize_schema(conn: sqlite3.Connection) -> None:
     for statement in SCHEMA_STATEMENTS:
         conn.execute(statement)
+    # Forward-compat for DBs created by an older schema version that are opened
+    # before the version-mismatch re-ingest replaces them (e.g. the JSON-missing
+    # degraded path in app/dependencies.py).
+    _ensure_column(conn, "notices", "content_markdown", "TEXT")
     conn.execute(
         "INSERT INTO schema_meta(key, value) VALUES('version', ?) "
         "ON CONFLICT(key) DO UPDATE SET value=excluded.value",

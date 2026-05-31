@@ -188,6 +188,78 @@ def test_normalize_converts_empty_header_flow_table_to_text() -> None:
     assert "\n별첨 양식 다운로드\n5. 문의 사항" in notice.content
 
 
+def test_normalize_promotes_empty_header_data_table() -> None:
+    # 원본 헤더가 <td>라 markdownify가 빈 헤더를 만든 직사각형 데이터 표는
+    # 첫 행을 헤더로 승격해 마크다운 표로 유지한다.
+    notice = normalize_notice(
+        {
+            "title": "입상자 발표",
+            "content": (
+                "다음과 같이 발표합니다.\n\n"
+                "|  |  |  |\n"
+                "| --- | --- | --- |\n"
+                "| 구분 | 성명 | 제안 교과목명 |\n"
+                "| 최우수 | 배OO | 과학 수사와 프로파일링 |\n"
+                "| 우수 | 김OO | 콘텐츠 기획 |"
+            ),
+        },
+        0,
+    )
+
+    assert "|  |  |  |" not in notice.content
+    assert "| 구분 | 성명 | 제안 교과목명 |" in notice.content
+    assert "| --- | --- | --- |" in notice.content
+    assert "| 최우수 | 배OO | 과학 수사와 프로파일링 |" in notice.content
+    assert "| 우수 | 김OO | 콘텐츠 기획 |" in notice.content
+
+
+def test_normalize_flattens_empty_header_flow_table_with_arrows() -> None:
+    # 화살표가 든 흐름/공정 표는 직사각형이어도 표로 승격하지 않고 평문화한다.
+    notice = normalize_notice(
+        {
+            "title": "제출절차",
+            "content": (
+                "|  |  |  |\n"
+                "| --- | --- | --- |\n"
+                "| 작성 | → | 접수 |\n"
+                "| 검토 | → | 완료 |"
+            ),
+        },
+        0,
+    )
+
+    assert "| --- |" not in notice.content
+    assert "작성 → 접수" in notice.content
+
+
+def test_normalize_splits_attached_number_section_markers() -> None:
+    # 공백 없이 앞 텍스트에 붙은 번호 섹션 마커도 줄바꿈으로 분리한다.
+    notice = normalize_notice(
+        {
+            "title": "공지",
+            "content": (
+                "안내문 참조2. 강의기간 안내 수강 불가5.성적처리 안내 (필독!!!)4. 학점"
+            ),
+        },
+        0,
+    )
+
+    assert "참조\n2. 강의기간" in notice.content
+    assert "불가\n5.성적처리" in notice.content
+    assert ")\n4. 학점" in notice.content
+
+
+def test_normalize_keeps_dates_intact() -> None:
+    # 날짜(2026.06.09)·소수는 번호 섹션 마커로 오인해 끊으면 안 됨
+    notice = normalize_notice(
+        {"title": "공지", "content": "신청 기한 2026.06.09. 까지 평점 3.5 이상"},
+        0,
+    )
+
+    assert "2026.06.09." in notice.content
+    assert "3.5 이상" in notice.content
+
+
 def test_normalize_converts_orphan_table_rows_to_text() -> None:
     notice = normalize_notice(
         {

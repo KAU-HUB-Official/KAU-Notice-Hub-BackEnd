@@ -31,6 +31,12 @@ DECORATIVE_SECTION_RE = re.compile(
 DOTTED_NUMBER_MARKER_RE = re.compile(
     r"(?<=[가-힣A-Za-z\)\]\"”'\.])[ \t]+(?=\d{1,2}\.\s+[가-힣A-Za-z])"
 )
+# 공백 없이 앞 텍스트에 바로 붙은 번호 섹션 마커(`참조2. 강의`, `불가5.성적`,
+# `(필독!!!)4. 수강`)를 줄바꿈으로 분리한다. 직전이 한글/닫는 괄호/종결 부호이고
+# 뒤가 `N. 한글` 형태일 때만 적용해 날짜(2026.06)·소수·전화번호를 보호한다.
+INLINE_NUMBER_SECTION_RE = re.compile(
+    r"(?<=[가-힣\)\]！!?。])(?=\d{1,2}\.\s*[가-힣])"
+)
 INLINE_NOTICE_MARKER_RE = re.compile(r"(?<=\S)[ \t]*(?=[▪※○•]\s*)")
 PROFESSOR_LIST_DASH_RE = re.compile(r"(?<=전공주임교수)[ \t]+-[ \t]+")
 INLINE_MAJOR_ITEM_DASH_RE = re.compile(
@@ -45,6 +51,9 @@ EMAIL_MAILTO_RE = re.compile(
     flags=re.IGNORECASE,
 )
 TABLE_SEPARATOR_CELL_RE = re.compile(r":?-{3,}:?")
+# 흐름/공정 표를 식별하는 화살표 단독 셀(예: `→`). 직사각형 판정과 함께
+# 진짜 데이터 표가 아닌 레이아웃 표를 걸러내는 데 쓴다.
+FLOW_ARROW_CELL_RE = re.compile(r"[\s→➔⇒⟶↠↦➞➜]+")
 IMAGE_BODY_FALLBACK = "**[이미지 본문]**\n\n원문 공지에서 이미지를 확인해주세요."
 MARKDOWN_IMAGE_RE = re.compile(r"!\[[^\]\n]*\]\(")
 HTML_COMMENT_BLOCK_RE = re.compile(r"<!--.*?-->", flags=re.DOTALL)
@@ -181,6 +190,7 @@ def _normalize_markdown_structure(content: str) -> str:
             line,
         )
         normalized = DOTTED_NUMBER_MARKER_RE.sub("\n", normalized)
+        normalized = INLINE_NUMBER_SECTION_RE.sub("\n", normalized)
         normalized = INLINE_NOTICE_MARKER_RE.sub("\n", normalized)
         normalized = PROFESSOR_LIST_DASH_RE.sub("\n- ", normalized)
         normalized = INLINE_MAJOR_ITEM_DASH_RE.sub("\n- ", normalized)
@@ -249,16 +259,55 @@ def _normalize_flow_tables(content: str) -> str:
             and index + 1 < len(lines)
             and _is_table_separator_row(lines[index + 1])
         ):
-            index += 2
-            while index < len(lines) and _is_table_row(lines[index]):
-                text = _table_row_to_plain_text(lines[index])
-                if text:
-                    normalized.append(text)
-                index += 1
+            separator = lines[index + 1]
+            data_index = index + 2
+            data_rows: list[str] = []
+            while data_index < len(lines) and _is_table_row(lines[data_index]):
+                data_rows.append(lines[data_index])
+                data_index += 1
+
+            if _is_rectangular_data_table(separator, data_rows):
+                # 첫 데이터 행을 헤더로 승격해 진짜 마크다운 표로 유지한다.
+                normalized.append(data_rows[0])
+                normalized.append(separator)
+                normalized.extend(data_rows[1:])
+            else:
+                for row in data_rows:
+                    text = _table_row_to_plain_text(row)
+                    if text:
+                        normalized.append(text)
+
+            index = data_index
             continue
         normalized.append(line)
         index += 1
     return "\n".join(normalized)
+
+
+def _is_rectangular_data_table(separator: str, data_rows: list[str]) -> bool:
+    """빈 헤더 표가 '진짜 데이터 표'인지 판정한다.
+
+    원본 HTML이 헤더 행을 ``<th>``가 아닌 ``<td>``로 만들면 markdownify는 빈
+    헤더 + 구분선을 생성하고 실제 헤더는 첫 데이터 행이 된다. 이런 표 중
+    아래 조건을 모두 만족하면 첫 행을 헤더로 승격해 표로 유지한다.
+
+    - 구분선 기준 3열 이상
+    - 헤더 후보 1행 + 본문 1행 이상(데이터 행 2개 이상)
+    - 모든 행의 칸 수가 동일한 직사각형
+    - 화살표 단독 셀(흐름/공정 표)이 없음
+
+    조건을 벗어나는 레이아웃/흐름 표는 기존대로 평문화한다.
+    """
+    ncols = len(_table_cells(separator))
+    if ncols < 3 or len(data_rows) < 2:
+        return False
+    for row in data_rows:
+        cells = _table_cells(row)
+        if len(cells) != ncols:
+            return False
+        if any(cell and FLOW_ARROW_CELL_RE.fullmatch(cell) for cell in cells):
+            return False
+    return True
 
 
 def _normalize_orphan_table_rows(content: str) -> str:

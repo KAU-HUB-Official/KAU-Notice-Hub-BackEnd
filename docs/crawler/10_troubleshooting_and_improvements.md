@@ -24,6 +24,7 @@
 | --- | --- | --- | --- |
 | 이미지/HWP/HWPX content 보강 | 이미지 또는 HWP 첨부에 실제 공지 내용이 들어 있어 기본 크롤링만으로 검색 가능한 본문을 만들기 어려움 | asset 수집, 안전한 다운로드, 이미지/HWP/HWPX 텍스트 추출, LLM 기반 Markdown content 생성 | fallback content를 검색 가능한 본문으로 교체하고 원본 fallback은 `content_original`에 보존 |
 | 증분 수집 병목 최적화 | 로그 분석 결과 신규 일반공지 URL이 없는 구간에서도 다음 페이지 탐색이 계속됨 | 일반공지 항목이 있는 페이지에서 일반공지 신규 URL 0건이면 보드 수집 중단, 상시공지 전용 페이지는 예외 처리 | 초기 전체 수집 약 45분, 기존 증분 수집 약 3분 30초에서 약 1분 30초로 감소 |
+| 본문 표/줄바꿈 Markdown 품질 | 빈 헤더 표(원본 헤더가 `<td>`)가 평문으로 뭉개지고, 공백 없이 붙은 번호 섹션 마커가 분리되지 않으며, 전화번호 닫는 괄호가 리스트 마커로 오인돼 끊김 | 빈 헤더 직사각형 데이터 표는 첫 행을 헤더로 승격해 표 유지, 흐름/레이아웃 표는 평문화 유지, 공백 없는 번호 마커 분리 보강, 전화번호 오분리 회귀 차단 | 입상자 명단 등 진짜 데이터 표가 Markdown 표로 렌더되고 번호 섹션이 줄 단위로 분리됨 |
 
 ## 상세 이력
 
@@ -87,6 +88,40 @@
   - `test_crawl_board_collects_new_permanent_item_before_no_new_general_stop`
   - `test_crawl_board_continues_when_page_has_only_known_permanent_items`
 - 관련 문서: [크롤링 규칙 상세](./08_crawling_rules.md)
+
+### 3. 본문 표/줄바꿈 Markdown 품질 보정
+
+문제 상황:
+
+- 원본 HTML이 표 헤더를 `<th>`가 아니라 `<td>`로 만들면 markdownify가 빈 헤더 행을 생성합니다. ingest 정규화의 흐름 표 평문화 로직이 이런 표를 전부 공백 연결 평문으로 바꿔, 입상자 명단 같은 진짜 데이터 표가 한 문단으로 뭉쳐 렌더됐습니다.
+- 원본 작성자가 `<br>` 없이 번호 섹션을 텍스트에 붙여 쓰면(`참조2. 강의기간`, `불가5.성적처리`, `(필독!!!)4. 학점`) 줄 단위로 분리되지 않았습니다. 기존 분리 정규식이 숫자 앞 공백과 마침표 뒤 공백을 모두 요구했기 때문입니다.
+- 인라인 마커 분리 로직이 전화번호 닫는 괄호(`(02) 970`)를 `2)` 리스트 마커로 오인해 번호를 끊는 회귀가 있었습니다.
+
+핵심 구현 로직:
+
+- 빈 헤더 + 구분선 다음 데이터 행이 3열 이상, 2행 이상, 모든 행 칸 수가 같은 직사각형이고 화살표 단독 셀이 없으면 첫 행을 헤더로 승격해 Markdown 표로 유지합니다. 칸 수가 들쭉날쭉하거나 화살표가 든 흐름/공정 표는 기존대로 평문화합니다. (`app/normalize.py` `_normalize_flow_tables`, `_is_rectangular_data_table`)
+- 직전이 한글/닫는 괄호/종결 부호이고 뒤가 `N. 한글` 형태일 때만 공백 없는 번호 섹션 마커를 줄바꿈으로 분리합니다. 날짜(`2026.06.09`)·소수·시간은 보호합니다. (`app/normalize.py` `INLINE_NUMBER_SECTION_RE`)
+- 인라인 숫자 마커 분리 정규식의 직전 문자 집합에서 숫자를 제외해 전화번호 오분리를 차단합니다. (`app/crawler/utils/markdown_converter.py` `_NUMERIC_MARKER_RE`)
+
+개선 결과:
+
+- 입상자 명단 등 직사각형 데이터 표가 Markdown 표로 렌더되고, 번호 섹션이 줄 단위로 분리됩니다.
+- 흐름/레이아웃 표 평문화와 날짜·전화번호 보존 동작은 그대로 유지됩니다.
+
+참고:
+
+- 프론트엔드 Markdown 렌더러는 단일 줄바꿈(`\n`)을 줄바꿈으로 표시하도록 `breaks`(GFM soft break) 옵션을 켜야 합니다. 백엔드는 항목을 단일 `\n`으로 분리하므로, 이 옵션이 꺼져 있으면 분리된 줄이 한 문단으로 합쳐져 보입니다.
+- 기존에 게시된 JSON 스냅샷에는 과거 크롤 시점의 깨진 결과가 남아 있을 수 있고, 재크롤 후 ingest해야 보정 결과가 반영됩니다.
+
+검증:
+
+- 관련 코드: `app/normalize.py`, `app/crawler/utils/markdown_converter.py`
+- 테스트:
+  - `test_normalize_promotes_empty_header_data_table`
+  - `test_normalize_flattens_empty_header_flow_table_with_arrows`
+  - `test_normalize_splits_attached_number_section_markers`
+  - `test_normalize_keeps_dates_intact`
+  - `test_split_inline_markers_preserves_phone_numbers`
 
 ## 후속 기록 규칙
 

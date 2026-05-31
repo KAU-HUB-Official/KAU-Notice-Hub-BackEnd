@@ -310,6 +310,18 @@ def test_split_inline_markers_preserves_normal_sentences() -> None:
         assert _split_inline_markers(ok) == ok, f"분리되면 안 됨: {ok!r}"
 
 
+def test_split_inline_markers_preserves_phone_numbers() -> None:
+    # 전화번호 닫는 괄호를 "2) " 리스트 마커로 오인해 끊으면 안 됨
+    from app.crawler.utils.markdown_converter import _split_inline_markers
+
+    cases = [
+        "문의 : 학사팀 (02) 970-7174~5",
+        "안내 (031) 1234-5678 참고",
+    ]
+    for ok in cases:
+        assert _split_inline_markers(ok) == ok, f"끊기면 안 됨: {ok!r}"
+
+
 def test_strip_accidental_code_indent_from_footer_signature() -> None:
     # 푸터/서명을 가운데 정렬하려고 라인 시작에 많은 공백을 넣은 케이스
     node = _node(

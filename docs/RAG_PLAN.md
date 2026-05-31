@@ -77,6 +77,8 @@ RAG provider 추상화나 `app/rag/` 디렉토리는 두지 않는다. 호출과
 
 ## Prompt 원칙
 
+GPT API에 전달하는 현재 프롬프트 원문과 payload 구조는 `docs/GPT_API_PROMPTS.md`에 정리한다.
+
 시스템 지시:
 
 - 너는 한국항공대학교 공지 안내 도우미다.

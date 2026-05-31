@@ -12,6 +12,7 @@ FastAPI 기반 공지 API 서버다. 크롤러는 전체 스냅샷 JSON을 atomi
 | [docs/CLASSIFICATION.md](docs/CLASSIFICATION.md) | 공지 대분류/중분류/source 필터 기준 |
 | [docs/CRAWLING_UPDATE.md](docs/CRAWLING_UPDATE.md) | 크롤러 JSON 게시 정책 |
 | [docs/RAG_PLAN.md](docs/RAG_PLAN.md) | 공지 기반 RAG 동작 기준 |
+| [docs/GPT_API_PROMPTS.md](docs/GPT_API_PROMPTS.md) | GPT API 프롬프트 원문과 payload 구조 |
 | [docs/crawler/README.md](docs/crawler/README.md) | 통합 크롤러 구조와 운영 문서 |
 | [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md) | 로컬 실행, Docker Compose, GitHub Actions 배포 |
 | [docs/ERD.md](docs/ERD.md) | SQLite 스키마와 JSON 원천 모델 |
@@ -68,7 +69,7 @@ curl -sS -X POST http://localhost:8000/api/chat \
   -d '{"question":"수강신청 알려줘"}'
 ```
 
-후속 질문은 `history`에 직전 대화를 함께 보낸다. UI에서 단계별 진행("검색중 → 검색 완료 → 답변")을 그리려면 SSE 엔드포인트 `POST /api/chat/stream`을 사용한다. 자세한 동작은 [docs/API_SPEC.md](docs/API_SPEC.md), [docs/RAG_PLAN.md](docs/RAG_PLAN.md)를 참고한다.
+후속 질문은 `history`에 직전 대화를 함께 보낸다. UI에서 단계별 진행("검색중 → 검색 완료 → 답변")을 그리려면 SSE 엔드포인트 `POST /api/chat/stream`을 사용한다. 자세한 동작은 [docs/API_SPEC.md](docs/API_SPEC.md), [docs/RAG_PLAN.md](docs/RAG_PLAN.md)를 참고한다. GPT API에 전달하는 프롬프트 원문은 [docs/GPT_API_PROMPTS.md](docs/GPT_API_PROMPTS.md)에 정리한다.
 
 API 문서 UI:
 

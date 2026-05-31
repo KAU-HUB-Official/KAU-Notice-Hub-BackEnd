@@ -165,6 +165,8 @@ app/crawler/services/content_extractors/hwp_extractor.py
 
 ## LLM 출력 계약
 
+GPT API에 전달하는 현재 프롬프트 원문과 payload 구조는 `docs/GPT_API_PROMPTS.md`에 정리한다.
+
 LLM은 반드시 JSON 형태로 응답해야 한다.
 
 ```json

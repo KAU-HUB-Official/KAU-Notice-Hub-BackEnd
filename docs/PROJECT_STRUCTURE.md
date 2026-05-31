@@ -86,6 +86,7 @@ FastAPI lifespan
 | `docs/CLASSIFICATION.md` | audience/source group/source/category 분류 기준 |
 | `docs/CRAWLING_UPDATE.md` | 크롤러 publish, stale 삭제, SQLite ingest 정책 |
 | `docs/RAG_PLAN.md` | `/api/chat` RAG 동작 기준 |
+| `docs/GPT_API_PROMPTS.md` | GPT API 프롬프트 원문과 payload 구조 |
 | `docs/DEPLOYMENT.md` | 로컬 실행, Docker Compose, Lightsail 배포 |
 | `docs/ERD.md` | SQLite 실제 스키마와 JSON 원천 모델 |
 | `docs/crawler/README.md` | 크롤러 세부 문서 인덱스 |

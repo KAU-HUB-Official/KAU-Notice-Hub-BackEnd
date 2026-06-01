@@ -51,6 +51,25 @@ def test_html_node_to_markdown_preserves_table() -> None:
     assert "| 신청 | 5/30 |" in md
 
 
+def test_html_node_to_markdown_preserves_breaks_between_bold_paragraphs() -> None:
+    # 단락마다 통째로 굵게 처리된 원본: 장식 강조 정리가 단락 구분(\n\n)을
+    # 먹어 마커가 앞 줄에 붙던 버그 회귀 방지.
+    node = _node(
+        "<div>"
+        "<p><b>1. 장학개요</b></p>"
+        "<p><b>가. 장 학 명</b></p>"
+        "<p><b>나. 장학금액</b></p>"
+        "</div>"
+    )
+    md = html_node_to_markdown(node)
+    assert "장학개요가." not in md
+    assert "장학명나." not in md.replace(" ", "")
+    lines = [line for line in md.splitlines() if line.strip()]
+    assert any("1. 장학개요" in line for line in lines)
+    assert any(line.strip().startswith("**가. 장 학 명") for line in lines)
+    assert any(line.strip().startswith("**나. 장학금액") for line in lines)
+
+
 def test_html_node_to_markdown_handles_none_and_empty() -> None:
     assert html_node_to_markdown(None) == ""
     assert html_node_to_markdown(_node("<div></div>")) == ""

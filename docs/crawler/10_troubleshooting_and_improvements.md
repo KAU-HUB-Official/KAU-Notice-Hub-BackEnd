@@ -96,16 +96,21 @@
 - 원본 HTML이 표 헤더를 `<th>`가 아니라 `<td>`로 만들면 markdownify가 빈 헤더 행을 생성합니다. ingest 정규화의 흐름 표 평문화 로직이 이런 표를 전부 공백 연결 평문으로 바꿔, 입상자 명단 같은 진짜 데이터 표가 한 문단으로 뭉쳐 렌더됐습니다.
 - 원본 작성자가 `<br>` 없이 번호 섹션을 텍스트에 붙여 쓰면(`참조2. 강의기간`, `불가5.성적처리`, `(필독!!!)4. 학점`) 줄 단위로 분리되지 않았습니다. 기존 분리 정규식이 숫자 앞 공백과 마침표 뒤 공백을 모두 요구했기 때문입니다.
 - 인라인 마커 분리 로직이 전화번호 닫는 괄호(`(02) 970`)를 `2)` 리스트 마커로 오인해 번호를 끊는 회귀가 있었습니다.
+- 번호 마커 분리 정규식이 날짜의 월(`2026. 08. 예정`의 `08.`)을 섹션 마커로 오인해 날짜를 줄바꿈으로 끊었습니다.
+- 단락마다 통째로 굵게(`<b>`) 처리된 원본에서, markdownify가 만든 `개요**\n\n**가.`(앞 단락 닫기 + 뒷 단락 열기)를 장식 강조 정리 정규식이 빈 강조로 오인해 단락 구분 `\n\n`까지 삭제했습니다. 그 결과 `장학개요가.`·`각 1부바.`처럼 소항목 마커가 앞 줄에 붙어 렌더됐습니다(글루드 마커의 실제 근본 원인).
 
 핵심 구현 로직:
 
 - 빈 헤더 + 구분선 다음 데이터 행이 3열 이상, 2행 이상, 모든 행 칸 수가 같은 직사각형이고 화살표 단독 셀이 없으면 첫 행을 헤더로 승격해 Markdown 표로 유지합니다. 칸 수가 들쭉날쭉하거나 화살표가 든 흐름/공정 표는 기존대로 평문화합니다. (`app/normalize.py` `_normalize_flow_tables`, `_is_rectangular_data_table`)
-- 직전이 한글/닫는 괄호/종결 부호이고 뒤가 `N. 한글` 형태일 때만 공백 없는 번호 섹션 마커를 줄바꿈으로 분리합니다. 날짜(`2026.06.09`)·소수·시간은 보호합니다. (`app/normalize.py` `INLINE_NUMBER_SECTION_RE`)
+- 직전이 한글/닫는 괄호/종결 부호이고 뒤가 `N. 한글` 형태일 때만 공백 없는 번호 섹션 마커를 줄바꿈으로 분리합니다. 날짜(`2026.06.09`)·소수·시간은 보호합니다. (`app/normalize.py` `INLINE_NUMBER_SECTION_RE`, `SENTENCE_END_NUMBER_MARKER_RE`)
+- 번호 마커 분리에서 직전 토큰이 `숫자.`(연도/소수)면 분리하지 않아 날짜 `2026. 08. 예정`을 보존합니다. (`app/normalize.py` `DOTTED_NUMBER_MARKER_RE`)
 - 인라인 숫자 마커 분리 정규식의 직전 문자 집합에서 숫자를 제외해 전화번호 오분리를 차단합니다. (`app/crawler/utils/markdown_converter.py` `_NUMERIC_MARKER_RE`)
+- 장식 강조 정리 정규식이 개행을 소비하지 않도록(`\s`→비개행 공백) 해, 단락마다 굵게 처리된 원본의 단락 구분을 보존합니다. 한글 소항목 마커(`가./나.`)는 정상 단어(`행사.`, `회사.`)·어미(`하거나.`, `이라.`)와 구분 불가라 강제 분리하지 않고, 원본 단락 구조로만 분리합니다. (`app/crawler/utils/markdown_converter.py` `_EMPHASIS_DECORATIVE_RE`)
 
 개선 결과:
 
 - 입상자 명단 등 직사각형 데이터 표가 Markdown 표로 렌더되고, 번호 섹션이 줄 단위로 분리됩니다.
+- 단락마다 굵게 처리된 공지(장학 안내 등)의 단락 구분이 보존돼 소항목 마커가 각자 줄로 렌더됩니다.
 - 흐름/레이아웃 표 평문화와 날짜·전화번호 보존 동작은 그대로 유지됩니다.
 
 참고:
@@ -120,8 +125,11 @@
   - `test_normalize_promotes_empty_header_data_table`
   - `test_normalize_flattens_empty_header_flow_table_with_arrows`
   - `test_normalize_splits_attached_number_section_markers`
+  - `test_normalize_splits_number_marker_after_sentence_period`
   - `test_normalize_keeps_dates_intact`
+  - `test_normalize_keeps_spaced_date_followed_by_hangul`
   - `test_split_inline_markers_preserves_phone_numbers`
+  - `test_html_node_to_markdown_preserves_breaks_between_bold_paragraphs`
 
 ## 후속 기록 규칙
 

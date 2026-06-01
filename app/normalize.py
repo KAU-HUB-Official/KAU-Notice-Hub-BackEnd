@@ -40,6 +40,12 @@ DOTTED_NUMBER_MARKER_RE = re.compile(
 INLINE_NUMBER_SECTION_RE = re.compile(
     r"(?<=[가-힣\)\]！!?。])(?=\d{1,2}\.\s*[가-힣])"
 )
+# 한글 문장 종결(`바랍니다.`) 직후 공백 없이 붙은 번호 섹션 마커를 분리한다.
+# 앞을 `한글+마침표`로 한정해 날짜(`2026.1.`)·시간과 구분한다.
+# 예: `많은 신청 바랍니다.1. 장학개요` → `바랍니다.` / `1. 장학개요`
+SENTENCE_END_NUMBER_MARKER_RE = re.compile(
+    r"(?<=[가-힣]\.)(?=\d{1,2}\.\s*[가-힣])"
+)
 INLINE_NOTICE_MARKER_RE = re.compile(r"(?<=\S)[ \t]*(?=[▪※○•]\s*)")
 PROFESSOR_LIST_DASH_RE = re.compile(r"(?<=전공주임교수)[ \t]+-[ \t]+")
 INLINE_MAJOR_ITEM_DASH_RE = re.compile(
@@ -194,6 +200,7 @@ def _normalize_markdown_structure(content: str) -> str:
         )
         normalized = DOTTED_NUMBER_MARKER_RE.sub("\n", normalized)
         normalized = INLINE_NUMBER_SECTION_RE.sub("\n", normalized)
+        normalized = SENTENCE_END_NUMBER_MARKER_RE.sub("\n", normalized)
         normalized = INLINE_NOTICE_MARKER_RE.sub("\n", normalized)
         normalized = PROFESSOR_LIST_DASH_RE.sub("\n- ", normalized)
         normalized = INLINE_MAJOR_ITEM_DASH_RE.sub("\n- ", normalized)

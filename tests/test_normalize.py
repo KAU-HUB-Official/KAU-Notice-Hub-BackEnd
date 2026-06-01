@@ -268,6 +268,22 @@ def test_normalize_splits_attached_number_section_markers() -> None:
     assert ")\n4. 학점" in notice.content
 
 
+def test_normalize_splits_number_marker_after_sentence_period() -> None:
+    # 한글 문장 종결(마침표) 직후 공백 없이 붙은 번호 섹션 마커 분리.
+    # 날짜(2026.1.)는 앞이 숫자+마침표라 분리하지 않는다.
+    notice = normalize_notice(
+        {
+            "title": "장학 안내",
+            "content": "많은 신청 바랍니다.1. 장학개요 안내 제출일 2026.1. 발급 서류",
+        },
+        0,
+    )
+
+    assert "바랍니다.\n1. 장학개요" in notice.content
+    assert "2026.1. 발급" in notice.content
+    assert "2026.\n1." not in notice.content
+
+
 def test_normalize_keeps_dates_intact() -> None:
     # 날짜(2026.06.09)·소수는 번호 섹션 마커로 오인해 끊으면 안 됨
     notice = normalize_notice(

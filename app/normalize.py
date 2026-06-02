@@ -46,7 +46,10 @@ INLINE_NUMBER_SECTION_RE = re.compile(
 SENTENCE_END_NUMBER_MARKER_RE = re.compile(
     r"(?<=[가-힣]\.)(?=\d{1,2}\.\s*[가-힣])"
 )
-INLINE_NOTICE_MARKER_RE = re.compile(r"(?<=\S)[ \t]*(?=[▪※○•]\s*)")
+# ※/▪/○/• 마커 앞에서 줄을 끊되, 여는 강조 마커(`*`/`_`) 바로 뒤에는 끊지 않는다.
+# markdownify가 만든 `**※ ...가능**`(굵게 단락)에서 `**` 뒤에 줄바꿈을 넣으면
+# `**`가 공백 앞이 되어 강조로 인정되지 않고 literal `**`로 렌더되기 때문이다.
+INLINE_NOTICE_MARKER_RE = re.compile(r"(?<=[^\s*_])[ \t]*(?=[▪※○•]\s*)")
 PROFESSOR_LIST_DASH_RE = re.compile(r"(?<=전공주임교수)[ \t]+-[ \t]+")
 INLINE_MAJOR_ITEM_DASH_RE = re.compile(
     r"(?<=\))[ \t]+-[ \t]+(?=[A-Za-z가-힣\- ]{1,30}전공\b)"

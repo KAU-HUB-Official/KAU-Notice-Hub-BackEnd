@@ -335,6 +335,33 @@ def test_normalize_removes_empty_orphan_table_rows() -> None:
     assert notice.content == "앞 문장\n\n뒤 문장"
 
 
+def test_normalize_keeps_notice_marker_attached_to_opening_emphasis() -> None:
+    # markdownify가 만든 "**※ ...**"(굵게 단락)에서 ※ 앞에 줄바꿈을 넣으면
+    # 여는 **가 공백 앞이 되어 무효화, literal **로 렌더된다. 여는 강조 마커
+    # 바로 뒤에서는 마커를 분리하지 않는다.
+    notice = normalize_notice(
+        {
+            "title": "안내",
+            "content": "**※ 장학금은 도서문화상품권으로 지급 가능**",
+        },
+        0,
+    )
+
+    assert "**\n※" not in notice.content
+    assert "**※ 장학금은 도서문화상품권으로 지급 가능**" in notice.content
+
+
+def test_normalize_still_splits_notice_marker_after_text() -> None:
+    # 일반 텍스트에 붙은 ※/○ 마커는 여전히 줄로 분리한다.
+    notice = normalize_notice(
+        {"title": "안내", "content": "신청 마감○ 다음 안내※ 주의사항"},
+        0,
+    )
+
+    assert "마감\n○ 다음 안내" in notice.content
+    assert "안내\n※ 주의사항" in notice.content
+
+
 def test_normalize_splits_inline_circle_markers() -> None:
     notice = normalize_notice(
         {

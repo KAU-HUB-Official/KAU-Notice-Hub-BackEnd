@@ -98,6 +98,7 @@
 - 인라인 마커 분리 로직이 전화번호 닫는 괄호(`(02) 970`)를 `2)` 리스트 마커로 오인해 번호를 끊는 회귀가 있었습니다.
 - 번호 마커 분리 정규식이 날짜의 월(`2026. 08. 예정`의 `08.`)을 섹션 마커로 오인해 날짜를 줄바꿈으로 끊었습니다.
 - 단락마다 통째로 굵게(`<b>`) 처리된 원본에서, markdownify가 만든 `개요**\n\n**가.`(앞 단락 닫기 + 뒷 단락 열기)를 장식 강조 정리 정규식이 빈 강조로 오인해 단락 구분 `\n\n`까지 삭제했습니다. 그 결과 `장학개요가.`·`각 1부바.`처럼 소항목 마커가 앞 줄에 붙어 렌더됐습니다(글루드 마커의 실제 근본 원인).
+- ※/▪/○/• 마커 분리 정규식이 `**※ ...가능**`(굵게 단락) 안의 여는 `**` 바로 뒤에 줄바꿈을 넣어, `**`가 공백 앞이 되며 강조로 인정되지 않고 본문 중간에 literal `**`로 떠 보였습니다.
 
 핵심 구현 로직:
 
@@ -106,6 +107,7 @@
 - 번호 마커 분리에서 직전 토큰이 `숫자.`(연도/소수)면 분리하지 않아 날짜 `2026. 08. 예정`을 보존합니다. (`app/normalize.py` `DOTTED_NUMBER_MARKER_RE`)
 - 인라인 숫자 마커 분리 정규식의 직전 문자 집합에서 숫자를 제외해 전화번호 오분리를 차단합니다. (`app/crawler/utils/markdown_converter.py` `_NUMERIC_MARKER_RE`)
 - 장식 강조 정리 정규식이 개행을 소비하지 않도록(`\s`→비개행 공백) 해, 단락마다 굵게 처리된 원본의 단락 구분을 보존합니다. 한글 소항목 마커(`가./나.`)는 정상 단어(`행사.`, `회사.`)·어미(`하거나.`, `이라.`)와 구분 불가라 강제 분리하지 않고, 원본 단락 구조로만 분리합니다. (`app/crawler/utils/markdown_converter.py` `_EMPHASIS_DECORATIVE_RE`)
+- ※/▪/○/• 마커 분리 정규식의 직전 문자에서 강조 기호(`*`/`_`)를 제외해, 여는 `**` 바로 뒤에서는 줄을 끊지 않습니다. literal `**`로 떠 보이던 문제를 막습니다. (`app/normalize.py` `INLINE_NOTICE_MARKER_RE`)
 
 개선 결과:
 
@@ -130,6 +132,8 @@
   - `test_normalize_keeps_spaced_date_followed_by_hangul`
   - `test_split_inline_markers_preserves_phone_numbers`
   - `test_html_node_to_markdown_preserves_breaks_between_bold_paragraphs`
+  - `test_normalize_keeps_notice_marker_attached_to_opening_emphasis`
+  - `test_normalize_still_splits_notice_marker_after_text`
 
 ## 후속 기록 규칙
 

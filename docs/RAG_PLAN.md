@@ -10,7 +10,10 @@
 
 - 공지 API는 `NOTICE_DB_PATH` SQLite DB를 우선 읽는다. DB가 없거나 스키마가 다르면 `NOTICE_JSON_PATH` JSON 전체 스냅샷에서 자동 부트스트랩하고, 부트스트랩 실패 시 JSON repository로 폴백한다.
 - `/api/notices`는 키워드 기반 local search와 필터를 사용한다.
-- `/api/chat`은 `NoticeService.find_relevant_notices()`로 관련 공지를 찾고, `RAG_ENABLED=true`와 `OPENAI_API_KEY`가 있을 때 OpenAI Responses API로 답변을 생성한다. 비활성화, 키 부재, 호출 실패, references 0건은 local fallback으로 응답한다.
+- `/api/chat`은 분기(triage) → 후보 검색 → rerank → 답변 2단계 검색 파이프라인을 거친다. `RAG_ENABLED=true`와 `OPENAI_API_KEY`가 있을 때 동작하며, 비활성화·키 부재·호출 실패·references 0건은 local fallback으로 응답한다.
+  - 분기: 검색 직전 LLM 1회로 `search`/`history`/`out_of_domain`을 정한다. `history`는 이전 대화가 쌓인 상태에서 직전 답변을 재가공하는 후속 질문일 때만 선택되며, 새 검색 없이 history만으로 답한다.
+  - 후보 검색: `find_relevant_notices()`로 `RAG_CANDIDATE_POOL`(기본 15)개를 넓게 가져온다.
+  - rerank: 후보가 `RAG_MAX_REFERENCES`보다 많을 때만 LLM 1회로 제목·게시일(date)만 보고 관련 공지 id를 골라 최종 n개로 좁힌다. 후보가 n개 이하면 호출을 생략한다.
 - `POST /api/chat/stream`은 같은 파이프라인을 SSE 이벤트(`search_started`, `search_completed`, `answer_completed`)로 반환한다.
 - 이미지/HWP 공지는 content enrichment로 `content` 품질을 높일 수 있다.
 
@@ -28,13 +31,17 @@
 
 ```text
 사용자 질문
-  -> (선택) LLM 키워드 추출: 질문에서 검색 키워드만 JSON 배열로 받음
-       └ 빈 배열을 받으면 도메인 외 질문으로 보고 검색 skip → 안내 답변 반환
-       └ 실패/비활성 시 질문 원문을 그대로 검색어로 사용
-  -> 기존 local search/filter로 관련 공지 조회
+  -> (선택) LLM 분기(triage): {mode, keywords} JSON 객체로 받음
+       └ mode=out_of_domain → 검색 skip → 안내 답변 반환
+       └ mode=history (이전 대화 있을 때만) → 검색 skip → history만으로 답변 생성
+       └ mode=search → keywords로 검색. keywords 비면 질문 원문 사용
+       └ 실패/비활성 시 질문 원문을 그대로 검색어로 사용 (legacy)
+  -> 후보 검색: local search/filter로 RAG_CANDIDATE_POOL개 후보 조회
        └ 키워드 추출 성공 시 검색 0건이면 fallback_to_latest 끔 (무관 최신 공지 노출 차단)
-  -> build_context로 LLM 입력 컨텍스트 구성
-  -> OpenAI 호출 (RAG_ENABLED + API key 있을 때)
+  -> rerank: 후보 > RAG_MAX_REFERENCES일 때 LLM 1회로 제목·게시일만 보고 관련 id 선별
+       └ 빈 배열 → references 0건 / 파싱 실패 → 후보 상위 N개 / 후보 ≤ N → 호출 생략
+  -> build_context로 추린 공지의 본문 컨텍스트 구성
+  -> OpenAI 답변 호출 (RAG_ENABLED + API key 있을 때)
   -> 텍스트 답변과 references 반환
   -> 실패/비활성화/references 0건 시 기존 local fallback
 ```
@@ -53,12 +60,14 @@
 ```env
 RAG_ENABLED=false
 RAG_MAX_REFERENCES=6
+RAG_CANDIDATE_POOL=15
 RAG_QUERY_EXTRACTION_ENABLED=true
 OPENAI_API_KEY=
 OPENAI_MODEL=gpt-4.1-mini
 ```
 
-- `RAG_QUERY_EXTRACTION_ENABLED=true`(기본)이면 RAG_ENABLED일 때 검색 직전 LLM 1회 호출이 추가된다. 비활성화하면 사용자 질문 원문이 검색어로 들어가던 기존 동작으로 회귀한다.
+- `RAG_QUERY_EXTRACTION_ENABLED=true`(기본)이면 RAG_ENABLED일 때 검색 직전 분기 LLM 1회 호출이 추가된다. 비활성화하면 사용자 질문 원문이 검색어로 들어가고 history 분기도 비활성화되는 기존 동작으로 회귀한다.
+- `RAG_CANDIDATE_POOL`(기본 15)은 rerank 전에 가져올 후보 공지 수다. `RAG_MAX_REFERENCES`(최종 n)보다 크게 두면 rerank LLM이 후보를 좁히고, 같거나 작게 두면 rerank 호출 없이 검색 결과를 그대로 쓴다(= rerank 끄기 레버).
 
 - `RAG_ENABLED=false`가 기본값이라 환경변수만 추가해서는 동작이 바뀌지 않는다.
 - `OPENAI_API_KEY`와 `OPENAI_MODEL`은 content enrichment에서 이미 사용 중이므로 그대로 재사용한다.
@@ -142,7 +151,11 @@ API 응답은 현재 `ChatAnswer` 그대로 유지한다.
 | ----------------------------- | ---------------------------------------- |
 | `RAG_ENABLED=false`           | local fallback                           |
 | `OPENAI_API_KEY` 없음         | local fallback                           |
+| 분기 LLM 실패/비활성          | 질문 원문으로 검색하는 legacy 경로       |
 | OpenAI 호출 예외/타임아웃     | local fallback + 서버 로그               |
+| rerank 실패/파싱 불가         | 후보 상위 `RAG_MAX_REFERENCES`개로 폴백  |
+| rerank 빈 배열                | references 0건 → "관련 공지를 찾지 못함" |
+| history 분기인데 history 없음 | search로 강등                            |
 | references 0건                | "관련 공지를 찾지 못함" fallback 답변    |
 | context 길이 초과             | `build_context`의 truncate 로직으로 흡수 |
 | rate limit                    | local fallback + 로그                    |
@@ -186,17 +199,21 @@ curl -sS -X POST http://localhost:8000/api/chat \
 3. OpenAI 호출 성공 시 `usedFallback=false`, `model=OPENAI_MODEL`을 반환한다.
 4. OpenAI 호출 실패, references 0건, 도메인 외 질문은 `usedFallback=true`를 반환한다.
 5. `history`는 최근 10개, 메시지당 500자까지만 prompt에 포함한다.
-6. API 응답에는 내부 prompt, API key, raw OpenAI 응답을 노출하지 않는다.
-7. RAG 흐름이나 prompt를 바꾸면 `tests/test_chat_rag.py`와 실제 OpenAI 호출 smoke를 함께 확인한다.
+6. 후보는 `RAG_CANDIDATE_POOL`개로 가져오고 rerank는 후보가 `RAG_MAX_REFERENCES`를 초과할 때만 LLM을 호출한다.
+7. history 분기는 이전 대화가 있을 때만 선택되고, 없으면 search로 강등한다.
+8. API 응답에는 내부 prompt, API key, raw OpenAI 응답을 노출하지 않는다.
+9. RAG 흐름이나 prompt를 바꾸면 `tests/test_chat_rag.py`와 실제 OpenAI 호출 smoke를 함께 확인한다.
 
 ## 추후 검토 (이 계획 밖)
 
 키워드 검색 + LLM으로 품질 한계가 보이면 다음을 차례로 검토한다. 본 계획에서는 다루지 않는다.
 
 - intent별 검색 boost (일정/장학/취업 등)
-- references 후보를 넓게 가져온 뒤 local rerank
+- rerank 입력에 게시일 외 신호(마감일 파싱 등) 추가 — 현재는 제목·게시일만 사용
 - 임베딩 인덱스 도입 (chunk, embedding, vector store)
 - OpenAI hosted file search 검토
+
+> 후보를 넓게 가져온 뒤 LLM rerank로 좁히는 2단계 검색은 이미 적용됨(`RAG_CANDIDATE_POOL` → rerank → `RAG_MAX_REFERENCES`).
 
 각 옵션은 도입 시점에 별도 계획 문서를 작성한다.
 

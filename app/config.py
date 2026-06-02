@@ -35,6 +35,7 @@ class Settings(BaseSettings):
     crawler_lock_path: Path | None = None
     rag_enabled: bool = False
     rag_max_references: int = 6
+    rag_candidate_pool: int = 15
     rag_query_extraction_enabled: bool = True
 
     model_config = SettingsConfigDict(

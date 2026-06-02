@@ -414,9 +414,11 @@ MVP 기준:
 
 - `GET /api/notices`와 같은 키워드 검색/필터로 관련 공지를 찾는다.
 - `RAG_ENABLED=true`이고 `OPENAI_API_KEY`가 설정돼 있으면 OpenAI Responses API로 답변을 생성한다 (`usedFallback=false`, `model=OPENAI_MODEL`).
-- `RAG_QUERY_EXTRACTION_ENABLED=true`(기본)이면 검색 직전 LLM이 질문에서 명사 키워드만 추출해 검색어로 사용한다. 추출이 실패하면 질문 원문을 그대로 검색한다.
-- 키워드 추출 LLM이 질문을 공지 도메인 밖으로 판정하면(빈 배열 반환) 검색 자체를 skip하고 "KAU 공지 안내만 도와드릴 수 있어요" 안내를 `usedFallback=true`로 돌려준다. SSE에서는 `search_completed`의 `references`가 빈 배열이고 `answer_completed`에 안내 문구가 들어간다. 단 `history`가 비어 있지 않으면 이미 도메인 안에서 대화 중이라고 보고, 빈 배열을 도메인 외로 단정하지 않고 질문 원문으로 검색을 시도한다.
-- 키워드 기반 검색이 0건이면 무관한 최신 공지로 채우지 않고 빈 `references`와 fallback 답변을 반환한다.
+- `RAG_QUERY_EXTRACTION_ENABLED=true`(기본)이면 검색 직전 분기(triage) LLM이 `search`/`history`/`out_of_domain`을 정하고, `search`면 질문에서 명사 키워드를 뽑아 검색어로 쓴다. 분기가 실패하면 질문 원문을 그대로 검색한다.
+- `history` 분기: 이전 대화가 쌓인 상태에서 직전 답변을 재가공하는 후속 질문("더 짧게", "두 번째 거 제목 뭐였지")이면 새 검색 없이 history만으로 답한다. 이때 `references`는 빈 배열이다. 이전 대화가 없으면 이 분기는 쓰지 않고 검색으로 강등한다.
+- `out_of_domain` 분기: 질문을 공지 도메인 밖으로 판정하면 검색을 skip하고 "KAU 공지 안내만 도와드릴 수 있어요" 안내를 `usedFallback=true`로 돌려준다. SSE에서는 `search_completed`의 `references`가 빈 배열이고 `answer_completed`에 안내 문구가 들어간다. 단 `history`가 비어 있지 않으면 도메인 외로 단정하지 않고 질문 원문으로 검색을 시도한다.
+- 검색은 `RAG_CANDIDATE_POOL`(기본 15)개 후보를 가져온 뒤, 후보가 `RAG_MAX_REFERENCES`보다 많으면 rerank LLM이 제목·게시일만 보고 관련 공지를 최종 n개로 좁힌다. 후보가 n개 이하면 rerank를 생략한다.
+- 키워드 기반 검색이 0건이거나 rerank가 관련 공지 없음(빈 배열)으로 판정하면 무관한 최신 공지로 채우지 않고 빈 `references`와 fallback 답변을 반환한다.
 - 비활성화/키 부재/호출 실패 시 local fallback 답변을 반환한다 (`usedFallback=true`, `model="local-fallback"`).
 - 벡터 검색 기반 RAG는 아직 구현하지 않는다. 자세한 동작과 환경변수는 [RAG_PLAN.md](RAG_PLAN.md)를 참고한다.
 - UI에서 단계별 진행("공지 검색중 → 검색 완료 → 답변 생성")을 그려야 하면 아래 `POST /api/chat/stream` SSE 엔드포인트를 사용한다.
@@ -560,8 +562,9 @@ BACKEND_CORS_ORIGINS=http://localhost:3000
 | `OPENAI_API_KEY`                           | 아니오 | empty                            | content 보강과 RAG 챗봇 OpenAI 호출에 사용. 없으면 챗봇은 local fallback             |
 | `OPENAI_MODEL`                             | 아니오 | `gpt-4.1-mini`                   | RAG 챗봇과 content 보강 OpenAI 호출 기본 모델                                        |
 | `RAG_ENABLED`                              | 아니오 | `false`                          | `true`이고 API key가 있으면 `/api/chat`이 OpenAI 답변 생성                           |
-| `RAG_MAX_REFERENCES`                       | 아니오 | `6`                              | 챗봇 검색 후보와 응답 references 최대 수                                             |
-| `RAG_QUERY_EXTRACTION_ENABLED`             | 아니오 | `true`                           | RAG 활성화 시 검색 전 LLM 키워드 추출 사용                                           |
+| `RAG_MAX_REFERENCES`                       | 아니오 | `6`                              | rerank 후 응답 references 최대 수(최종 n)                                            |
+| `RAG_CANDIDATE_POOL`                       | 아니오 | `15`                             | rerank 전에 가져올 후보 공지 수. n 이하면 rerank 생략                                |
+| `RAG_QUERY_EXTRACTION_ENABLED`             | 아니오 | `true`                           | RAG 활성화 시 검색 전 분기(triage) LLM 사용                                          |
 | `CONTENT_ENRICHMENT_ENABLED`               | 아니오 | `false`                          | 이미지/HWP 기반 content 보강 활성화                                                  |
 | `CONTENT_ENRICHMENT_PROVIDER`              | 아니오 | `openai`                         | content 보강 provider                                                                |
 | `CONTENT_ENRICHMENT_MODEL`                 | 아니오 | `gpt-4.1-mini`                   | content 보강 기본 모델                                                               |

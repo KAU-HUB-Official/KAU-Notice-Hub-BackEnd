@@ -2,6 +2,7 @@ from datetime import date
 
 from app.schemas import Notice
 from app.search import (
+    expand_search_terms,
     extract_search_terms,
     filter_notices,
     rank_notices,
@@ -98,4 +99,21 @@ def test_rank_notices_recency_boost_pushes_fresh_match_up() -> None:
     ranked = rank_notices([old, fresh], "장학금", today=today)
 
     assert [item.notice.id for item in ranked] == ["fresh", "old"]
+
+
+def test_expand_search_terms_maps_exam_colloquial_synonyms() -> None:
+    # "기말고사"는 공지에 쓰인 "기말시험"의 부분문자열이 아니어서 동의어 확장이 없으면
+    # 검색에 잡히지 않는다. 좁은 전용 군으로 "기말시험"에만 매핑한다(일반 "시험" 제외).
+    expanded = expand_search_terms(["기말고사"])
+    assert "기말시험" in expanded
+    assert "시험" not in expanded  # tangential 시험 공지 차단
+
+    expanded_mid = expand_search_terms(["중간고사"])
+    assert "중간시험" in expanded_mid
+    assert "시험" not in expanded_mid
+
+
+def test_expand_search_terms_keeps_unrelated_terms_untouched() -> None:
+    # 동의어군에 없는 term은 그대로 두고 군 확장을 일으키지 않는다.
+    assert expand_search_terms(["수강신청"]) == ["수강신청"]
 

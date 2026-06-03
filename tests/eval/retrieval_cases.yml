@@ -71,6 +71,15 @@
   notes: |
     "이번 학기" 시간 표현 + "시험 일정" 다중 term이 합쳐져 0건. 시험 안내 공지 매치 필요.
 
+- id: q-006b
+  question: "기말고사"
+  tags: [baseline-broken, synonym]
+  must_include_titles:
+    - "기말시험 실시 안내"
+  notes: |
+    "기말고사"는 공지 본문의 "기말시험"의 부분문자열이 아니라 동의어 확장 없이는 0건.
+    SYNONYM_GROUPS 시험군에 기말고사/중간고사 추가로 매치.
+
 - id: q-007
   question: "취업 박람회 언제 열려"
   tags: [baseline-broken, multi-term]

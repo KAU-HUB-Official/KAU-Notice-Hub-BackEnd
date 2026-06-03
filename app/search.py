@@ -112,6 +112,10 @@ SYNONYM_GROUPS: tuple[frozenset[str], ...] = (
     frozenset({"공모전", "대회", "경진대회", "공모"}),
     frozenset({"장학", "장학금", "장학생"}),
     frozenset({"입시", "입학", "신입생"}),
+    # "기말고사"는 공지의 "기말시험"과 동의어다. 일반 "시험"까지 끌어오면
+    # 무관한 시험(시험부 제작, 시험기간 행사 등)이 섞이므로 좁은 전용 군으로 둔다.
+    frozenset({"기말고사", "기말시험"}),
+    frozenset({"중간고사", "중간시험"}),
     frozenset({"시험", "기말시험", "중간시험"}),
     frozenset({"박람회", "설명회"}),
     frozenset({"AI융합대", "AI융합대학", "AI융합"}),
@@ -280,20 +284,86 @@ def to_comparable_date(value: str | None = None) -> float:
         return 0
 
 
+def query_term_groups(q: str | None) -> list[list[str]]:
+    """질의어를 동의어군 단위로 묶는다.
+
+    각 그룹은 `score_by_groups`에서 한 번만 가산된다. 후보 선정은 동의어를 모두
+    OR로 펼치지만(recall), 점수는 그룹당 1회만 줘서 "장학금"과 그 부분문자열
+    "장학"이 같은 글자를 두 번 가산하는 문제를 막는다.
+    """
+    groups: list[list[str]] = []
+    used: set[str] = set()
+    for term in extract_search_terms(q):
+        low = term.strip().lower()
+        if not low or low in used:
+            continue
+        members = {low}
+        for group in SYNONYM_GROUPS:
+            if low in {member.lower() for member in group}:
+                members |= {member.lower() for member in group}
+                break
+        used |= members
+        groups.append(sorted(members))
+    return groups
+
+
+def score_by_groups(
+    notice: Notice,
+    groups: list[list[str]],
+    today: date_cls | None = None,
+) -> int:
+    """동의어 그룹 단위 점수. 그룹 내 어떤 동의어가 매칭되든 필드당 1회만 가산한다."""
+    if not groups:
+        return 0
+
+    title = notice.title.lower()
+    summary = (notice.summary or "").lower()
+    content = notice.content.lower()
+    source = (normalize_facet_value(notice.source) or "").lower()
+    category = (normalize_facet_value(notice.category) or "").lower()
+    tags = " ".join(notice.tags).lower()
+    full_text = build_search_text(notice)
+
+    score = 0
+    for members in groups:
+        if not any(member in full_text for member in members):
+            continue
+        score += 1
+        if any(member in title for member in members):
+            score += 7
+        if any(member in summary for member in members):
+            score += 4
+        if any(member in tags for member in members):
+            score += 3
+        if any(member in source or member in category for member in members):
+            score += 2
+        if any(member in content for member in members):
+            score += 1
+
+    if score > 0 and notice.date:
+        score += recency_boost(notice.date, today)
+
+    return score
+
+
 def rank_notices(
     notices: list[Notice],
     q: str | None = None,
     today: date_cls | None = None,
 ) -> list[RankedNotice]:
-    terms = [term.strip().lower() for term in extract_search_terms(q)]
+    # 후보 선정(_search_with_query)과 동일하게 동의어를 점수에 반영하되,
+    # 그룹당 1회만 가산한다. 확장하지 않으면 "기말고사" 질의에서 "기말시험"
+    # 공지가 점수 0으로 밀리고, 중복 가산하면 본문에 키워드가 여러 번 든
+    # 오래된 공지가 최신 공지를 역전한다.
+    groups = query_term_groups(q)
     ranked = [
-        RankedNotice(notice=notice, score=score_notice(notice, terms, today))
+        RankedNotice(notice=notice, score=score_by_groups(notice, groups, today))
         for notice in notices
     ]
     return sorted(
         ranked,
         key=lambda item: (
-            -(item.score if terms else 0),
+            -(item.score if groups else 0),
             -to_comparable_date(item.notice.date),
             item.notice.title,
         ),

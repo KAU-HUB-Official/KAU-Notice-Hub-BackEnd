@@ -658,12 +658,32 @@ def test_parse_triage_handles_code_fence_and_garbage() -> None:
     assert chat_service._parse_triage("그냥 텍스트", True) is None
 
 
-def test_build_rerank_list_excludes_content_and_summary() -> None:
-    notice = make_notice("a", "장학금 공지", content="비밀 본문 내용")
+def test_build_rerank_list_includes_title_date_and_snippet() -> None:
+    # 마감/접수 기간 판단을 위해 본문 발췌를 포함한다.
+    notice = make_notice(
+        "a", "장학금 공지", content="신청기간 2026-06-01 ~ 2026-06-30 마감"
+    )
     line = chat_service.build_rerank_list([notice])
     assert "제목: 장학금 공지" in line
     assert "게시일: 2026-04-20" in line
-    assert "비밀 본문" not in line  # 본문/summary는 rerank 입력에서 제외
+    assert "발췌:" in line
+    assert "신청기간 2026-06-01" in line  # 마감 단서가 들어가야 함
+
+
+def test_build_rerank_list_snippet_is_truncated() -> None:
+    notice = make_notice("a", "공지", content="가" * 1000)
+    line = chat_service.build_rerank_list([notice])
+    assert "..." in line
+    assert "가" * (chat_service.RERANK_SNIPPET_CHARS + 1) not in line
+
+
+def test_rerank_prompt_injects_today() -> None:
+    from datetime import date
+
+    prompt = chat_service._build_rerank_prompt(date(2026, 6, 3))
+    assert "오늘 날짜는 2026-06-03" in prompt
+    assert "신청·접수 마감일" in prompt  # 마감 인지 지시 포함
+    assert "공지 검색 보조자" in prompt  # rerank 마커 유지
 
 
 @pytest.fixture

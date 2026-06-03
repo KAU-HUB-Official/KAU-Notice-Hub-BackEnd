@@ -13,7 +13,7 @@
 - `/api/chat`은 분기(triage) → 후보 검색 → rerank → 답변 2단계 검색 파이프라인을 거친다. `RAG_ENABLED=true`와 `OPENAI_API_KEY`가 있을 때 동작하며, 비활성화·키 부재·호출 실패·references 0건은 local fallback으로 응답한다.
   - 분기: 검색 직전 LLM 1회로 `search`/`history`/`out_of_domain`을 정한다. `history`는 이전 대화가 쌓인 상태에서 직전 답변을 재가공하는 후속 질문일 때만 선택되며, 새 검색 없이 history만으로 답한다.
   - 후보 검색: `find_relevant_notices()`로 `RAG_CANDIDATE_POOL`(기본 15)개를 넓게 가져온다.
-  - rerank: 후보가 `RAG_MAX_REFERENCES`보다 많을 때만 LLM 1회로 제목·게시일(date)만 보고 관련 공지 id를 골라 최종 n개로 좁힌다. 후보가 n개 이하면 호출을 생략한다.
+  - rerank: 후보가 `RAG_MAX_REFERENCES`보다 많을 때만 LLM 1회로 제목·게시일(date)·본문 발췌(앞 300자)를 보고 관련 공지 id를 골라 최종 n개로 좁힌다. 발췌의 접수·마감 기간과 오늘 날짜를 근거로, 질문이 현재 신청·참여 가능 여부를 물으면 마감이 지난 공지·결과발표·조달(용역/물품임차) 공지를 제외한다. 후보가 n개 이하면 호출을 생략한다.
 - `POST /api/chat/stream`은 같은 파이프라인을 SSE 이벤트(`search_started`, `search_completed`, `answer_completed`)로 반환한다.
 - 이미지/HWP 공지는 content enrichment로 `content` 품질을 높일 수 있다.
 
@@ -38,7 +38,8 @@
        └ 실패/비활성 시 질문 원문을 그대로 검색어로 사용 (legacy)
   -> 후보 검색: local search/filter로 RAG_CANDIDATE_POOL개 후보 조회
        └ 키워드 추출 성공 시 검색 0건이면 fallback_to_latest 끔 (무관 최신 공지 노출 차단)
-  -> rerank: 후보 > RAG_MAX_REFERENCES일 때 LLM 1회로 제목·게시일만 보고 관련 id 선별
+  -> rerank: 후보 > RAG_MAX_REFERENCES일 때 LLM 1회로 제목·게시일·본문 발췌를 보고 관련 id 선별
+       └ 발췌의 마감 기간 + 오늘 날짜로, '신청 가능' 류 질문은 마감 지난 공지/결과발표/조달 제외
        └ 빈 배열 → references 0건 / 파싱 실패 → 후보 상위 N개 / 후보 ≤ N → 호출 생략
   -> build_context로 추린 공지의 본문 컨텍스트 구성
   -> OpenAI 답변 호출 (RAG_ENABLED + API key 있을 때)
@@ -209,7 +210,7 @@ curl -sS -X POST http://localhost:8000/api/chat \
 키워드 검색 + LLM으로 품질 한계가 보이면 다음을 차례로 검토한다. 본 계획에서는 다루지 않는다.
 
 - intent별 검색 boost (일정/장학/취업 등)
-- rerank 입력에 게시일 외 신호(마감일 파싱 등) 추가 — 현재는 제목·게시일만 사용
+- 마감일 구조화 필드(`deadline`) 도입 — 현재는 rerank가 본문 발췌에서 마감을 추론하므로 발췌에 기간이 없으면 거르지 못함. 정확한 `신청 가능` 필터/정렬은 별도 계획.
 - 임베딩 인덱스 도입 (chunk, embedding, vector store)
 - OpenAI hosted file search 검토
 

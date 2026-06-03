@@ -109,7 +109,7 @@ http://localhost:8000/openapi.json
 | `CONTENT_ENRICHMENT_MAX_ASSETS_PER_NOTICE` | `3` | 공지 1건에서 처리할 최대 이미지/HWP asset 수 |
 | `CONTENT_ENRICHMENT_MAX_FILE_BYTES` | `10485760` | 다운로드할 asset 최대 크기 |
 | `CONTENT_ENRICHMENT_MAX_CALLS_PER_RUN` | `50` | crawl 1회당 보강 API 호출 상한 |
-| `CONTENT_ENRICHMENT_ALLOWED_DOMAINS` | `kau.ac.kr,...` | asset 다운로드를 허용할 도메인 allowlist |
+| `CONTENT_ENRICHMENT_ALLOWED_DOMAINS` | (비움) | asset 다운로드 도메인 allowlist. 비우면 공개 IP 호스트 전체 허용(localhost·사설 IP는 차단). 값 지정 시 해당 도메인으로 제한 |
 | `LOG_LEVEL` | `INFO` | 로그 레벨 |
 | `CRAWLER_SCHEDULER_ENABLED` | `true` | API 프로세스 내 크롤러 스케줄러 활성화 |
 | `CRAWLER_INTERVAL_SECONDS` | `10800` | 크롤링 주기. 기본 3시간 |

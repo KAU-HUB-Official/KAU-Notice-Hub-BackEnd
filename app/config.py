@@ -20,12 +20,11 @@ class Settings(BaseSettings):
     content_enrichment_max_assets_per_notice: int = 3
     content_enrichment_max_file_bytes: int = 10 * 1024 * 1024
     content_enrichment_max_calls_per_run: int = 50
-    content_enrichment_allowed_domains: str = (
-        "kau.ac.kr,career.kau.ac.kr,college.kau.ac.kr,research.kau.ac.kr,"
-        "ibhak.kau.ac.kr,ctl.kau.ac.kr,lib.kau.ac.kr,ftc.kau.ac.kr,"
-        "amtc.kau.ac.kr,fsc.kau.ac.kr,grad.kau.ac.kr,gradbus.kau.ac.kr,"
-        "aisw.kau.ac.kr,lms.kau.ac.kr,asbt.kau.ac.kr"
-    )
+    # 빈 값이면 도메인 화이트리스트를 끄고 공개 IP로 해석되는 모든 호스트를 허용한다.
+    # 공지 본문에는 외부 호스트 이미지가 섞여 들어오므로 기본은 개방으로 둔다.
+    # localhost·사설/비공개 IP·non-http(s) 스킴 차단(SSRF 방어)은 그대로 유지된다.
+    # 다시 특정 도메인으로 제한하려면 콤마로 구분한 도메인 목록을 지정한다.
+    content_enrichment_allowed_domains: str = ""
     crawler_scheduler_enabled: bool = False
     crawler_interval_seconds: int = 3 * 60 * 60
     crawler_run_on_startup: bool = True

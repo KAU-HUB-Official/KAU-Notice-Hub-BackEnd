@@ -417,7 +417,7 @@ MVP 기준:
 - `RAG_QUERY_EXTRACTION_ENABLED=true`(기본)이면 검색 직전 분기(triage) LLM이 `search`/`history`/`out_of_domain`을 정하고, `search`면 질문에서 명사 키워드를 뽑아 검색어로 쓴다. 분기가 실패하면 질문 원문을 그대로 검색한다.
 - `history` 분기: 이전 대화가 쌓인 상태에서 직전 답변을 재가공하는 후속 질문("더 짧게", "두 번째 거 제목 뭐였지")이면 새 검색 없이 history만으로 답한다. 이때 `references`는 빈 배열이다. 이전 대화가 없으면 이 분기는 쓰지 않고 검색으로 강등한다.
 - `out_of_domain` 분기: 질문을 공지 도메인 밖으로 판정하면 검색을 skip하고 "KAU 공지 안내만 도와드릴 수 있어요" 안내를 `usedFallback=true`로 돌려준다. SSE에서는 `search_completed`의 `references`가 빈 배열이고 `answer_completed`에 안내 문구가 들어간다. 단 `history`가 비어 있지 않으면 도메인 외로 단정하지 않고 질문 원문으로 검색을 시도한다.
-- 검색은 `RAG_CANDIDATE_POOL`(기본 15)개 후보를 가져온 뒤, 후보가 `RAG_MAX_REFERENCES`보다 많으면 rerank LLM이 제목·게시일만 보고 관련 공지를 최종 n개로 좁힌다. 후보가 n개 이하면 rerank를 생략한다.
+- 검색은 `RAG_CANDIDATE_POOL`(기본 15)개 후보를 가져온 뒤, 후보가 `RAG_MAX_REFERENCES`보다 많으면 rerank LLM이 제목·게시일·본문 발췌를 보고 관련 공지를 최종 n개로 좁힌다. "지금 신청 가능한" 류 질문은 발췌의 접수·마감 기간과 오늘 날짜로 마감 지난 공지·결과발표·조달 공지를 제외한다. 후보가 n개 이하면 rerank를 생략한다.
 - 키워드 기반 검색이 0건이거나 rerank가 관련 공지 없음(빈 배열)으로 판정하면 무관한 최신 공지로 채우지 않고 빈 `references`와 fallback 답변을 반환한다.
 - 비활성화/키 부재/호출 실패 시 local fallback 답변을 반환한다 (`usedFallback=true`, `model="local-fallback"`).
 - 벡터 검색 기반 RAG는 아직 구현하지 않는다. 자세한 동작과 환경변수는 [RAG_PLAN.md](RAG_PLAN.md)를 참고한다.
@@ -574,7 +574,7 @@ BACKEND_CORS_ORIGINS=http://localhost:3000
 | `CONTENT_ENRICHMENT_MAX_ASSETS_PER_NOTICE` | 아니오 | `3`                              | 공지 1건당 처리할 최대 asset 수                                                      |
 | `CONTENT_ENRICHMENT_MAX_FILE_BYTES`        | 아니오 | `10485760`                       | 다운로드할 asset 최대 크기                                                           |
 | `CONTENT_ENRICHMENT_MAX_CALLS_PER_RUN`     | 아니오 | `50`                             | crawl 1회당 보강 API 호출 상한                                                       |
-| `CONTENT_ENRICHMENT_ALLOWED_DOMAINS`       | 아니오 | KAU 관련 도메인 목록             | asset 다운로드 허용 도메인 allowlist                                                 |
+| `CONTENT_ENRICHMENT_ALLOWED_DOMAINS`       | 아니오 | (비움)                           | asset 다운로드 도메인 allowlist. 공개 IP 호스트 전체 허용(사설 IP는 차단)            |
 | `BACKEND_CORS_ORIGINS`                     | 아니오 | `http://localhost:3000`          | 쉼표 구분 CORS origin 목록                                                           |
 | `CRAWLER_SCHEDULER_ENABLED`                | 아니오 | `false`                          | API 프로세스 내 크롤러 스케줄러 활성화                                               |
 | `CRAWLER_INTERVAL_SECONDS`                 | 아니오 | `10800`                          | 크롤링 주기. 기본 3시간                                                              |

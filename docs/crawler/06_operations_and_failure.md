@@ -42,7 +42,7 @@
 | 코드 | 의미 | 확인 지점 |
 | --- | --- | --- |
 | `missing_openai_api_key` | `OPENAI_API_KEY` 없음 | 서버 `.env`, 배포 secret, 컨테이너 재시작 여부 |
-| `unsafe_asset_url` | HTTP(S) URL이 허용 도메인/공개 IP 조건을 통과하지 못함 | 원문 URL, redirect 대상, allowlist |
+| `unsafe_asset_url` | HTTP(S) URL이 안전 조건을 통과하지 못함. 기본 정책은 도메인 화이트리스트 없이 공개 IP로 해석되는 호스트만 허용하고 localhost·사설/비공개 IP·non-http(s) 스킴을 차단한다(SSRF 방어). `CONTENT_ENRICHMENT_ALLOWED_DOMAINS`에 값을 지정하면 해당 도메인으로 다시 제한한다 | 원문 URL, redirect 대상, 사설 IP 여부, allowlist 설정 |
 | `unsafe_asset_redirect` | 다운로드 중 허용되지 않은 URL로 redirect됨 | 최종 redirect URL |
 | `asset_download_failed` | asset 요청 실패, HTTP 오류, timeout, 깨진 data URL payload | 원문 파일 접근 가능 여부, 일시 네트워크 오류, data URL 형식 |
 | `asset_too_large` | `CONTENT_ENRICHMENT_MAX_FILE_BYTES` 초과 | asset 크기, 운영 상한 |

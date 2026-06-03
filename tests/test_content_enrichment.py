@@ -411,6 +411,16 @@ def test_rejects_unsafe_asset_urls_without_network_lookup() -> None:
     assert not is_safe_asset_url("https://evil.example/poster.png", ["kau.ac.kr"])
 
 
+def test_empty_allowlist_permits_public_hosts_but_blocks_internal() -> None:
+    # 도메인 화이트리스트를 끄면 공개 IP 호스트는 허용한다.
+    assert is_safe_asset_url("http://93.184.216.34/poster.png", [])
+    # localhost·사설/링크로컬 IP는 화이트리스트와 무관하게 계속 차단한다.
+    assert not is_safe_asset_url("http://localhost/poster.png", [])
+    assert not is_safe_asset_url("http://10.0.0.5/poster.png", [])
+    assert not is_safe_asset_url("http://169.254.169.254/latest/meta-data/", [])
+    assert not is_safe_asset_url("file:///etc/passwd", [])
+
+
 def test_safe_asset_log_value_omits_data_url_payload() -> None:
     data_url = "data:image/png;base64," + ("a" * 500)
 

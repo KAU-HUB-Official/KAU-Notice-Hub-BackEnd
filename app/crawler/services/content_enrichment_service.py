@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from typing import Literal, Protocol
@@ -197,7 +198,10 @@ class ContentEnrichmentService:
         if is_fallback_content(content):
             return True
 
-        return len("".join(content.split())) < self.min_text_length
+        # 본문이 사실상 이미지/링크 마크다운뿐인 포스터 공지는 URL 문자 때문에
+        # 길이가 길게 잡혀 보강 대상에서 누락된다. 마크다운·URL을 걷어낸 실제
+        # 텍스트 기준으로 판단한다.
+        return visible_text_length(content) < self.min_text_length
 
     def find_supported_assets(self, post: dict) -> list[ContentAsset]:
         assets: list[ContentAsset] = []
@@ -406,6 +410,24 @@ def is_fallback_content(content: str) -> bool:
     if stripped in FALLBACK_CONTENT_VALUES:
         return True
     return any(stripped.startswith(prefix) for prefix in FALLBACK_CONTENT_PREFIXES)
+
+
+_MARKDOWN_IMAGE_RE = re.compile(r"!\[[^\]]*\]\([^)]*\)")
+_MARKDOWN_LINK_RE = re.compile(r"\[([^\]]*)\]\([^)]*\)")
+_BARE_URL_RE = re.compile(r"https?://\S+")
+
+
+def visible_text_length(content: str) -> int:
+    """이미지/링크 마크다운과 bare URL을 제거한 '실제 텍스트'의 비공백 길이.
+
+    `![alt](url)` 이미지는 통째로 제거하고, `[text](url)` 링크는 보이는 text만
+    남긴 뒤 남은 URL을 제거한다. 본문이 이미지 링크 마크다운뿐인 포스터 공지가
+    URL 문자 때문에 길게 잡혀 보강에서 누락되는 것을 막는다.
+    """
+    stripped = _MARKDOWN_IMAGE_RE.sub(" ", content or "")
+    stripped = _MARKDOWN_LINK_RE.sub(r"\1", stripped)
+    stripped = _BARE_URL_RE.sub(" ", stripped)
+    return len("".join(stripped.split()))
 
 
 def safe_asset_log_value(url: str, *, max_length: int = 200) -> str:

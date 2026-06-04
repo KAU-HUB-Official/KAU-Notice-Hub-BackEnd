@@ -28,6 +28,7 @@ from app.crawler.services.content_enrichment_service import (
     detect_trigger,
     is_fallback_content,
     safe_asset_log_value,
+    visible_text_length,
 )
 from app.crawler.services.content_extractors.hwp_extractor import (
     ExtractedText,
@@ -163,6 +164,49 @@ def test_fallback_content_detection() -> None:
     assert is_fallback_content("**[첨부파일 공지]**\n\n- notice.hwp")
     assert is_fallback_content("본문 정보가 비어 있습니다.")
     assert not is_fallback_content("수강신청 기간 안내 본문입니다.")
+
+
+def test_visible_text_length_ignores_image_link_markdown() -> None:
+    # 포스터 공지: 본문이 이미지 링크 마크다운뿐 → 실제 텍스트 0
+    poster = (
+        "[![](http://college.kau.ac.kr/web/cmm/imageSrc.do?path=" + "a" * 200 + ")]"
+        "(http://college.kau.ac.kr/web/cmm/imageSrc.do?path=" + "b" * 200 + ")"
+    )
+    assert len("".join(poster.split())) > 30  # 기존 길이 기준은 본문 있다고 오판
+    assert visible_text_length(poster) == 0  # 실제 텍스트는 0
+
+    # 이미지 + 실제 텍스트가 함께 있으면 텍스트 길이만 센다
+    mixed = "![poster](http://x/y.png)\n\n수강신청 기간은 3월 2일부터 3월 6일까지입니다."
+    assert visible_text_length(mixed) >= 20
+    # 링크의 보이는 텍스트는 유지한다
+    assert visible_text_length("[신청서 다운로드](http://x/y)") == len("신청서다운로드")
+
+
+def test_should_enrich_targets_poster_only_notice() -> None:
+    service = make_service()
+    poster_post = {
+        "title": "2026학년도 1학기 등록금 분할납부 안내",
+        "content": "[![](http://college.kau.ac.kr/web/cmm/imageSrc.do?path=" + "a" * 200 + ")]"
+        "(http://college.kau.ac.kr/web/cmm/imageSrc.do?path=" + "b" * 200 + ")",
+        "content_assets": [
+            {
+                "type": "inline_image",
+                "name": "poster.png",
+                "url": "http://college.kau.ac.kr/web/cmm/imageSrc.do?path=" + "a" * 200,
+                "source": "body",
+            }
+        ],
+    }
+    # 본문이 이미지 링크뿐이라 보강 대상으로 잡혀야 한다
+    assert service.should_enrich(poster_post) is True
+
+    # 실제 텍스트가 충분한 공지는 이미지가 있어도 보강하지 않는다
+    text_post = {
+        "title": "수강신청 안내",
+        "content": "![poster](http://x/y.png)\n\n" + "수강신청 기간 안내 본문입니다. " * 3,
+        "content_assets": poster_post["content_assets"],
+    }
+    assert service.should_enrich(text_post) is False
 
 
 def test_extract_inline_image_assets_from_content_container() -> None:

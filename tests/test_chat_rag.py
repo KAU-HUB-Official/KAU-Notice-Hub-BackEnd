@@ -1,4 +1,4 @@
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 import pytest
 
@@ -44,6 +44,54 @@ def _stub_call(
         return None
 
     return fake
+
+
+def _stub_stream(*chunks: str):
+    """`_stream_openai_sync` stub. 주어진 chunk들을 차례로 yield하는 동기 제너레이터."""
+
+    def fake(api_key, model, system_prompt, messages):
+        for chunk in chunks:
+            yield chunk
+
+    return fake
+
+
+def test_stream_openai_sync_parses_output_text_deltas() -> None:
+    """Responses API 스트리밍 SSE에서 output_text.delta만 골라 yield한다."""
+    lines = [
+        'data: {"type": "response.created"}',
+        "",
+        'data: {"type": "response.output_text.delta", "delta": "안녕"}',
+        'data: {"type": "response.output_text.delta", "delta": "하세요"}',
+        'data: {"type": "response.output_text.done", "text": "안녕하세요"}',
+        'data: {"type": "response.completed"}',
+        "data: [DONE]",
+    ]
+    fake_response = MagicMock()
+    fake_response.status_code = 200
+    fake_response.iter_lines.return_value = iter(lines)
+
+    with patch.object(chat_service.requests, "post", return_value=fake_response):
+        deltas = list(
+            chat_service._stream_openai_sync("sk-test", "gpt-4.1-mini", "sys", [])
+        )
+
+    assert deltas == ["안녕", "하세요"]
+    fake_response.close.assert_called_once()
+
+
+def test_stream_openai_sync_yields_nothing_on_http_error() -> None:
+    fake_response = MagicMock()
+    fake_response.status_code = 500
+    fake_response.iter_lines.return_value = iter([])
+
+    with patch.object(chat_service.requests, "post", return_value=fake_response):
+        deltas = list(
+            chat_service._stream_openai_sync("sk-test", "gpt-4.1-mini", "sys", [])
+        )
+
+    assert deltas == []
+    fake_response.close.assert_called_once()
 
 
 class MemoryRepository:
@@ -369,13 +417,17 @@ async def test_out_of_domain_returns_guard_answer(rag_env) -> None:
 
 
 @pytest.mark.anyio
-async def test_stream_emits_three_phase_events(
+async def test_stream_emits_token_deltas_then_completed(
     service: NoticeService, rag_env
 ) -> None:
     rag_env(enabled=True, api_key="sk-test")
-    fake = _stub_call(answer="LLM 답변", extracted=["수강신청"])
+    fake = _stub_call(extracted=["수강신청"])
+    stream = _stub_stream("LLM ", "답변")
 
-    with patch.object(chat_service, "_call_openai_sync", side_effect=fake):
+    with (
+        patch.object(chat_service, "_call_openai_sync", side_effect=fake),
+        patch.object(chat_service, "_stream_openai_sync", side_effect=stream),
+    ):
         events = [
             event
             async for event in chat_service.stream_notice_question(
@@ -386,12 +438,19 @@ async def test_stream_emits_three_phase_events(
     assert [event["type"] for event in events] == [
         "search_started",
         "search_completed",
+        "answer_delta",
+        "answer_delta",
         "answer_completed",
     ]
     assert [reference["id"] for reference in events[1]["references"]] == ["a"]
-    assert events[2]["answer"] == "LLM 답변"
-    assert events[2]["usedFallback"] is False
-    assert events[2]["model"] == "gpt-4.1-mini"
+    assert [event["delta"] for event in events if event["type"] == "answer_delta"] == [
+        "LLM ",
+        "답변",
+    ]
+    completed = events[-1]
+    assert completed["answer"] == "LLM 답변"  # delta 누적 = 최종 답변
+    assert completed["usedFallback"] is False
+    assert completed["model"] == "gpt-4.1-mini"
 
 
 @pytest.mark.anyio
@@ -410,6 +469,36 @@ async def test_stream_falls_back_when_openai_disabled(
     assert events[2]["type"] == "answer_completed"
     assert events[2]["usedFallback"] is True
     assert events[2]["model"] == "local-fallback"
+
+
+@pytest.mark.anyio
+async def test_stream_falls_back_when_no_tokens_streamed(
+    service: NoticeService, rag_env
+) -> None:
+    # RAG는 켜져 있으나 OpenAI 스트림이 토큰을 하나도 내보내지 못한 경우(전송 실패 등)
+    # answer_delta 없이 local fallback answer_completed로 마무리한다.
+    rag_env(enabled=True, api_key="sk-test")
+    fake = _stub_call(extracted=["수강신청"])
+    stream = _stub_stream()  # 아무 chunk도 yield하지 않음
+
+    with (
+        patch.object(chat_service, "_call_openai_sync", side_effect=fake),
+        patch.object(chat_service, "_stream_openai_sync", side_effect=stream),
+    ):
+        events = [
+            event
+            async for event in chat_service.stream_notice_question(
+                service, "수강신청 알려줘"
+            )
+        ]
+
+    assert [event["type"] for event in events] == [
+        "search_started",
+        "search_completed",
+        "answer_completed",
+    ]
+    assert events[-1]["usedFallback"] is True
+    assert events[-1]["model"] == "local-fallback"
 
 
 @pytest.mark.anyio
@@ -523,9 +612,13 @@ async def test_stream_history_branch_empty_refs_then_answer(
         ChatMessage(role="user", content="장학금"),
         ChatMessage(role="assistant", content="두 건 있어요."),
     ]
-    fake = _stub_call(answer="짧은 답변", triage='{"mode":"history","keywords":[]}')
+    fake = _stub_call(triage='{"mode":"history","keywords":[]}')
+    stream = _stub_stream("짧은 ", "답변")
 
-    with patch.object(chat_service, "_call_openai_sync", side_effect=fake):
+    with (
+        patch.object(chat_service, "_call_openai_sync", side_effect=fake),
+        patch.object(chat_service, "_stream_openai_sync", side_effect=stream),
+    ):
         events = [
             event
             async for event in chat_service.stream_notice_question(
@@ -536,11 +629,14 @@ async def test_stream_history_branch_empty_refs_then_answer(
     assert [event["type"] for event in events] == [
         "search_started",
         "search_completed",
+        "answer_delta",
+        "answer_delta",
         "answer_completed",
     ]
     assert events[1]["references"] == []
-    assert events[2]["answer"] == "짧은 답변"
-    assert events[2]["usedFallback"] is False
+    completed = events[-1]
+    assert completed["answer"] == "짧은 답변"
+    assert completed["usedFallback"] is False
 
 
 # ---- rerank (후보 15개 → 제목·게시일로 n개 추림) ----

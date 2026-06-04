@@ -14,7 +14,7 @@
   - 분기: 검색 직전 LLM 1회로 `search`/`history`/`out_of_domain`을 정한다. `history`는 이전 대화가 쌓인 상태에서 직전 답변을 재가공하는 후속 질문일 때만 선택되며, 새 검색 없이 history만으로 답한다.
   - 후보 검색: `find_relevant_notices()`로 `RAG_CANDIDATE_POOL`(기본 15)개를 넓게 가져온다.
   - rerank: 후보가 `RAG_MAX_REFERENCES`보다 많을 때만 LLM 1회로 제목·게시일(date)·본문 발췌(앞 300자)를 보고 관련 공지 id를 골라 최종 n개로 좁힌다. 발췌의 접수·마감 기간과 오늘 날짜를 근거로, 질문이 현재 신청·참여 가능 여부를 물으면 마감이 지난 공지·결과발표·조달(용역/물품임차) 공지를 제외한다. 후보가 n개 이하면 호출을 생략한다.
-- `POST /api/chat/stream`은 같은 파이프라인을 SSE 이벤트(`search_started`, `search_completed`, `answer_completed`)로 반환한다.
+- `POST /api/chat/stream`은 같은 파이프라인을 SSE 이벤트(`search_started`, `search_completed`, `answer_delta`, `answer_completed`)로 반환한다. 답변은 OpenAI Responses API의 스트리밍(`stream=true`)으로 받아 토큰 단위 `answer_delta`로 흘려보낸다.
 - 이미지/HWP 공지는 content enrichment로 `content` 품질을 높일 수 있다.
 
 ## 기본 결정
@@ -120,7 +120,7 @@ department=...
 
 멀티턴 대화에서 후속 질문("그 공지 자세히")을 이해해야 하면 클라이언트가 `ChatRequestBody.history`에 직전 대화 메시지를 함께 보낸다. 서버는 최근 10개 메시지, 메시지당 500자에서 잘라 키워드 추출 LLM과 답변 LLM 양쪽 호출에 multi-turn 형식으로 포함시킨다. history는 데이터로만 취급되며 시스템 지시를 변경하지 않는다. 서버는 conversation 저장소를 두지 않는다.
 
-UI에서 "공지 검색중 → 검색 완료 → 답변 생성" 단계 표시가 필요한 경우 `POST /api/chat/stream` SSE 엔드포인트를 함께 제공한다. 동일한 파이프라인(`stream_notice_question`)을 거쳐 `search_started`, `search_completed`, `answer_completed`(또는 `error`) 이벤트를 순서대로 push한다. 기존 `POST /api/chat`은 그대로 단일 JSON 응답을 유지한다.
+UI에서 "공지 검색중 → 검색 완료 → 답변 생성" 단계 표시와 타이핑 효과가 필요한 경우 `POST /api/chat/stream` SSE 엔드포인트를 함께 제공한다. 동일한 파이프라인(`stream_notice_question`)을 거쳐 `search_started`, `search_completed`, `answer_delta`(토큰 단위, 0회 이상), `answer_completed`(또는 `error`) 이벤트를 순서대로 push한다. 답변 LLM은 OpenAI Responses API를 `stream=true`로 호출해(`_stream_openai_sync`를 워커 스레드에서 돌려 async로 중계) 받는 토큰을 그대로 `answer_delta.delta`로 내보내고, 누적 텍스트를 `answer_completed.answer`로 마무리한다. 비활성/키 부재/호출 실패면 `answer_delta` 없이 local fallback `answer_completed`만 보낸다. 기존 `POST /api/chat`은 그대로 비스트리밍 단일 JSON 응답을 유지한다.
 
 API 응답은 현재 `ChatAnswer` 그대로 유지한다.
 

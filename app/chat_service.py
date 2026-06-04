@@ -4,7 +4,7 @@ import asyncio
 import json
 import logging
 from datetime import date
-from typing import Any, AsyncIterator, NamedTuple
+from typing import Any, AsyncIterator, Callable, Iterator, NamedTuple
 
 import requests
 
@@ -261,12 +261,10 @@ def _extract_output_text(data: dict[str, Any]) -> str:
     return "\n".join(text_parts).strip()
 
 
-def _call_openai_sync(
-    api_key: str,
-    model: str,
+def _build_input_messages(
     system_prompt: str,
     messages: list[dict[str, str]],
-) -> str | None:
+) -> list[dict[str, Any]]:
     input_messages: list[dict[str, Any]] = [
         {"role": "system", "content": [{"type": "input_text", "text": system_prompt}]}
     ]
@@ -278,10 +276,19 @@ def _call_openai_sync(
                 "content": [{"type": content_type, "text": msg["content"]}],
             }
         )
+    return input_messages
+
+
+def _call_openai_sync(
+    api_key: str,
+    model: str,
+    system_prompt: str,
+    messages: list[dict[str, str]],
+) -> str | None:
     payload = {
         "model": model,
         "store": False,
-        "input": input_messages,
+        "input": _build_input_messages(system_prompt, messages),
     }
     try:
         response = requests.post(
@@ -312,6 +319,91 @@ def _call_openai_sync(
 
     text = _extract_output_text(data)
     return text or None
+
+
+def _stream_openai_sync(
+    api_key: str,
+    model: str,
+    system_prompt: str,
+    messages: list[dict[str, str]],
+) -> "Iterator[str]":
+    """OpenAI Responses API를 stream 모드로 호출해 텍스트 delta를 차례로 yield한다.
+
+    동기 제너레이터다. `_aiter_threaded`로 async iterator로 감싸 사용한다.
+    전송/HTTP 오류는 로그만 남기고 조용히 종료하므로(호출자는 누적 텍스트가
+    비면 fallback으로 처리), 예외를 밖으로 던지지 않는다.
+    """
+    payload = {
+        "model": model,
+        "store": False,
+        "stream": True,
+        "input": _build_input_messages(system_prompt, messages),
+    }
+    try:
+        response = requests.post(
+            OPENAI_RESPONSES_URL,
+            headers={
+                "Authorization": f"Bearer {api_key}",
+                "Content-Type": "application/json",
+            },
+            json=payload,
+            timeout=OPENAI_TIMEOUT_SECONDS,
+            stream=True,
+        )
+    except requests.RequestException:
+        logger.exception("OpenAI chat stream transport error")
+        return
+
+    try:
+        if response.status_code >= 400:
+            logger.warning("OpenAI chat stream status %s", response.status_code)
+            return
+        for raw_line in response.iter_lines(decode_unicode=True):
+            if not raw_line or not raw_line.startswith("data:"):
+                continue
+            data_str = raw_line[len("data:") :].strip()
+            if not data_str or data_str == "[DONE]":
+                continue
+            try:
+                event = json.loads(data_str)
+            except ValueError:
+                continue
+            if not isinstance(event, dict):
+                continue
+            if event.get("type") == "response.output_text.delta":
+                delta = event.get("delta")
+                if isinstance(delta, str) and delta:
+                    yield delta
+    except requests.RequestException:
+        logger.exception("OpenAI chat stream read error")
+    finally:
+        response.close()
+
+
+async def _aiter_threaded(make_gen: "Callable[[], Iterator[str]]") -> "AsyncIterator[str]":
+    """블로킹 동기 제너레이터를 워커 스레드에서 돌려 도착 순서대로 async yield한다."""
+    queue: asyncio.Queue[Any] = asyncio.Queue()
+    loop = asyncio.get_running_loop()
+
+    def worker() -> None:
+        try:
+            for item in make_gen():
+                loop.call_soon_threadsafe(queue.put_nowait, item)
+        finally:
+            loop.call_soon_threadsafe(queue.put_nowait, _STREAM_DONE)
+
+    worker_task = asyncio.create_task(asyncio.to_thread(worker))
+    try:
+        while True:
+            item = await queue.get()
+            if item is _STREAM_DONE:
+                break
+            yield item
+    finally:
+        await worker_task
+
+
+_STREAM_DONE = object()
 
 
 def _parse_keyword_list(raw: str) -> list[str] | None:
@@ -507,6 +599,37 @@ async def _rerank_candidates(
     return selected[:limit]
 
 
+def _build_history_request(
+    question: str,
+    history: list[ChatMessage] | None,
+    today: date | None,
+) -> tuple[str, list[dict[str, str]]]:
+    """history 분기(검색 없이 이전 대화만으로 답변)용 (system_prompt, messages)."""
+    user_message = "\n\n".join(
+        [
+            f"질문:\n{question}",
+            "공지 context:\n(이번 질문은 새 검색 없이 이전 대화 내용을 바탕으로 답한다. "
+            "이전 대화에 없는 새 사실은 추측하지 말고 원문 확인을 안내한다.)",
+        ]
+    )
+    messages = _trim_history(history) + [{"role": "user", "content": user_message}]
+    return _build_system_prompt(today), messages
+
+
+def _build_openai_request(
+    question: str,
+    filters: NoticeQuery | None,
+    notices: list[Notice],
+    history: list[ChatMessage] | None,
+    today: date | None,
+) -> tuple[str, list[dict[str, str]]]:
+    """search 분기(공지 context 기반 답변)용 (system_prompt, messages)."""
+    context = build_context(notices)
+    user_message = _build_user_message(question, filters, context)
+    messages = _trim_history(history) + [{"role": "user", "content": user_message}]
+    return _build_system_prompt(today), messages
+
+
 async def _generate_from_history(
     question: str,
     history: list[ChatMessage] | None = None,
@@ -517,19 +640,12 @@ async def _generate_from_history(
     if not settings.rag_enabled or not settings.openai_api_key:
         return None
 
-    user_message = "\n\n".join(
-        [
-            f"질문:\n{question}",
-            "공지 context:\n(이번 질문은 새 검색 없이 이전 대화 내용을 바탕으로 답한다. "
-            "이전 대화에 없는 새 사실은 추측하지 말고 원문 확인을 안내한다.)",
-        ]
-    )
-    messages = _trim_history(history) + [{"role": "user", "content": user_message}]
+    system_prompt, messages = _build_history_request(question, history, today)
     answer = await asyncio.to_thread(
         _call_openai_sync,
         settings.openai_api_key,
         settings.openai_model,
-        _build_system_prompt(today),
+        system_prompt,
         messages,
     )
     if not answer:
@@ -548,11 +664,9 @@ async def _generate_with_openai(
     if not settings.rag_enabled or not settings.openai_api_key or not notices:
         return None
 
-    context = build_context(notices)
-    user_message = _build_user_message(question, filters, context)
-    messages = _trim_history(history) + [{"role": "user", "content": user_message}]
-    system_prompt = _build_system_prompt(today)
-
+    system_prompt, messages = _build_openai_request(
+        question, filters, notices, history, today
+    )
     answer = await asyncio.to_thread(
         _call_openai_sync,
         settings.openai_api_key,
@@ -563,6 +677,48 @@ async def _generate_with_openai(
     if not answer:
         return None
     return answer, settings.openai_model
+
+
+async def _stream_from_history(
+    question: str,
+    history: list[ChatMessage] | None = None,
+    today: date | None = None,
+) -> "AsyncIterator[str]":
+    """history 분기 답변을 토큰 delta로 스트리밍. 비활성/키 부재면 아무것도 yield하지 않는다."""
+    settings = get_settings()
+    if not settings.rag_enabled or not settings.openai_api_key:
+        return
+
+    system_prompt, messages = _build_history_request(question, history, today)
+    async for delta in _aiter_threaded(
+        lambda: _stream_openai_sync(
+            settings.openai_api_key, settings.openai_model, system_prompt, messages
+        )
+    ):
+        yield delta
+
+
+async def _stream_with_openai(
+    question: str,
+    filters: NoticeQuery | None,
+    notices: list[Notice],
+    history: list[ChatMessage] | None = None,
+    today: date | None = None,
+) -> "AsyncIterator[str]":
+    """search 분기 답변을 토큰 delta로 스트리밍. 비활성/키 부재/공지 0건이면 아무것도 yield하지 않는다."""
+    settings = get_settings()
+    if not settings.rag_enabled or not settings.openai_api_key or not notices:
+        return
+
+    system_prompt, messages = _build_openai_request(
+        question, filters, notices, history, today
+    )
+    async for delta in _aiter_threaded(
+        lambda: _stream_openai_sync(
+            settings.openai_api_key, settings.openai_model, system_prompt, messages
+        )
+    ):
+        yield delta
 
 
 async def _retrieve_references(
@@ -650,17 +806,23 @@ async def stream_notice_question(
         }
         return
 
+    model = get_settings().openai_model
     if mode == "history":
-        result = await _generate_from_history(normalized_question, history, today)
+        delta_source = _stream_from_history(normalized_question, history, today)
     else:
-        result = await _generate_with_openai(
+        delta_source = _stream_with_openai(
             normalized_question, filters, references_source, history, today
         )
-    if result is not None:
-        answer, model = result
+
+    chunks: list[str] = []
+    async for delta in delta_source:
+        chunks.append(delta)
+        yield {"type": "answer_delta", "delta": delta}
+
+    if chunks:
         yield {
             "type": "answer_completed",
-            "answer": answer,
+            "answer": "".join(chunks),
             "usedFallback": False,
             "model": model,
         }

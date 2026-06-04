@@ -431,14 +431,15 @@ MVP 기준:
 
 #### 이벤트 타입
 
-| `type`             | 시점                        | 추가 필드                                               |
-| ------------------ | --------------------------- | ------------------------------------------------------- |
-| `search_started`   | 검색 시작 직전              | 없음                                                    |
-| `search_completed` | references가 결정된 직후    | `references: NoticeReference[]`                         |
-| `answer_completed` | LLM 답변 또는 fallback 완료 | `answer: string`, `usedFallback: bool`, `model: string` |
-| `error`            | 처리 중 예외 발생           | `error: string`                                         |
+| `type`             | 시점                          | 추가 필드                                               |
+| ------------------ | ----------------------------- | ------------------------------------------------------- |
+| `search_started`   | 검색 시작 직전                | 없음                                                    |
+| `search_completed` | references가 결정된 직후      | `references: NoticeReference[]`                         |
+| `answer_delta`     | LLM 답변 토큰이 생성될 때마다 | `delta: string` (부분 답변 조각)                        |
+| `answer_completed` | LLM 답변 또는 fallback 완료   | `answer: string`, `usedFallback: bool`, `model: string` |
+| `error`            | 처리 중 예외 발생             | `error: string`                                         |
 
-이벤트 순서는 정상 흐름에서 `search_started` → `search_completed` → `answer_completed`다. 실패 시 마지막에 `error` 이벤트가 추가될 수 있다.
+이벤트 순서는 정상 흐름에서 `search_started` → `search_completed` → (`answer_delta` 0회 이상) → `answer_completed`다. LLM 답변은 OpenAI Responses API의 스트리밍으로 받아 토큰 단위 `answer_delta`로 흘려보내며, `answer_completed.answer`는 모든 `delta`를 순서대로 이어 붙인 최종 전체 답변과 같다. RAG 비활성/키 부재/호출 실패로 local fallback을 쓰는 경우에는 `answer_delta` 없이 `answer_completed`만 한 번 보낸다(`usedFallback=true`). 실패 시 마지막에 `error` 이벤트가 추가될 수 있다.
 
 #### 요청 본문
 
@@ -451,10 +452,14 @@ data: {"type": "search_started"}
 
 data: {"type": "search_completed", "references": [{"id": "...", "title": "...", "url": "...", "source": "...", "date": "..."}]}
 
-data: {"type": "answer_completed", "answer": "...", "usedFallback": false, "model": "gpt-4.1-mini"}
+data: {"type": "answer_delta", "delta": "수강신청은 "}
+
+data: {"type": "answer_delta", "delta": "3월 2일부터 "}
+
+data: {"type": "answer_completed", "answer": "수강신청은 3월 2일부터 ...", "usedFallback": false, "model": "gpt-4.1-mini"}
 ```
 
-검색 결과가 0건이거나 RAG가 비활성/실패면 `answer_completed`의 `usedFallback`이 `true`, `model`이 `"local-fallback"`이고 `answer`는 local fallback 메시지다.
+클라이언트는 `answer_delta.delta`를 도착 순서대로 이어 붙여 답변을 점진적으로 렌더링하고, `answer_completed.answer`로 최종 본문을 확정하면 된다. 검색 결과가 0건이거나 RAG가 비활성/실패면 `answer_delta` 없이 `answer_completed`만 오고 `usedFallback`이 `true`, `model`이 `"local-fallback"`이며 `answer`는 local fallback 메시지다.
 
 #### 요청 본문
 

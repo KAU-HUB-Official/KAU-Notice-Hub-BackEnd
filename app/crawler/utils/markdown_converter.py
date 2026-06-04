@@ -146,6 +146,12 @@ def _normalize_image_sources(soup: BeautifulSoup, *, base_url: str | None) -> No
             candidate = urljoin(base_url, candidate)
         img["src"] = _escape_markdown_url(candidate)
         img.attrs.pop("data-src", None)
+        # alt에 줄바꿈/연속 공백이 있으면 markdownify가 `![줄1\n줄2](url)` 같은
+        # 깨진 이미지 마크다운을 만들어 본문에 `![...` 가 그대로 노출된다.
+        # 변환 전에 한 줄로 눌러둔다.
+        alt = img.get("alt")
+        if alt is not None:
+            img["alt"] = " ".join(str(alt).split())
 
 
 def _first_non_data_url(*values: str) -> str:
@@ -410,4 +416,6 @@ def _normalize_emphasis(text: str) -> str:
 
 
 def _escape_alt(value: str) -> str:
-    return value.replace("[", "\\[").replace("]", "\\]")
+    # 줄바꿈/연속 공백을 한 칸으로 눌러 한 줄짜리 alt로 만들고 대괄호를 이스케이프한다.
+    collapsed = " ".join(value.split())
+    return collapsed.replace("[", "\\[").replace("]", "\\]")

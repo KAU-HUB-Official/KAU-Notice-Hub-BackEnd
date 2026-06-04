@@ -94,6 +94,26 @@ def test_make_image_only_markdown_with_alt_and_limit() -> None:
     assert lines[-1] == "_… 외 이미지 2장_"
 
 
+def test_html_node_to_markdown_collapses_multiline_image_alt() -> None:
+    # alt에 줄바꿈이 있으면 markdownify가 깨진 `![..\n..](url)`을 만들어 본문에
+    # `![(붙임` 이 그대로 노출된다. 변환 전에 한 줄로 정규화해야 한다.
+    node = _node(
+        '<div><p><img src="/upfile/poster.jpg" '
+        'alt="(붙임\n2) CVD VDP 시범사업 흥미유발포스터"></p></div>'
+    )
+    md = html_node_to_markdown(node, base_url="https://kau.ac.kr/notice")
+    assert "\n" not in md.split("](")[0]  # alt 부분에 줄바꿈 없음
+    assert md == "![(붙임 2) CVD VDP 시범사업 흥미유발포스터](https://kau.ac.kr/upfile/poster.jpg)"
+
+
+def test_make_image_only_markdown_collapses_multiline_alt() -> None:
+    soup = BeautifulSoup(
+        '<div><img src="/p.png" alt="(붙임\n1) 일반포스터"></div>', "html.parser"
+    )
+    md = make_image_only_markdown(soup.select("img"), base_url="https://x.test/")
+    assert md == "![(붙임 1) 일반포스터](https://x.test/p.png)"
+
+
 def test_make_image_only_markdown_dedupes_by_src() -> None:
     soup = BeautifulSoup(
         '<div><img src="a.png" alt="A"><img src="a.png" alt="B"></div>',

@@ -186,15 +186,23 @@ class OpenAIContentProvider:
         if text_format is not None:
             payload["text"] = {"format": text_format}
 
-        response = self.session.post(
-            OPENAI_RESPONSES_URL,
-            headers={
-                "Authorization": f"Bearer {self.api_key}",
-                "Content-Type": "application/json",
-            },
-            json=payload,
-            timeout=self.timeout_seconds,
-        )
+        try:
+            response = self.session.post(
+                OPENAI_RESPONSES_URL,
+                headers={
+                    "Authorization": f"Bearer {self.api_key}",
+                    "Content-Type": "application/json",
+                },
+                json=payload,
+                timeout=self.timeout_seconds,
+            )
+        except requests.RequestException as exc:
+            # 타임아웃·연결 오류 등 전송 단계 실패는 OpenAIProviderError로 감싸
+            # 호출자(enrich_posts)가 해당 공지만 실패 처리하고 계속하게 한다.
+            raise OpenAIProviderError(
+                "openai_request_failed",
+                f"OpenAI request transport error: {exc.__class__.__name__}",
+            ) from exc
         if response.status_code >= 400:
             raise OpenAIProviderError(
                 "openai_request_failed",

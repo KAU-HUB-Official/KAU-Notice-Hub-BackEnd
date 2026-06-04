@@ -37,6 +37,7 @@ from app.crawler.services.content_extractors.hwp_extractor import (
 from app.crawler.services.content_extractors.openai_provider import (
     GeneratedContent,
     OpenAIContentProvider,
+    OpenAIProviderError,
 )
 
 
@@ -806,3 +807,35 @@ def test_openai_provider_disables_response_storage() -> None:
 
     assert session.payload is not None
     assert session.payload["store"] is False
+
+
+def test_openai_provider_wraps_transport_timeout() -> None:
+    class PostTimeoutSession:
+        def post(self, *args, **kwargs) -> object:
+            raise requests.ReadTimeout("read timed out")
+
+    provider = OpenAIContentProvider(
+        api_key="test-key",
+        model="gpt-4.1-mini",
+        session=PostTimeoutSession(),  # type: ignore[arg-type]
+    )
+    downloaded = DownloadedAsset(
+        asset=ContentAsset(
+            type="image_attachment",
+            name="poster.png",
+            url="https://kau.ac.kr/poster.png",
+            source="attachment",
+        ),
+        data=b"image",
+        content_type="image/png",
+        sha256="fake",
+    )
+    # 전송 타임아웃이 raw requests 예외가 아니라 OpenAIProviderError로 감싸져야
+    # enrich_posts가 한 공지만 실패 처리하고 계속 진행한다.
+    with pytest.raises(OpenAIProviderError) as excinfo:
+        provider.extract_image_text(
+            downloaded,
+            notice_meta={"title": "공지"},
+            min_text_length=1,
+        )
+    assert excinfo.value.code == "openai_request_failed"

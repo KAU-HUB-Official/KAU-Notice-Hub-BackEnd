@@ -20,6 +20,15 @@ dev = [
   "httpx>=0.27.0",
   "pyyaml>=6.0"
 ]
+# RAGAS 기반 RAG 품질 평가 전용. 런타임(API 컨테이너)에는 넣지 않는다.
+# langchain-community<0.4 핀이 필수: ragas 0.4.x가 모듈 로드 시
+# langchain_community.chat_models.vertexai 를 import 하는데, 이 경로는
+# 0.4(사실상 sunset) 이후 제거돼서 핀이 없으면 `import ragas` 자체가 깨진다.
+eval = [
+  "ragas>=0.4.3,<0.5",
+  "langchain-openai>=1,<2",
+  "langchain-community>=0.3,<0.4"
+]
 
 [build-system]
 requires = ["setuptools>=68"]
@@ -32,10 +41,11 @@ exclude = ["data*", "docs*", "scripts*", "tests*"]
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 pythonpath = ["."]
-# 기본 실행은 eval 마크 제외. CI는 운영 데이터(data/*.db, data/*.json)가 없어
-# eval 테스트가 NoticeRepositoryError로 실패한다. 운영에서는 명시적으로
-# `pytest -m eval`로 호출한다.
-addopts = "-m 'not eval'"
+# 기본 실행은 eval/ragas 마크 제외. CI는 운영 데이터(data/*.db, data/*.json)가 없어
+# eval 테스트가 NoticeRepositoryError로 실패하고, ragas 테스트는 OpenAI 호출
+# 비용이 든다. 운영에서는 명시적으로 `pytest -m eval` / `pytest -m ragas`로 호출한다.
+addopts = "-m 'not eval and not ragas'"
 markers = [
-  "eval: 운영 데이터 기반 retrieval 품질 측정 (pytest -m eval 로만 실행)"
+  "eval: 운영 데이터 기반 retrieval 품질 측정 (pytest -m eval 로만 실행)",
+  "ragas: RAGAS LLM-as-judge 기반 RAG 품질 평가 (OpenAI 호출 비용 발생, pytest -m ragas 로만 실행)"
 ]

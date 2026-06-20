@@ -477,8 +477,11 @@ interface ChatRequestBody {
   source?: string;
   category?: string;
   department?: string;
+  sessionId?: string; // 선택. 세션 로깅이 켜진 경우에만 사용 (아래 참고)
 }
 ```
+
+`sessionId`는 선택 필드다. 클라이언트가 대화 시작 시 한 번 발급(예: UUID)해 같은 대화의 매 `/api/chat`·`/api/chat/stream` 요청에 함께 보낸다. 서버에서 `CHAT_LOGGING_ENABLED=true`이고 요청에 `sessionId`가 있을 때만, 평가셋·챗봇 개선용으로 각 턴(사용자 질문 / LLM 답변)을 별도 SQLite 파일(`CHAT_LOG_DB_PATH`, 운영 notice DB와 분리)에 append 저장한다. 저장은 응답 전송과 분리된 백그라운드에서 best-effort로 수행되며, 실패해도 응답에는 영향을 주지 않는다. `sessionId`가 없거나 로깅이 꺼져 있으면 아무것도 저장하지 않으며 응답 형태도 동일하다(비파괴적). 응답 본문에는 로깅 관련 필드가 추가되지 않는다.
 
 #### 요청 예시
 
@@ -588,6 +591,8 @@ BACKEND_CORS_ORIGINS=http://localhost:3000
 | `CRAWLER_MIN_RECORDS`                      | 아니오 | `1`                              | 게시 허용 최소 레코드 수                                                             |
 | `CRAWLER_MIN_RETAIN_RATIO`                 | 아니오 | `0.5`                            | 기존 개수 대비 급감 방어 비율                                                        |
 | `CRAWLER_LOCK_PATH`                        | 아니오 | empty                            | 크롤러 중복 실행 방지 lock 파일 경로. 미지정 시 JSON 디렉터리의 `.crawler.lock` 사용 |
+| `CHAT_LOGGING_ENABLED`                     | 아니오 | `false`                          | 챗봇 Q/A 세션 로깅. `true`이고 요청에 `sessionId`가 있을 때만 저장                   |
+| `CHAT_LOG_DB_PATH`                         | 아니오 | `./data/chat_sessions.db`        | 세션 로그 저장 SQLite 파일(운영 notice DB와 분리된 append 전용)                      |
 
 ## MVP 비목표
 

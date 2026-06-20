@@ -205,6 +205,37 @@ erDiagram
 
 현재 `key='version'`에 `SCHEMA_VERSION` 값을 저장한다.
 
+## 챗봇 세션 로그 DB (`chat_sessions.db`)
+
+운영 notice DB(`NOTICE_DB_PATH`)와 **분리된** 별도 SQLite 파일이다(`CHAT_LOG_DB_PATH`,
+기본 `./data/chat_sessions.db`). `app/chat_log.py`가 정의·기록하며, `CHAT_LOGGING_ENABLED=true`
+이고 요청에 `sessionId`가 있을 때만 평가셋·챗봇 개선용으로 대화 한 턴을 한 행으로 append 한다.
+ingest의 `os.replace()` 스왑 대상이 아닌 전용 append 파일이라, notice DB와 달리 WAL 모드를 쓴다.
+
+notice 스키마와 독립적이며 `SCHEMA_VERSION` 버전 관리·재ingest 대상이 아니다. 세션 전문은
+재전송·upsert 없이 메시지마다 INSERT만 하고, 읽을 때 `session_id`로 묶어 `ORDER BY id`로
+순서를 복원한다.
+
+### `chat_messages`
+
+| 컬럼 | 타입 | 필수 | 설명 |
+| --- | --- | --- | --- |
+| `id` | `integer` | 예 | autoincrement 기본키. 턴 순서 복원에 사용 |
+| `session_id` | `text` | 예 | 클라이언트가 발급한 대화 식별자 |
+| `role` | `text` | 예 | `user` 또는 `assistant` |
+| `content` | `text` | 예 | 질문 또는 답변 본문 |
+| `created_at` | `text` | 예 | UTC ISO8601 저장 시각 |
+| `references_json` | `text` | 아니오 | assistant 행: 답변 references(공지 id·제목 등) JSON 배열 |
+| `used_fallback` | `integer` | 아니오 | assistant 행: local fallback 여부(0/1) |
+| `model` | `text` | 아니오 | assistant 행: 응답 모델명 |
+| `audience_group` | `text` | 아니오 | user 행: 요청에 적용된 필터 |
+| `source_group` | `text` | 아니오 | user 행: 요청에 적용된 필터 |
+| `source` | `text` | 아니오 | user 행: 요청에 적용된 필터 |
+| `category` | `text` | 아니오 | user 행: 요청에 적용된 필터 |
+| `department` | `text` | 아니오 | user 행: 요청에 적용된 필터 |
+
+인덱스 `idx_chat_messages_session (session_id, id)`로 세션별 시간순 조회를 받친다.
+
 ## API 논리 모델
 
 DB 모델은 프론트엔드가 사용하는 `Notice` 객체로 변환된다.

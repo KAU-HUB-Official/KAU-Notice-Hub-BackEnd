@@ -64,6 +64,9 @@ class ChatRequestBody(BaseModel):
     source: str | None = None
     category: str | None = None
     department: str | None = None
+    # 클라이언트가 대화 시작 시 발급해 같은 대화의 매 요청에 함께 보내는 식별자.
+    # 서버 로깅이 켜져 있을 때만 이 값으로 턴을 세션에 묶어 저장한다(없으면 저장 안 함).
+    sessionId: str | None = None
 
     model_config = ConfigDict(extra="ignore")
 

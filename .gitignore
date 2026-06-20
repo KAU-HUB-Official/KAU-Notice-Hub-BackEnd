@@ -66,6 +66,11 @@ data/*.tmp.*
 *.sqlite
 *.sqlite3
 *.db
+# SQLite WAL sidecar files (chat_sessions.db uses WAL mode)
+*.db-wal
+*.db-shm
+*.sqlite-wal
+*.sqlite-shm
 
 # Docker and OS/editor noise
 .docker/

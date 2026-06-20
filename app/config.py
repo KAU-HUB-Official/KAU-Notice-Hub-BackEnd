@@ -36,6 +36,10 @@ class Settings(BaseSettings):
     rag_max_references: int = 6
     rag_candidate_pool: int = 15
     rag_query_extraction_enabled: bool = True
+    # 챗봇 Q/A 세션 로깅(평가셋·개선용). 켜져 있고 요청에 sessionId가 있을 때만
+    # 별도 append 전용 SQLite 파일(chat_log_db_path)에 턴 단위로 저장한다.
+    chat_logging_enabled: bool = False
+    chat_log_db_path: Path = Path("./data/chat_sessions.db")
 
     model_config = SettingsConfigDict(
         env_file=".env",

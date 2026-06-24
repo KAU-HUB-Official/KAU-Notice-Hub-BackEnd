@@ -193,49 +193,11 @@ curl -sS -X POST http://localhost:8000/api/chat \
   -d '{"question":"장학금 신청 관련 최근 공지 알려줘"}'
 ```
 
-## RAGAS 품질 평가 (LLM-as-judge)
+## 품질 평가
 
-검색 retrieval 회귀 가드(`tests/eval/runner.py`, recall@k/MRR)와 별개로, 답변·검색
-품질을 LLM 채점관으로 정량화한다. 모범답안(ground truth) 라벨이 필요 없는 3개 지표만
-쓴다.
-
-- `faithfulness` — (답변 생성) 답변이 검색된 context에 충실한가. 환각 탐지.
-- `llm_context_precision_without_reference` — (후보 검색·rerank) 검색된 context가
-  질문에 관련 있나. 노이즈 비율.
-- `answer_relevancy` — (답변 생성) 답변이 질문에 실제로 답했나. 임베딩을 사용.
-
-흐름: 평가셋(`tests/eval/retrieval_cases.yml`의 question/filters 재사용, 라벨은 무시)의
-각 질문을 실제 `/api/chat` 파이프라인에 돌려 `(question, retrieved_contexts, response)`를
-모은 뒤 RAGAS `evaluate()`로 채점한다. `retrieved_contexts`는 검색된 공지 본문을
-`build_context`와 같은 길이(1400자)로 잘라 모델이 실제로 본 context를 채점한다.
-`search` 분기가 아니거나(도메인외/history) 검색 0건인 케이스는 채점에서 스킵한다.
-
-- 채점관 LLM은 `OPENAI_MODEL`(기본 gpt-4.1-mini)을 재사용한다.
-- `answer_relevancy`는 임베딩이 필요해 `RAGAS_EMBEDDING_MODEL`(기본
-  `text-embedding-3-small`)을 추가로 호출한다.
-- **OpenAI 채점 호출 비용이 발생**하므로 기본 `pytest`에서 제외되고, `ragas` 마크로만
-  실행한다(`tests/test_chat_ragas.py`).
-
-의존성은 런타임이 아니라 평가 전용 extra로 격리한다. ragas 0.4.x가 모듈 로드 시
-`langchain_community.chat_models.vertexai`를 import하는데 이 경로가 langchain-community
-0.4(사실상 sunset) 이후 제거돼, `langchain-community>=0.3,<0.4` 핀이 없으면
-`import ragas` 자체가 깨진다(`pyproject.toml`의 `eval` extra에 핀으로 고정).
-
-```bash
-# 평가 의존성 설치 (런타임 이미지엔 넣지 않는다)
-python3 -m pip install -e '.[eval]'
-
-# CLI 보고서 (지표별 평균 표)
-RAG_ENABLED=true OPENAI_API_KEY=... \
-  python -m tests.eval.ragas_runner
-
-# pytest 회귀 가드 (비용 발생)
-RAG_ENABLED=true OPENAI_API_KEY=... \
-  pytest -m ragas
-```
-
-점수 하한 threshold는 baseline 측정 후 `tests/test_chat_ragas.py`에서 점진적으로
-올린다(현재는 지표가 정상 산출되는지와 `[0,1]` 범위만 검증).
+검색 품질(recall@k/MRR)과 답변 품질(RAGAS LLM-as-judge)을 수치로 측정하는 평가
+하네스는 [RAG_EVALUATION.md](RAG_EVALUATION.md)에 별도로 정리한다. RAG 흐름이나
+prompt를 바꾼 뒤 전후 점수를 비교하는 용도다.
 
 ## 구현 기준 체크리스트
 

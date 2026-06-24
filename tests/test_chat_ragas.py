@@ -39,11 +39,11 @@ def test_ragas_scores_are_well_formed() -> None:
     samples, skipped = asyncio.run(collect_samples())
     assert samples, f"채점할 search 분기 샘플이 없습니다. 스킵: {skipped}"
 
-    result = run_ragas(samples)
-    report = format_report(result, samples, skipped)
+    rows = run_ragas(samples)
+    report = format_report(rows, skipped)
     print("\n" + report)
 
-    summary = summarize(result)
+    summary = summarize(rows)
 
     # 측정된 지표가 모두 나왔고 [0, 1] 범위인지 (NaN 아님) 확인.
     for name in METRIC_NAMES:
@@ -56,5 +56,5 @@ def test_ragas_scores_are_well_formed() -> None:
     # 첫 실행 결과를 보고 아래처럼 점진적으로 올린다(retrieval 가드와 동일 방식):
     #
     # assert summary["faithfulness"] >= 0.80, report
-    # assert summary["llm_context_precision_without_reference"] >= 0.70, report
+    # assert summary["context_precision_without_reference"] >= 0.70, report
     # assert summary["answer_relevancy"] >= 0.70, report

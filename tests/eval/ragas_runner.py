@@ -1,10 +1,15 @@
 """RAGAS 기반 RAG 품질 평가 runner (LLM-as-judge).
 
-라벨(모범답안)이 필요 없는 3개 지표만 측정한다:
+라벨(모범답안)이 필요 없는 3개 지표만 측정한다 (ragas 0.4 collections API):
 
-- faithfulness                          : 답변이 검색된 context에 충실한가 (환각 여부)
-- llm_context_precision_without_reference: 검색된 context가 질문에 관련 있나 (노이즈)
-- answer_relevancy                      : 답변이 질문에 실제로 답했나 (임베딩 사용)
+- faithfulness                         : 답변이 검색된 context에 충실한가 (환각 여부)
+- context_precision_without_reference  : 검색된 context가 질문에 관련 있나 (노이즈)
+- answer_relevancy                     : 답변이 질문에 실제로 답했나 (임베딩 사용)
+
+채점관은 ragas native `llm_factory`(InstructorLLM) + native `OpenAIEmbeddings`를 쓰고,
+샘플마다 collections 메트릭의 `ascore()`로 채점한다. (구버전 LangchainLLMWrapper +
+evaluate() 경로는 answer_relevancy의 질문 생성이 n=3 요청에 1개만 반환돼 점수가
+왜곡되는 문제가 있어 native 경로로 교체했다.)
 
 각 지표는 OpenAI를 채점관으로 호출하므로 **비용이 발생한다**. 그래서 평가셋의
 질문마다 실제 `/api/chat` 파이프라인(triage → 검색 → rerank → 답변 생성)을 한 번
@@ -32,11 +37,15 @@
 from __future__ import annotations
 
 import asyncio
+import logging
+import math
 import os
 from pathlib import Path
 from typing import Any
 
 import yaml
+
+logger = logging.getLogger(__name__)
 
 from app.chat_service import (
     _generate_with_openai,
@@ -54,10 +63,10 @@ CASES_PATH = Path(__file__).parent / "retrieval_cases.yml"
 CONTEXT_CHARS = 1400
 DEFAULT_EMBEDDING_MODEL = "text-embedding-3-small"
 
-# RAGAS가 매기는 지표 컬럼명 (ragas 0.4.x 기준).
+# RAGAS collections 메트릭 이름 (ragas 0.4.x).
 METRIC_NAMES = [
     "faithfulness",
-    "llm_context_precision_without_reference",
+    "context_precision_without_reference",
     "answer_relevancy",
 ]
 
@@ -157,74 +166,108 @@ def _require_openai() -> None:
         raise RuntimeError("OPENAI_API_KEY 가 필요합니다 (채점관 LLM 호출용).")
 
 
-def run_ragas(samples: list[dict[str, Any]]) -> Any:
-    """수집한 샘플을 RAGAS로 채점하고 EvaluationResult를 반환한다.
+async def _safe_score(coro: Any) -> float:
+    """메트릭 ascore 코루틴을 await해 float 점수를 뽑는다. 실패하면 NaN."""
+    try:
+        result = await coro
+    except Exception:  # noqa: BLE001 - 한 샘플 채점 실패가 전체를 멈추지 않게 한다
+        logger.warning("ragas: ascore failed", exc_info=True)
+        return float("nan")
+    try:
+        return float(result.value)
+    except (TypeError, ValueError):
+        return float("nan")
 
-    ragas/langchain import는 함수 안에서 한다 — eval extra가 설치되지 않은
-    환경(기본 CI)에서 이 모듈을 import만 해도 깨지지 않게 한다.
+
+async def _score_samples(samples: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """수집한 샘플을 collections 메트릭의 ascore로 채점해 행 리스트를 만든다.
+
+    ragas import는 함수 안에서 한다 — eval extra가 설치되지 않은 환경(기본 CI)에서
+    이 모듈을 import만 해도 깨지지 않게 한다.
     """
-    from langchain_openai import ChatOpenAI, OpenAIEmbeddings
-    from ragas import EvaluationDataset, evaluate
-    from ragas.embeddings import LangchainEmbeddingsWrapper
-    from ragas.llms import LangchainLLMWrapper
-    from ragas.metrics import (
+    # collections 메트릭의 ascore()는 agenerate()를 호출하므로 async 클라이언트가 필요하다
+    # (동기 OpenAI 클라이언트면 "Cannot use agenerate() with a synchronous client" 에러).
+    from openai import AsyncOpenAI
+    from ragas.embeddings import OpenAIEmbeddings
+    from ragas.llms import llm_factory
+    from ragas.metrics.collections import (
+        AnswerRelevancy,
+        ContextPrecisionWithoutReference,
         Faithfulness,
-        LLMContextPrecisionWithoutReference,
-        ResponseRelevancy,
     )
 
     settings = get_settings()
-    api_key = settings.openai_api_key
+    client = AsyncOpenAI(api_key=settings.openai_api_key)
+    # 기본 max_tokens=1024는 우리 context(공지 본문 다수)·답변 길이에선 구조화 출력이
+    # 잘려 IncompleteOutputException이 난다. ragas 권장대로 4096으로 올린다.
+    llm = llm_factory(settings.openai_model, client=client, max_tokens=4096)
+    embeddings = OpenAIEmbeddings(client=client, model=_embedding_model())
 
-    llm = LangchainLLMWrapper(
-        ChatOpenAI(model=settings.openai_model, api_key=api_key, temperature=0)
-    )
-    embeddings = LangchainEmbeddingsWrapper(
-        OpenAIEmbeddings(model=_embedding_model(), api_key=api_key)
-    )
+    faith = Faithfulness(llm=llm)
+    ctx_prec = ContextPrecisionWithoutReference(llm=llm)
+    relev = AnswerRelevancy(llm=llm, embeddings=embeddings, strictness=3)
 
-    metrics = [
-        Faithfulness(llm=llm),
-        LLMContextPrecisionWithoutReference(llm=llm),
-        ResponseRelevancy(llm=llm, embeddings=embeddings),
-    ]
+    rows: list[dict[str, Any]] = []
+    for sample in samples:
+        ui = sample["user_input"]
+        resp = sample["response"]
+        ctxs = sample["retrieved_contexts"]
+        # 샘플당 3개 지표를 동시에(과한 burst 없이) 채점한다.
+        faith_score, ctx_score, ans_score = await asyncio.gather(
+            _safe_score(faith.ascore(user_input=ui, response=resp, retrieved_contexts=ctxs)),
+            _safe_score(
+                ctx_prec.ascore(user_input=ui, response=resp, retrieved_contexts=ctxs)
+            ),
+            _safe_score(relev.ascore(user_input=ui, response=resp)),
+        )
+        rows.append(
+            {
+                "case_id": sample["case_id"],
+                "faithfulness": faith_score,
+                "context_precision_without_reference": ctx_score,
+                "answer_relevancy": ans_score,
+            }
+        )
+    return rows
 
-    dataset = EvaluationDataset.from_list(samples)
-    return evaluate(dataset, metrics=metrics, llm=llm, embeddings=embeddings)
+
+def run_ragas(samples: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """수집한 샘플을 채점해 케이스별 점수 행 리스트를 반환한다."""
+    return asyncio.run(_score_samples(samples))
 
 
-def summarize(result: Any) -> dict[str, float]:
-    """EvaluationResult에서 지표별 평균(NaN 제외)을 뽑는다."""
-    df = result.to_pandas()
+def summarize(rows: list[dict[str, Any]]) -> dict[str, float]:
+    """채점 행에서 지표별 평균(NaN 제외)을 뽑는다."""
     summary: dict[str, float] = {}
     for name in METRIC_NAMES:
-        if name in df.columns:
-            summary[name] = float(df[name].mean(skipna=True))
+        values = [
+            r[name]
+            for r in rows
+            if name in r and isinstance(r[name], float) and not math.isnan(r[name])
+        ]
+        if values:
+            summary[name] = sum(values) / len(values)
     return summary
 
 
-def format_report(result: Any, samples: list[dict[str, Any]], skipped: list[str]) -> str:
-    df = result.to_pandas()
-    metric_cols = [name for name in METRIC_NAMES if name in df.columns]
-
+def format_report(rows: list[dict[str, Any]], skipped: list[str]) -> str:
     short = {
         "faithfulness": "faith",
-        "llm_context_precision_without_reference": "ctx_prec",
+        "context_precision_without_reference": "ctx_prec",
         "answer_relevancy": "ans_rel",
     }
-    header = f"{'case':10s} " + " ".join(f"{short[c]:>9s}" for c in metric_cols)
+    header = f"{'case':10s} " + " ".join(f"{short[c]:>9s}" for c in METRIC_NAMES)
     lines = [header, "-" * len(header)]
-    for index, sample in enumerate(samples):
-        row = df.iloc[index]
-        cells = " ".join(f"{float(row[c]):9.3f}" for c in metric_cols)
-        lines.append(f"{str(sample['case_id'])[:10]:10s} {cells}")
+    for row in rows:
+        cells = " ".join(f"{row.get(c, float('nan')):9.3f}" for c in METRIC_NAMES)
+        lines.append(f"{str(row['case_id'])[:10]:10s} {cells}")
 
-    summary = summarize(result)
+    summary = summarize(rows)
     lines.append("-" * len(header))
-    avg_cells = " ".join(f"{summary.get(c, float('nan')):9.3f}" for c in metric_cols)
+    avg_cells = " ".join(f"{summary.get(c, float('nan')):9.3f}" for c in METRIC_NAMES)
     lines.append(f"{'AVG':10s} {avg_cells}")
     lines.append("")
-    lines.append(f"채점 샘플 {len(samples)}건 / 스킵 {len(skipped)}건")
+    lines.append(f"채점 샘플 {len(rows)}건 / 스킵 {len(skipped)}건")
     if skipped:
         lines.append(f"스킵(검색 0건·도메인외·생성실패): {', '.join(skipped)}")
     return "\n".join(lines)
@@ -236,8 +279,8 @@ def main() -> None:
     if not samples:
         print("채점할 search 분기 샘플이 없습니다. 스킵:", ", ".join(skipped))
         return
-    result = run_ragas(samples)
-    print(format_report(result, samples, skipped))
+    rows = run_ragas(samples)
+    print(format_report(rows, skipped))
 
 
 if __name__ == "__main__":

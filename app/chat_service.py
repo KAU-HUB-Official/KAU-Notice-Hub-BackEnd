@@ -172,7 +172,6 @@ def build_context(notices: list[Notice]) -> str:
                     f"sources: {', '.join(get_notice_source_names(notice)) or '출처 미상'}",
                     f"category: {notice.category or '분류 없음'}",
                     f"url: {notice.url or '링크 없음'}",
-                    f"summary: {notice.summary or '요약 없음'}",
                     f"content: {truncate(notice.content, 1400)}",
                 ]
             )
@@ -199,8 +198,8 @@ def fallback_answer(question: str, notices: list[Notice]) -> str:
     lines: list[str] = []
     for index, notice in enumerate(notices[:3], start=1):
         meta = " | ".join(value for value in [notice.date, notice.source] if value)
-        summary = notice.summary or "요약 정보 없음"
-        lines.append(f"{index}. {notice.title}\n{meta}\n{summary}")
+        preview = truncate(" ".join((notice.content or "").split()), 120) or "본문 미상"
+        lines.append(f"{index}. {notice.title}\n{meta}\n{preview}")
 
     return "\n".join(
         [
@@ -284,12 +283,17 @@ def _call_openai_sync(
     model: str,
     system_prompt: str,
     messages: list[dict[str, str]],
+    temperature: float | None = None,
 ) -> str | None:
     payload = {
         "model": model,
         "store": False,
         "input": _build_input_messages(system_prompt, messages),
     }
+    # triage처럼 결정적이어야 하는 분류 호출은 temperature를 고정한다. 지정하지 않으면
+    # Responses API 기본값(1.0)이라 같은 질문도 호출마다 mode/keywords가 흔들린다.
+    if temperature is not None:
+        payload["temperature"] = temperature
     try:
         response = requests.post(
             OPENAI_RESPONSES_URL,
@@ -531,6 +535,8 @@ async def _triage_with_openai(
         settings.openai_model,
         TRIAGE_PROMPT,
         messages,
+        # 분류·키워드 추출은 매번 같은 결과여야 한다(라우팅 흔들림 방지).
+        temperature=0.0,
     )
     if not raw:
         return None

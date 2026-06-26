@@ -118,17 +118,16 @@ def _write_notices(conn: sqlite3.Connection, items: list[_ClassifiedNotice]) -> 
         conn.executemany(
             """
             INSERT INTO notices (
-                id, title, content, summary, url, category, department,
+                id, title, content, url, category, department,
                 published_at, audience_group, source_group,
                 searchable_text, searchable_compact, content_markdown
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             [
                 (
                     item.notice.id,
                     item.notice.title,
                     item.notice.content,
-                    item.notice.summary,
                     item.notice.url,
                     normalize_facet_value(item.notice.category),
                     normalize_facet_value(item.notice.department),

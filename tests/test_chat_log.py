@@ -101,7 +101,6 @@ def _notice() -> Notice:
         sources=["한국항공대학교 공식 홈페이지"],
         category="장학",
         date="2026-04-20",
-        summary="장학금 요약",
         tags=["장학"],
         attachments=[],
     )

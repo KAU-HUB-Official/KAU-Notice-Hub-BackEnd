@@ -45,9 +45,32 @@ logger = logging.getLogger("scripts.refresh_markdown")
 class RefreshStats:
     total: int = 0
     succeeded: int = 0
+    preserved_enriched: int = 0
     failed_fetch: int = 0
     failed_parse: int = 0
     skipped_no_board: int = 0
+
+
+def _is_enriched(post: dict[str, Any]) -> bool:
+    enrichment = post.get("content_enrichment")
+    return isinstance(enrichment, dict) and enrichment.get("status") == "success"
+
+
+def apply_refreshed_content(post: dict[str, Any], new_content: str) -> bool:
+    """재파싱한 원문을 소유권 규칙대로 post에 반영. enriched content를 보존했으면 True.
+
+    소유권: `content_original` = 원문 그대로(파서+refresh 소유), `content` = 읽는 본문
+    (보강되면 enrichment 소유). `content_original`은 항상 갱신해 파서/마크다운 개선을
+    과거 데이터에 소급한다. 단 enrichment가 채운 `content`는 덮지 않는다 — refresh가
+    보강 본문을 원본(이미지)으로 되돌리면서 `content_enrichment.status`는 success로
+    남겨 재보강도 안 돼 영구 desync되던 버그를 막는다. 비보강 공지는 기존대로 content를
+    갱신한다.
+    """
+    post["content_original"] = new_content
+    if _is_enriched(post):
+        return True
+    post["content"] = new_content
+    return False
 
 
 def _resolve_board(
@@ -129,9 +152,12 @@ def _refresh_post(
         stats.failed_parse += 1
         return False
 
-    post["content"] = new_content
+    preserved = apply_refreshed_content(post, new_content)
     post["crawled_at"] = datetime.now(timezone.utc).isoformat()
     stats.succeeded += 1
+    if preserved:
+        stats.preserved_enriched += 1
+        logger.info("보강 content 보존, 원문만 갱신 | url=%s", detail_url)
     return True
 
 

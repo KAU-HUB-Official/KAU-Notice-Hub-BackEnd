@@ -399,14 +399,6 @@ def _normalize_inline_html_in_markdown(content: str) -> str:
     return value.strip()
 
 
-def make_summary(content: str, fallback: str | None = None) -> str:
-    if fallback and fallback.strip():
-        return fallback.strip()
-
-    plain = strip_html(content)
-    return plain if len(plain) <= 180 else f"{plain[:180]}..."
-
-
 def slugify(input_value: str) -> str:
     lowered = input_value.lower()
     slug = re.sub(r"[^a-z0-9가-힣]+", "-", lowered)
@@ -496,11 +488,6 @@ def normalize_notice(raw: RawNotice, index: int) -> Notice:
     notice_id = _first_string(raw, ["id", "notice_id", "post_id", "uuid"]) or slugify(
         fallback_id_seed
     )
-    summary = make_summary(
-        content,
-        _first_string(raw, ["summary", "excerpt", "short_description"]),
-    )
-
     return Notice(
         id=notice_id,
         title=title,
@@ -511,7 +498,6 @@ def normalize_notice(raw: RawNotice, index: int) -> Notice:
         category=category,
         department=department,
         date=date,
-        summary=summary,
         tags=normalize_tags(raw, sources, categories),
         attachments=normalize_attachments(raw.get("attachments")),
     )

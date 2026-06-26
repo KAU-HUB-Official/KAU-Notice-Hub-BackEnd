@@ -57,6 +57,8 @@ rm -f /data/kau_notice_hub.db /data/kau_notice_hub.db.lock
 # 다음 요청 또는 다음 크롤러 publish에 자동 재생성
 ```
 
+> **배포 순서 주의 (스키마 bump 시).** 버전 불일치 재 ingest는 `NOTICE_JSON_PATH` 스냅샷을 원천으로 쓴다. JSON 스냅샷이 없으면 재 ingest를 못 하고 **경고 후 기존(구버전) DB로 계속 동작**한다(graceful degradation — 컬럼 추가/제거는 읽기 호환이라 즉시 깨지진 않지만 데이터가 최신이 아닐 수 있음). 따라서 스키마를 bump하는 배포 전에는 `/data`에 유효한 JSON 스냅샷이 있는지(크롤러가 한 번 publish했는지) 확인한다. v3→v4(= `notices.summary` 제거)도 동일하게, 배포 후 새 JSON으로 재 ingest되면 v4 스키마로 깨끗이 재생성된다.
+
 ## 로컬 실행
 
 의존성 설치:

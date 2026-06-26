@@ -40,7 +40,6 @@ def test_normalize_source_string_and_summary() -> None:
     assert notice.category == "학사"
     assert notice.date == "2026-04-20"
     assert notice.content == "수강신청 기간을 확인하세요."
-    assert notice.summary == "수강신청 기간을 확인하세요."
     assert notice.tags == ["학사", "한국항공대학교 공식 홈페이지"]
     assert notice.attachments[0].name == "첨부파일"
 

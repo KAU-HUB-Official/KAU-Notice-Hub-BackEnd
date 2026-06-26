@@ -6,7 +6,8 @@ from pathlib import Path
 # Bump on any schema change. Increments are one-way: on a version mismatch
 # app/dependencies.py deletes the DB and re-ingests from JSON (no down-migration).
 # v2 -> v3: added notices.content_markdown and the notice_facets_cache table.
-SCHEMA_VERSION = 3
+# v3 -> v4: removed notices.summary (content is now the single readable body field).
+SCHEMA_VERSION = 4
 
 SCHEMA_STATEMENTS: tuple[str, ...] = (
     """
@@ -14,7 +15,6 @@ SCHEMA_STATEMENTS: tuple[str, ...] = (
         id TEXT PRIMARY KEY,
         title TEXT NOT NULL,
         content TEXT NOT NULL,
-        summary TEXT,
         url TEXT,
         category TEXT,
         department TEXT,

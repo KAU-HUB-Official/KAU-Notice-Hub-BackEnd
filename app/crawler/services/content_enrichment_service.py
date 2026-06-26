@@ -186,22 +186,25 @@ class ContentEnrichmentService:
         return result
 
     def should_enrich(self, post: dict) -> bool:
-        enrichment = post.get("content_enrichment")
-        if isinstance(enrichment, dict) and enrichment.get("status") == "success":
-            return False
-
         assets = self.find_supported_assets(post)
         if not assets:
             return False
 
         content = str(post.get("content") or "").strip()
-        if is_fallback_content(content):
-            return True
-
         # 본문이 사실상 이미지/링크 마크다운뿐인 포스터 공지는 URL 문자 때문에
         # 길이가 길게 잡혀 보강 대상에서 누락된다. 마크다운·URL을 걷어낸 실제
         # 텍스트 기준으로 판단한다.
-        return visible_text_length(content) < self.min_text_length
+        needs_text = is_fallback_content(content) or (
+            visible_text_length(content) < self.min_text_length
+        )
+
+        enrichment = post.get("content_enrichment")
+        if isinstance(enrichment, dict) and enrichment.get("status") == "success":
+            # status=success여도 content에 실제 텍스트가 없으면(과거 refresh가 보강
+            # 본문을 원본 이미지로 덮어 desync된 경우) 재보강한다. 텍스트가 있으면 건너뛴다.
+            return needs_text
+
+        return needs_text
 
     def find_supported_assets(self, post: dict) -> list[ContentAsset]:
         assets: list[ContentAsset] = []
@@ -314,8 +317,6 @@ class ContentEnrichmentService:
         original_content = str(post.get("content") or "")
         post.setdefault("content_original", original_content)
         post["content"] = generated.content
-        if generated.summary:
-            post["summary"] = generated.summary
         model_name = generated.model or self.model_name
         post["content_enrichment"] = {
             "enabled": True,

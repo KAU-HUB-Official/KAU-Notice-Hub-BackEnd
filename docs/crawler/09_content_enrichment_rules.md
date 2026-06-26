@@ -72,6 +72,8 @@ OpenAI provider는 Responses API를 사용하며, 크롤러 보강 요청에는 
 
 본문 길이는 `visible_text_length()`로 잰다. `![alt](url)` 이미지 마크다운은 통째로, `[text](url)` 링크는 URL만 제거하고(보이는 text는 유지) 남은 bare URL도 제거한 뒤의 비공백 길이다. 본문이 이미지 링크 마크다운(`[![](...imageSrc.do?...)](...)`)뿐인 포스터 공지는 URL 문자 때문에 길이가 길게 잡혀 누락되던 문제가 있어, 실제 텍스트 기준으로 판정한다.
 
+`content_enrichment.status == "success"`인 공지는 보통 재보강하지 않는다. 단 그 content가 다시 fallback/이미지뿐(위 텍스트 기준 미달)이 됐다면 **desync로 보고 재보강한다**. 이는 `refresh_markdown_content.py`가 과거에 보강 본문을 원본 이미지로 덮으면서 status는 success로 남겨 영구히 재보강이 막히던 버그를 자가치유한다(아래 '원본·읽는 본문 소유권' 참고).
+
 기본 기준값:
 
 ```env
@@ -174,7 +176,6 @@ LLM은 반드시 JSON 형태로 응답해야 한다.
 ```json
 {
   "content": "검색과 답변에 사용할 Markdown 공지 본문",
-  "summary": "짧은 요약",
   "confidence": "high|medium|low",
   "warnings": ["판독 불가 영역이 있음"],
   "source_asset_names": ["모집안내.hwp"]
@@ -195,6 +196,18 @@ LLM은 반드시 JSON 형태로 응답해야 한다.
 ## 데이터 모델
 
 공개 API의 `Notice.content`는 최종 검색 가능한 본문으로 유지한다. 크롤러 원본 JSON에는 보강 metadata를 추가한다.
+
+### 원본·읽는 본문 소유권
+
+두 필드의 소유권을 분리한다. 단계가 서로의 필드를 덮어 충돌하지 않게 하기 위함이다.
+
+- `content_original` = **원문 그대로**(파서가 만든 본문, 포스터면 이미지 마크다운). 소유자: 크롤러 파서와 `refresh_markdown_content.py`. 파서/마크다운 개선을 과거 데이터에 소급할 때 자유롭게 갱신한다.
+- `content` = **읽는 본문**(보강되면 enrichment가 만든 텍스트). 소유자: 보강 성공 시 enrichment.
+- `content_enrichment.status` = 보강 여부의 진실 소스.
+
+`refresh_markdown_content.py`는 재파싱 결과를 `content_original`에만 쓰고, `content_enrichment.status == "success"`인 공지의 `content`는 **덮지 않는다**(`apply_refreshed_content()`). 비보강 공지는 기존대로 `content`도 갱신한다. 이 규약 덕분에 백필(refresh)과 보강(enrichment)이 충돌 없이 공존한다.
+
+> **검색 가능성.** 읽는 본문이 `content` 하나로 단일화된 뒤(summary 필드 제거), 이미지뿐인 공지는 **enrichment가 `content`를 실제 텍스트로 채워야 본문 키워드로 검색된다**. `CONTENT_ENRICHMENT_ENABLED`(기본 `false`)가 꺼져 있으면 이미지 공지는 `content`에 검색 가능한 텍스트가 없어 제목·source·department·tags로만 검색된다. 운영에서 이미지 공지를 본문 검색 대상으로 삼으려면 enrichment를 켠다.
 
 성공 예시:
 

@@ -16,7 +16,6 @@ OPENAI_RESPONSES_URL = "https://api.openai.com/v1/responses"
 @dataclass(frozen=True)
 class GeneratedContent:
     content: str
-    summary: str | None
     confidence: str
     warnings: list[str] = field(default_factory=list)
     source_asset_names: list[str] = field(default_factory=list)
@@ -159,7 +158,6 @@ class OpenAIContentProvider:
 
         return GeneratedContent(
             content=content,
-            summary=str(parsed.get("summary") or "").strip() or None,
             confidence=confidence,
             warnings=warnings,
             source_asset_names=source_asset_names,
@@ -269,14 +267,12 @@ class OpenAIContentProvider:
                 "additionalProperties": False,
                 "properties": {
                     "content": {"type": "string"},
-                    "summary": {"type": "string"},
                     "confidence": {"type": "string", "enum": ["high", "medium", "low"]},
                     "warnings": {"type": "array", "items": {"type": "string"}},
                     "source_asset_names": {"type": "array", "items": {"type": "string"}},
                 },
                 "required": [
                     "content",
-                    "summary",
                     "confidence",
                     "warnings",
                     "source_asset_names",

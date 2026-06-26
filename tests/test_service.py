@@ -39,7 +39,6 @@ def make_notice(
         category=category,
         department=department,
         date=date,
-        summary=f"{title} 요약",
         tags=[category, source] if category else [source],
         attachments=[],
     )

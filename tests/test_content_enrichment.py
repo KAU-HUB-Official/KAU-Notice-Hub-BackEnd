@@ -86,7 +86,6 @@ class FakeContentGenerator:
     ) -> GeneratedContent:
         return GeneratedContent(
             content="2026학년도 장학금 신청 안내입니다. 신청 기간은 5월 10일부터 5월 20일까지입니다.",
-            summary="장학금 신청 기간 안내",
             confidence="high",
             source_asset_names=["poster.png"],
             model="fake-model",
@@ -208,6 +207,36 @@ def test_should_enrich_targets_poster_only_notice() -> None:
         "content_assets": poster_post["content_assets"],
     }
     assert service.should_enrich(text_post) is False
+
+
+def test_should_enrich_reenriches_desynced_success() -> None:
+    """status=success여도 content가 이미지뿐이면(refresh가 보강 본문을 덮은 desync) 재보강."""
+    service = make_service()
+    assets = [
+        {
+            "type": "inline_image",
+            "name": "poster.png",
+            "url": "http://x/y.png",
+            "source": "body",
+        }
+    ]
+    # 과거 refresh가 보강 content를 원본 이미지로 덮었는데 status는 success로 남음
+    desynced = {
+        "title": "도서관 마일리지 프로그램",
+        "content": "![배너](http://x/y.png)",
+        "content_assets": assets,
+        "content_enrichment": {"status": "success"},
+    }
+    assert service.should_enrich(desynced) is True
+
+    # 정상 보강(content에 실제 텍스트)은 재보강하지 않는다
+    healthy = {
+        "title": "도서관 마일리지 프로그램",
+        "content": "도서관 마일리지 프로그램은 재학생 대상이며 신청 기간 안내입니다. " * 3,
+        "content_assets": assets,
+        "content_enrichment": {"status": "success"},
+    }
+    assert service.should_enrich(healthy) is False
 
 
 def test_extract_inline_image_assets_from_content_container() -> None:

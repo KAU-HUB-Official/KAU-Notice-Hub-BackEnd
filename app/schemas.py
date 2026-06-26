@@ -21,7 +21,6 @@ class Notice(BaseModel):
     category: str | None = None
     department: str | None = None
     date: str | None = None
-    summary: str | None = None
     tags: list[str] = Field(default_factory=list)
     attachments: list[NoticeAttachment] = Field(default_factory=list)
 

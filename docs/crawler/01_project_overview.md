@@ -45,7 +45,6 @@
 - `source_meta`
 - `content_original`
 - `content_enrichment`
-- `summary`
 
 ## 핵심 정책
 

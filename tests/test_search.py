@@ -28,7 +28,6 @@ def make_notice(
         sources=[source],
         category=category,
         date=date,
-        summary=content,
         tags=[category] if category else [],
         attachments=[],
     )

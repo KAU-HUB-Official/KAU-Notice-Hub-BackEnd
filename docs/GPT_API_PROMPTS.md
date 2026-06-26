@@ -288,7 +288,6 @@ source_group: {notice.sourceGroup or '중분류 없음'}
 sources: {', '.join(get_notice_source_names(notice)) or '출처 미상'}
 category: {notice.category or '분류 없음'}
 url: {notice.url or '링크 없음'}
-summary: {notice.summary or '요약 없음'}
 content: {notice.content}
 ```
 
@@ -406,14 +405,12 @@ JSON schema:
     "additionalProperties": false,
     "properties": {
       "content": { "type": "string" },
-      "summary": { "type": "string" },
       "confidence": { "type": "string", "enum": ["high", "medium", "low"] },
       "warnings": { "type": "array", "items": { "type": "string" } },
       "source_asset_names": { "type": "array", "items": { "type": "string" } }
     },
     "required": [
       "content",
-      "summary",
       "confidence",
       "warnings",
       "source_asset_names"

@@ -49,7 +49,6 @@ erDiagram
     text id PK
     text title
     text content
-    text summary
     text url
     text category
     text department
@@ -102,7 +101,6 @@ erDiagram
 | `id` | `text` | 예 | 안정적인 공지 ID. 중복 ID는 ingest 시 suffix로 보정 |
 | `title` | `text` | 예 | 공지 제목 |
 | `content` | `text` | 예 | Markdown(CommonMark + GFM 표) 문자열 |
-| `summary` | `text` | 아니오 | 요약. 없으면 정규화 단계에서 본문 기반으로 생성 가능 |
 | `url` | `text` | 아니오 | 원문 공지 URL |
 | `category` | `text` | 아니오 | 정규화된 category |
 | `department` | `text` | 아니오 | 부서/기관명 |
@@ -254,7 +252,6 @@ interface Notice {
   category?: string;
   department?: string;
   date?: string;
-  summary?: string;
   tags: string[];
   attachments: NoticeAttachment[];
 }
@@ -276,7 +273,6 @@ interface Notice {
 | `category` | `notices.category` |
 | `department` | `notices.department` |
 | `date` | `notices.published_at` |
-| `summary` | `notices.summary` |
 | `tags` | `tag_order` 순서의 전체 `notice_tags.tag` |
 | `attachments` | `attachment_order` 순서의 `notice_attachments` 행 목록 |
 

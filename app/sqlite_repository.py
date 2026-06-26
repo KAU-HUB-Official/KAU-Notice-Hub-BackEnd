@@ -219,7 +219,7 @@ def _paginate_no_query(
 
     rows = conn.execute(
         f"""
-        SELECT id, title, content, summary, url, category, department,
+        SELECT id, title, content, url, category, department,
                published_at, audience_group, source_group, content_markdown
         FROM notices n
         {where_sql}
@@ -274,7 +274,7 @@ def _search_with_query(
 
     rows = conn.execute(
         f"""
-        SELECT id, title, content, summary, url, category, department,
+        SELECT id, title, content, url, category, department,
                published_at, audience_group, source_group,
                searchable_text, searchable_compact, content_markdown
         FROM notices n
@@ -330,7 +330,7 @@ def _apply_text_filter(
             continue
 
         # 한 term이라도 매치하면 후보로 인정한다. 최종 순위는 rank_notices의
-        # 가중 점수 (title 7, summary 4, tags 3, ...) + recency boost가 결정.
+        # 가중 점수 (title 7, tags 3, source/category 2, content 1) + recency boost가 결정.
         # 이전엔 min(2, len(terms)) 빡빡한 필터가 후보를 너무 잘라냈다.
         for term in terms:
             if term in searchable:
@@ -736,7 +736,7 @@ def _gather_grouped(
 def _fetch_all(conn: sqlite3.Connection) -> list[Notice]:
     rows = conn.execute(
         """
-        SELECT id, title, content, summary, url, category, department,
+        SELECT id, title, content, url, category, department,
                published_at, audience_group, source_group, content_markdown
         FROM notices
         ORDER BY published_at DESC, id ASC
@@ -748,7 +748,7 @@ def _fetch_all(conn: sqlite3.Connection) -> list[Notice]:
 def _fetch_one(conn: sqlite3.Connection, notice_id: str) -> Notice | None:
     row = conn.execute(
         """
-        SELECT id, title, content, summary, url, category, department,
+        SELECT id, title, content, url, category, department,
                published_at, audience_group, source_group, content_markdown
         FROM notices WHERE id = ?
         """,
@@ -793,7 +793,6 @@ def _row_to_notice(
         category=row["category"],
         department=row["department"],
         date=row["published_at"],
-        summary=row["summary"],
         tags=tags_map.get(notice_id, []),
         attachments=attachments_map.get(notice_id, []),
     )

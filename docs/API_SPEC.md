@@ -150,7 +150,6 @@ interface Notice {
   category?: string;
   department?: string;
   date?: string;
-  summary?: string;
   tags: string[];
   attachments: NoticeAttachment[];
 }
@@ -266,7 +265,7 @@ MVP는 `status`만 반환해도 된다.
 
 `q`가 있으면:
 
-1. 검색 점수 내림차순. 점수는 토큰별 매칭 위치 가중치(title 7, summary 4, tags 3, source/category 2, content 1)에 최신성 보정을 합산한다.
+1. 검색 점수 내림차순. 점수는 토큰별 매칭 위치 가중치(title 7, tags 3, source/category 2, content 1)에 최신성 보정을 합산한다.
 
 ### Notice.content 포맷
 
@@ -313,7 +312,6 @@ GET /api/notices?audience=학부%20재학생(학과%2F전공별)&group=공과대
       "category": "학사",
       "department": "교무처",
       "date": "2026-04-20",
-      "summary": "수강신청 기간은 ...",
       "tags": ["학사", "한국항공대학교 컴퓨터공학과"],
       "attachments": []
     }
@@ -379,7 +377,6 @@ GET /api/notices/notice-001
   "category": "학사",
   "department": "교무처",
   "date": "2026-04-20",
-  "summary": "수강신청 기간은 ...",
   "tags": ["학사", "한국항공대학교 공식 홈페이지"],
   "attachments": [
     {

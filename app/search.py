@@ -88,7 +88,6 @@ def extract_search_terms(input_value: str | None = None) -> list[str]:
 def build_search_text(notice: Notice) -> str:
     values = [
         notice.title,
-        notice.summary,
         notice.content,
         classify_notice_audience(notice),
         *classify_notice_source_groups(notice),
@@ -180,7 +179,6 @@ def score_notice(notice: Notice, terms: list[str], today: date_cls | None = None
         return 0
 
     title = notice.title.lower()
-    summary = (notice.summary or "").lower()
     content = notice.content.lower()
     source = (normalize_facet_value(notice.source) or "").lower()
     category = (normalize_facet_value(notice.category) or "").lower()
@@ -195,8 +193,6 @@ def score_notice(notice: Notice, terms: list[str], today: date_cls | None = None
         score += 1
         if term in title:
             score += 7
-        if term in summary:
-            score += 4
         if term in tags:
             score += 3
         if term in source or term in category:
@@ -317,7 +313,6 @@ def score_by_groups(
         return 0
 
     title = notice.title.lower()
-    summary = (notice.summary or "").lower()
     content = notice.content.lower()
     source = (normalize_facet_value(notice.source) or "").lower()
     category = (normalize_facet_value(notice.category) or "").lower()
@@ -331,8 +326,6 @@ def score_by_groups(
         score += 1
         if any(member in title for member in members):
             score += 7
-        if any(member in summary for member in members):
-            score += 4
         if any(member in tags for member in members):
             score += 3
         if any(member in source or member in category for member in members):

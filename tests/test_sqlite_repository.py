@@ -92,16 +92,15 @@ def test_sqlite_repository_normalizes_legacy_html_content_on_read(tmp_path: Path
         conn.execute(
             """
             INSERT INTO notices (
-                id, title, content, summary, url, category, department,
+                id, title, content, url, category, department,
                 published_at, audience_group, source_group,
                 searchable_text, searchable_compact
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 "legacy",
                 "레거시 HTML 공지",
                 '<p><img src="data:image/png;base64,AAAA" alt="본문"></p>',
-                None,
                 None,
                 None,
                 None,

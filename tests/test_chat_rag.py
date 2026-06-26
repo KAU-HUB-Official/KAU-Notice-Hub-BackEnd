@@ -26,7 +26,7 @@ def _stub_call(
     rerank_marker = "공지 검색 보조자"
     answer_marker = "공지 안내 도우미"
 
-    def fake(api_key, model, system_prompt, messages):
+    def fake(api_key, model, system_prompt, messages, **_kwargs):
         if triage_marker in system_prompt:
             if triage is not None:
                 return triage
@@ -49,7 +49,7 @@ def _stub_call(
 def _stub_stream(*chunks: str):
     """`_stream_openai_sync` stub. 주어진 chunk들을 차례로 yield하는 동기 제너레이터."""
 
-    def fake(api_key, model, system_prompt, messages):
+    def fake(api_key, model, system_prompt, messages, **_kwargs):
         for chunk in chunks:
             yield chunk
 
@@ -94,6 +94,27 @@ def test_stream_openai_sync_yields_nothing_on_http_error() -> None:
     fake_response.close.assert_called_once()
 
 
+def test_call_openai_sync_includes_temperature_only_when_given() -> None:
+    """temperature를 주면 payload에 실리고, 안 주면 빠진다(기존 호출 동작 보존)."""
+    captured: dict[str, dict] = {}
+
+    def fake_post(url, headers=None, json=None, timeout=None):
+        captured["payload"] = json
+        resp = MagicMock()
+        resp.status_code = 200
+        resp.json.return_value = {}
+        return resp
+
+    with patch.object(chat_service.requests, "post", side_effect=fake_post):
+        chat_service._call_openai_sync("sk", "gpt-4.1-mini", "sys", [], temperature=0.0)
+    assert captured["payload"]["temperature"] == 0.0
+
+    captured.clear()
+    with patch.object(chat_service.requests, "post", side_effect=fake_post):
+        chat_service._call_openai_sync("sk", "gpt-4.1-mini", "sys", [])
+    assert "temperature" not in captured["payload"]
+
+
 class MemoryRepository:
     def __init__(self, notices: list[Notice]) -> None:
         self.notices = notices
@@ -117,7 +138,6 @@ def make_notice(notice_id: str, title: str, content: str = "본문") -> Notice:
         sources=["한국항공대학교 공식 홈페이지"],
         category="학사",
         date="2026-04-20",
-        summary=content,
         tags=["학사"],
         attachments=[],
     )
@@ -217,6 +237,24 @@ async def test_extracted_keywords_drive_search(rag_env) -> None:
 
 
 @pytest.mark.anyio
+async def test_triage_call_pins_temperature_zero(rag_env) -> None:
+    """triage 호출만 temperature=0으로 고정되고, 답변 생성 호출은 영향받지 않는다."""
+    rag_env(enabled=True, api_key="sk-test")
+    svc = NoticeService(
+        MemoryRepository([make_notice("relevant", "수강신청 안내", content="수강신청 일정")])
+    )
+    fake = _stub_call(answer="요약 답변", extracted=["수강신청"])
+
+    with patch.object(chat_service, "_call_openai_sync", side_effect=fake) as mock_call:
+        await chat_service.ask_notice_question(svc, "수강신청 알려줘")
+
+    # 첫 호출 = triage → temperature 0.0 고정
+    assert mock_call.call_args_list[0].kwargs.get("temperature") == 0.0
+    # 마지막 호출 = 답변 생성 → temperature 미지정(기존 동작 보존)
+    assert mock_call.call_args_list[-1].kwargs.get("temperature") is None
+
+
+@pytest.mark.anyio
 async def test_extraction_failure_uses_original_question(
     service: NoticeService, rag_env
 ) -> None:
@@ -294,7 +332,7 @@ async def test_today_is_forwarded_to_answer_system_prompt(
     rag_env(enabled=True, api_key="sk-test")
     captured: dict[str, str] = {}
 
-    def fake(api_key, model, system_prompt, messages):
+    def fake(api_key, model, system_prompt, messages, **_kwargs):
         captured.setdefault("answer_system", "")
         if "공지 안내 도우미" in system_prompt:
             captured["answer_system"] = system_prompt
@@ -379,7 +417,7 @@ async def test_history_is_forwarded_to_llm(service: NoticeService, rag_env) -> N
     captured: dict[str, list[dict[str, str]]] = {}
     extracted_payload = '["수강신청"]'
 
-    def fake(api_key, model, system_prompt, messages):
+    def fake(api_key, model, system_prompt, messages, **_kwargs):
         captured.setdefault("system_prompts", []).append(system_prompt)
         captured.setdefault("messages_calls", []).append(list(messages))
         if "검색 분기" in system_prompt:
@@ -537,7 +575,7 @@ async def test_prompt_injection_stays_in_user_message(rag_env) -> None:
 
     captured: dict[str, str] = {}
 
-    def fake_call(api_key, model, system_prompt, messages):
+    def fake_call(api_key, model, system_prompt, messages, **_kwargs):
         captured["system"] = system_prompt
         captured["messages"] = messages
         return "정상 답변"

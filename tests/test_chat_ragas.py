@@ -31,9 +31,11 @@ def test_ragas_scores_are_well_formed() -> None:
     from tests.eval.ragas_runner import (
         METRIC_NAMES,
         collect_samples,
+        dump_path,
         format_report,
         run_ragas,
         summarize,
+        write_run_artifact,
     )
 
     samples, skipped = asyncio.run(collect_samples())
@@ -42,6 +44,11 @@ def test_ragas_scores_are_well_formed() -> None:
     rows = run_ragas(samples)
     report = format_report(rows, skipped)
     print("\n" + report)
+
+    # CLI(main)와 동일하게 질문·context·답변·점수를 아티팩트로 남겨 진단에 쓴다.
+    artifact = dump_path()
+    if artifact is not None:
+        write_run_artifact(samples, rows, skipped, artifact)
 
     summary = summarize(rows)
 

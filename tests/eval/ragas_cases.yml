@@ -1,0 +1,149 @@
+# RAGAS 답변 품질(LLM-as-judge) 평가용 입력 질문셋.
+#
+# 검색 회귀셋(retrieval_cases.yml)과 분리한다. 그쪽은 정답 공지 라벨
+# (must_include_titles)로 recall@k/MRR을 재는 키워드형 디버깅 케이스이고, RAGAS는
+# 라벨 없이 question/filters만 써서 실제 /api/chat 파이프라인을 돌린 뒤
+# faithfulness / context_precision / answer_relevancy를 채점한다. 라벨 없는 자연어
+# 질문을 retrieval_cases.yml에 섞으면 검색 지표(label 없으면 recall=1.0·MRR=0)가
+# 왜곡되므로 별도 파일로 둔다. tests/eval/ragas_runner.py가 이 파일을 읽는다.
+#
+# 형식
+# - id: 고유 식별자
+# - question: 실제 학부생/대학원생이 챗봇에 칠 법한 자연스러운 질문
+# - filters: 백엔드 NoticeQuery 필터 (선택). audience_group/source_group/category/
+#   department 값은 docs/CLASSIFICATION.md의 정확한 문자열만 쓴다(틀리면 검색 0건 →
+#   채점 스킵).
+# - tags: [intent, style]. intent=주제 분류, style=질문 표현 유형
+#   (broad/colloquial-synonym/temporal/multi-term-qualifier/filtered/detail-followup).
+# - notes: grounding 근거(실제 공지/주제)와 triage가 뽑을 핵심 검색어(probe).
+#
+# 견고성 기준: 모든 질문은 (1) 명백히 KAU 공지 도메인이라 triage가 search로 보내고,
+# (2) 핵심 검색어로 실 DB를 검색하면 상위 10건이 꽉 차게(>=10건) 반환되도록
+# data/kau_notice_hub.db(2300건, ~2026-05 스냅샷)의 실제 공지에 grounding 했다.
+# 단일 공지 매치(데이터 prune 시 깨질 수 있음)는 제외했다. 15개 질문은 서로 다른
+# 15개 intent를 1개씩 커버하고, 6개 표현 style과 filter 유무(무필터 8 / source_group 4
+# / audience_group 2 / category 1)를 고루 섞는다.
+#
+# 운영 데이터가 갱신되어 특정 주제 공지가 prune되면 해당 질문의 grounding을
+# 재확인한다. 검증: tests/eval/runner.py와 같은 find_relevant_notices로 각 질문이
+# 검색 결과를 반환하는지 확인할 수 있다(OpenAI 불필요).
+
+- id: rag-scholarship-deadline
+  question: "국가근로장학금 신청 마감 언제야?"
+  tags: [scholarship, detail-followup]
+  notes: |
+    "2026학년도 2학기 1차 국가근로장학금 신청 안내" 등 국가근로장학금 신청 공지의
+    마감일을 본문에서 찾아 답해야 한다(faithfulness 스트레스). probe: 국가근로장학금/신청.
+
+- id: rag-enrollment-howto
+  question: "수강신청 어떻게 하는지 알려줘"
+  tags: [enrollment, broad]
+  notes: |
+    수강신청 안내/변경 공지 다수(328건). 넓은 질문 → context_precision/answer_relevancy.
+    probe: 수강신청.
+
+- id: rag-exam-schedule
+  question: "이번 학기 기말고사 일정 좀 정리해줘"
+  tags: [exam, temporal]
+  notes: |
+    "기말고사"는 유의어 확장으로 "기말시험"에 매치(SYNONYM_GROUPS). "이번 학기" 시간
+    표현과 stop word("정리")가 섞인 자연문. probe: 기말시험/일정.
+
+- id: rag-dorm-summer-deadline
+  question: "하계방학 생활관 모집 언제까지 신청할 수 있어?"
+  filters:
+    source_group: "생활관"
+  tags: [dorm, detail-followup]
+  notes: |
+    "2026학년도 하계방학 생활관생 모집 안내" 신청 마감일. 기숙사=생활관 유의어.
+    source_group=생활관으로 한정. probe: 하계방학/생활관/모집.
+
+- id: rag-contest-idea-hub
+  question: "한진 항공대 아이디어 허브 공모전 행사 정보 좀 정리해줘"
+  filters:
+    category: "행사공지"
+  tags: [contest, filtered]
+  notes: |
+    "2026년 제2회 (주)한진&항공대 아이디어 허브 공모전 행사 안내". category=행사공지로
+    한정한 구체 공모전 질문. 공모전=대회 유의어. probe: 아이디어 허브 공모전.
+
+- id: rag-leave-return-deadline
+  question: "이번 학기 휴학이랑 복학 신청은 언제까지 해야 돼?"
+  tags: [leave-return, multi-term-qualifier]
+  notes: |
+    "2026학년도 1학기 휴학 및 복학 신청 안내" 신청 기간. 휴학+복학 다중 term.
+    probe: 휴학/복학/신청.
+
+- id: rag-season-term-summer
+  question: "여름 계절학기 신청 있어?"
+  tags: [season-term, colloquial-synonym]
+  notes: |
+    "2026학년도 하계 계절학기 학점교류 수강안내" 등(99건). 짧은 구어 질문.
+    probe: 계절학기.
+
+- id: rag-career-mentoring
+  question: "취준 멘토링 프로그램 같은 거 있어?"
+  filters:
+    audience_group: "취업·창업 준비생"
+  tags: [career, colloquial-synonym]
+  notes: |
+    "공공기관/공무원 취업 준비 멘토링" 등 취업 멘토링 공지(111건). audience_group=
+    취업·창업 준비생으로 한정. probe: 멘토링/취업.
+
+- id: rag-library-mileage
+  question: "도서관 마일리지 그거 뭐야?"
+  tags: [library, colloquial-synonym]
+  notes: |
+    "[학술정보관] 2026학년도 1학기 도서관 마일리지 프로그램". 도서관=학술정보관.
+    probe: 마일리지/도서관.
+
+- id: rag-internship-airline
+  question: "항공사 청년 인턴십 모집은 누가 지원할 수 있고 어떻게 신청해?"
+  tags: [internship, detail-followup]
+  notes: |
+    "[필리핀 항공] 인천공항 외항사 청년인턴십 모집", "[대한항공]인턴쉽 프로그램" 등.
+    대상/신청 방법을 본문에서 찾아야 함. 인턴=인턴십, 모집=채용 유의어.
+    probe: 인턴십/모집.
+
+- id: rag-tuition-support-target
+  question: "지자체 등록금 지원 사업은 대상이 누구야?"
+  tags: [tuition, detail-followup]
+  notes: |
+    "강화군/거창군 대학생 등록금 지원 사업 안내"의 지원 대상. probe: 등록금/지원.
+
+- id: rag-bootcamp-summer-workshop
+  question: "부트캠프 하계 워크숍 참여자 모집한다던데 신청 정보 알려줘"
+  filters:
+    source_group: "첨단분야 부트캠프"
+  tags: [bootcamp, multi-term-qualifier]
+  notes: |
+    "2026 부트캠프 하계 워크숍 참여자 모집". source_group=첨단분야 부트캠프로 한정.
+    워크숍/워크샵 표기 혼용. probe: 하계 워크숍.
+
+- id: rag-intl-work-scholar
+  question: "국제교류처에서 근로 장학생이나 행정 지원 인력 모집하는 거 있어?"
+  filters:
+    source_group: "국제교류"
+  tags: [intl, filtered]
+  notes: |
+    "국제교류처 행정 지원 인력(근로 장학생) 모집 안내" 등. source_group=국제교류로 한정.
+    probe: 근로/장학생/행정.
+
+- id: rag-ai-conv-graduation-req
+  question: "8월 졸업 대상자인데 AI융합전공 이수 예정자 이수요건 공고 알려줘"
+  filters:
+    source_group: "AI융합대"
+  tags: [graduation, multi-term-qualifier]
+  notes: |
+    "[AI융합대학] AI융합전공 이수 예정자 및 이수안내 공고(2026학년도 8월 졸업대상자)".
+    source_group=AI융합대로 한정. AI융합대=AI융합대학 유의어. probe: AI융합전공 이수/졸업대상자.
+
+- id: rag-grad-season-openlab
+  question: "이번 여름 일반대학원 계절학기랑 오픈랩 행사 일정 좀 모아줘"
+  filters:
+    audience_group: "대학원생"
+  tags: [grad, multi-term-qualifier]
+  notes: |
+    "2026학년도 일반대학원 하계 계절학기 실시 안내", "[일반대학원] 2026-1학기 오픈랩
+    (Open Lab) 행사 개최 안내". audience_group=대학원생으로 한정. 계절학기+오픈랩 다중 term.
+    probe: 일반대학원/오픈랩.

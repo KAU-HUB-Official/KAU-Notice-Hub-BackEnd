@@ -1,4 +1,13 @@
 {$API_DOMAIN} {
-  reverse_proxy api:8000
+  # 비정상적으로 큰 요청 body가 파싱 전에 메모리를 점유하는 것을 막는다(메모리 DoS 방어).
+  # 정상 요청(질문 500자 + history 10×500)은 수십 KB라 1MB는 충분히 넉넉하다.
+  request_body {
+    max_size 1MB
+  }
+  reverse_proxy api:8000 {
+    # 신뢰 가능한 실제 client IP를 X-Real-IP로 전달(레이트리밋 키, app/rate_limit.py).
+    # header_up은 set(덮어쓰기)이라 클라이언트가 보낸 X-Real-IP는 스푸핑되지 않는다.
+    header_up X-Real-IP {remote_host}
+  }
 }
 

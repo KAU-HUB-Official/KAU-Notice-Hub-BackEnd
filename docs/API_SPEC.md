@@ -106,6 +106,21 @@ Content-Type: application/json
 | `pageSize < 1`    | `1` 사용   |
 | `pageSize > 100`  | `100` 사용 |
 
+### 레이트리밋
+
+공개 엔드포인트는 IP 단위 레이트리밋이 걸린다(기본값, `RATE_LIMIT_*` 환경변수로 조정하거나 `RATE_LIMIT_ENABLED=false`로 끌 수 있다).
+
+- `POST /api/chat`, `POST /api/chat/stream`: IP당 15회/분 (`RATE_LIMIT_CHAT`)
+- `GET /api/notices`, `GET /api/notices/{id}`: IP당 120회/분 (`RATE_LIMIT_NOTICES`)
+
+한도 초과 시 `429`로 응답한다.
+
+```json
+{ "error": "요청이 너무 많습니다. 잠시 후 다시 시도해주세요." }
+```
+
+운영에서는 Caddy가 신뢰 가능한 `X-Real-IP`로 클라이언트를 식별하며, Caddy에서 요청 본문 크기를 `1MB`로 제한한다(초과 시 Caddy가 `413` 반환).
+
 ### 분류 규칙
 
 분류 기준 문서는 [CLASSIFICATION.md](CLASSIFICATION.md)다.

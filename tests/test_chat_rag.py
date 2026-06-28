@@ -115,6 +115,39 @@ def test_call_openai_sync_includes_temperature_only_when_given() -> None:
     assert "temperature" not in captured["payload"]
 
 
+def test_call_openai_sync_caps_output_tokens() -> None:
+    """모든 호출 payload에 출력 토큰 상한(max_output_tokens)이 실린다(비용 폭주 방어)."""
+    captured: dict[str, dict] = {}
+
+    def fake_post(url, headers=None, json=None, timeout=None):
+        captured["payload"] = json
+        resp = MagicMock()
+        resp.status_code = 200
+        resp.json.return_value = {}
+        return resp
+
+    with patch.object(chat_service.requests, "post", side_effect=fake_post):
+        chat_service._call_openai_sync("sk", "gpt-4.1-mini", "sys", [])
+    assert captured["payload"]["max_output_tokens"] == chat_service.OPENAI_MAX_OUTPUT_TOKENS
+
+
+def test_stream_openai_sync_caps_output_tokens() -> None:
+    """스트리밍 payload에도 출력 토큰 상한이 실린다."""
+    captured: dict[str, dict] = {}
+
+    def fake_post(url, headers=None, json=None, timeout=None, stream=None):
+        captured["payload"] = json
+        resp = MagicMock()
+        resp.status_code = 200
+        resp.iter_lines.return_value = iter([])
+        return resp
+
+    with patch.object(chat_service.requests, "post", side_effect=fake_post):
+        list(chat_service._stream_openai_sync("sk", "gpt-4.1-mini", "sys", []))
+    assert captured["payload"]["max_output_tokens"] == chat_service.OPENAI_MAX_OUTPUT_TOKENS
+    assert captured["payload"]["stream"] is True
+
+
 class MemoryRepository:
     def __init__(self, notices: list[Notice]) -> None:
         self.notices = notices

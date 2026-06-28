@@ -94,7 +94,7 @@ http://localhost:8000/openapi.json
 | --- | --- | --- |
 | `NOTICE_JSON_PATH` | `/data/kau_official_posts.json` | API 서버가 읽는 전체 공지 JSON 스냅샷 |
 | `NOTICE_DB_PATH` | `/data/kau_notice_hub.db` | API 서버가 우선 읽고 ingest가 atomic 교체하는 SQLite DB |
-| `BACKEND_CORS_ORIGINS` | `https://kau-notice.example.com` | 쉼표로 구분한 허용 frontend origin |
+| `BACKEND_CORS_ORIGINS` | `https://kau-notice-hub.vercel.app,http://localhost:3000` | 쉼표로 구분한 허용 frontend origin. 배포된 프론트가 별도 origin(Vercel 등)이면 그 origin을 반드시 포함해야 브라우저 직접 호출이 CORS 차단되지 않는다. 프론트와 API가 같은 origin이면 무관 |
 | `BACKEND_PORT` | `8000` | Docker host에 바인딩할 API 포트. compose에서는 `127.0.0.1`에만 바인딩 |
 | `API_DOMAIN` | `api.kau-notice.example.com` 또는 `:80` | Caddy가 받을 host. 도메인이 없으면 `:80` |
 | `OPENAI_API_KEY` | `sk-...` | content 보강과 RAG 챗봇이 공유. 값이 비어 있으면 챗봇은 local fallback |
@@ -113,6 +113,9 @@ http://localhost:8000/openapi.json
 | `CONTENT_ENRICHMENT_MAX_CALLS_PER_RUN` | `50` | crawl 1회당 보강 API 호출 상한 |
 | `CONTENT_ENRICHMENT_ALLOWED_DOMAINS` | (비움) | asset 다운로드 도메인 allowlist. 비우면 공개 IP 호스트 전체 허용(localhost·사설 IP는 차단). 값 지정 시 해당 도메인으로 제한 |
 | `LOG_LEVEL` | `INFO` | 로그 레벨 |
+| `RATE_LIMIT_ENABLED` | `true` | Per-IP 레이트리밋(slowapi 인메모리) 활성화. 끄려면 `false` |
+| `RATE_LIMIT_CHAT` | `15/minute` | `/api/chat`·`/api/chat/stream` IP당 한도. 형식 `<횟수>/<기간>` |
+| `RATE_LIMIT_NOTICES` | `120/minute` | `/api/notices`(목록·상세) IP당 한도 |
 | `CRAWLER_SCHEDULER_ENABLED` | `true` | API 프로세스 내 크롤러 스케줄러 활성화 |
 | `CRAWLER_INTERVAL_SECONDS` | `10800` | 크롤링 주기. 기본 3시간 |
 | `CRAWLER_RUN_ON_STARTUP` | `true` | 서버 시작 직후 1회 크롤링 |

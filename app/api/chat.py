@@ -1,13 +1,14 @@
 import json
 import logging
 
-from fastapi import APIRouter, BackgroundTasks, Depends
+from fastapi import APIRouter, BackgroundTasks, Depends, Request
 from fastapi.responses import JSONResponse, StreamingResponse
 
 from app import chat_log
 from app.chat_service import ask_notice_question, stream_notice_question
 from app.config import get_settings
 from app.dependencies import get_notice_service
+from app.rate_limit import chat_rate_limit, limiter
 from app.repository import NoticeRepositoryError
 from app.schemas import ChatAnswer, ChatRequestBody, ErrorResponse
 from app.service import NoticeQuery, NoticeService
@@ -56,9 +57,15 @@ def _session_logging(body: ChatRequestBody) -> str | None:
 @router.post(
     "",
     response_model=ChatAnswer,
-    responses={400: {"model": ErrorResponse}, 500: {"model": ErrorResponse}},
+    responses={
+        400: {"model": ErrorResponse},
+        429: {"model": ErrorResponse},
+        500: {"model": ErrorResponse},
+    },
 )
+@limiter.shared_limit(chat_rate_limit, scope="chat")
 async def chat(
+    request: Request,
     body: ChatRequestBody,
     background_tasks: BackgroundTasks,
     service: NoticeService = Depends(get_notice_service),
@@ -107,9 +114,15 @@ async def chat(
 @router.post(
     "/stream",
     response_model=None,
-    responses={400: {"model": ErrorResponse}, 500: {"model": ErrorResponse}},
+    responses={
+        400: {"model": ErrorResponse},
+        429: {"model": ErrorResponse},
+        500: {"model": ErrorResponse},
+    },
 )
+@limiter.shared_limit(chat_rate_limit, scope="chat")
 async def chat_stream(
+    request: Request,
     body: ChatRequestBody,
     service: NoticeService = Depends(get_notice_service),
 ) -> StreamingResponse | JSONResponse:

@@ -32,6 +32,11 @@ class Settings(BaseSettings):
     crawler_min_records: int = 1
     crawler_min_retain_ratio: float = 0.5
     crawler_lock_path: Path | None = None
+    # Per-IP 레이트리밋. api는 Caddy 뒤에 있고 Caddy가 X-Real-IP를 set 한다(app/rate_limit.py).
+    # 값 형식은 slowapi/limits 표기("15/minute", "120/minute" 등). 테스트는 기본 비활성.
+    rate_limit_enabled: bool = True
+    rate_limit_chat: str = "15/minute"
+    rate_limit_notices: str = "120/minute"
     rag_enabled: bool = False
     rag_max_references: int = 6
     rag_candidate_pool: int = 15

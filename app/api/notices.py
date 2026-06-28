@@ -1,9 +1,10 @@
 import logging
 
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, Depends, Query, Request
 from fastapi.responses import JSONResponse
 
 from app.dependencies import get_notice_service
+from app.rate_limit import limiter, notices_rate_limit
 from app.repository import NoticeRepositoryError
 from app.schemas import ErrorResponse, Notice, NoticeListResult
 from app.service import NoticeQuery, NoticeService
@@ -26,9 +27,11 @@ def parse_number(value: str | None, fallback: int) -> int:
 @router.get(
     "",
     response_model=NoticeListResult,
-    responses={500: {"model": ErrorResponse}},
+    responses={429: {"model": ErrorResponse}, 500: {"model": ErrorResponse}},
 )
+@limiter.shared_limit(notices_rate_limit, scope="notices")
 async def list_notices(
+    request: Request,
     q: str | None = None,
     audience: str | None = None,
     group: str | None = None,
@@ -64,9 +67,15 @@ async def list_notices(
 @router.get(
     "/{notice_id}",
     response_model=Notice,
-    responses={404: {"model": ErrorResponse}, 500: {"model": ErrorResponse}},
+    responses={
+        404: {"model": ErrorResponse},
+        429: {"model": ErrorResponse},
+        500: {"model": ErrorResponse},
+    },
 )
+@limiter.shared_limit(notices_rate_limit, scope="notices")
 async def get_notice(
+    request: Request,
     notice_id: str,
     service: NoticeService = Depends(get_notice_service),
 ) -> Notice | JSONResponse:

@@ -18,6 +18,9 @@ logger = logging.getLogger(__name__)
 
 OPENAI_RESPONSES_URL = "https://api.openai.com/v1/responses"
 OPENAI_TIMEOUT_SECONDS = 30
+# 호출당 출력 토큰 상한. 비정상적으로 긴 생성으로 비용이 튀는 것을 막는다.
+# triage·rerank·답변 생성 모두 이 값 이하이며, 정상 답변을 자르지 않도록 넉넉히 둔다.
+OPENAI_MAX_OUTPUT_TOKENS = 2000
 
 HISTORY_MAX_MESSAGES = 10
 HISTORY_MESSAGE_MAX_CHARS = 500
@@ -288,6 +291,7 @@ def _call_openai_sync(
     payload = {
         "model": model,
         "store": False,
+        "max_output_tokens": OPENAI_MAX_OUTPUT_TOKENS,
         "input": _build_input_messages(system_prompt, messages),
     }
     # triage처럼 결정적이어야 하는 분류 호출은 temperature를 고정한다. 지정하지 않으면
@@ -341,6 +345,7 @@ def _stream_openai_sync(
         "model": model,
         "store": False,
         "stream": True,
+        "max_output_tokens": OPENAI_MAX_OUTPUT_TOKENS,
         "input": _build_input_messages(system_prompt, messages),
     }
     try:

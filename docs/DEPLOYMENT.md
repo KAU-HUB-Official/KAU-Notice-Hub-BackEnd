@@ -116,6 +116,7 @@ http://localhost:8000/openapi.json
 | `RATE_LIMIT_ENABLED` | `true` | Per-IP 레이트리밋(slowapi 인메모리) 활성화. 끄려면 `false` |
 | `RATE_LIMIT_CHAT` | `15/minute` | `/api/chat`·`/api/chat/stream` IP당 한도. 형식 `<횟수>/<기간>` |
 | `RATE_LIMIT_NOTICES` | `120/minute` | `/api/notices`(목록·상세) IP당 한도 |
+| `INTERNAL_PROXY_TOKEN` | (비움) | BFF(프론트) 프록시가 실제 브라우저 IP를 `X-Client-IP`로 전달할 때 신뢰하는 공유 시크릿. 프론트 `NOTICE_API_INTERNAL_TOKEN`과 동일 값. 비우면 전달 IP 무시(레이트리밋이 BFF 뒤에서 전체 공용이 됨) |
 | `CRAWLER_SCHEDULER_ENABLED` | `true` | API 프로세스 내 크롤러 스케줄러 활성화 |
 | `CRAWLER_INTERVAL_SECONDS` | `10800` | 크롤링 주기. 기본 3시간 |
 | `CRAWLER_RUN_ON_STARTUP` | `true` | 서버 시작 직후 1회 크롤링 |

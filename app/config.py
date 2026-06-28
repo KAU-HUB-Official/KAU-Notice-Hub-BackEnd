@@ -37,6 +37,10 @@ class Settings(BaseSettings):
     rate_limit_enabled: bool = True
     rate_limit_chat: str = "15/minute"
     rate_limit_notices: str = "120/minute"
+    # BFF(Next.js/Vercel) 프록시가 실제 브라우저 IP를 X-Client-IP로 전달할 때 쓰는
+    # 공유 시크릿. 요청의 X-Internal-Token이 이 값과 일치할 때만 X-Client-IP를 신뢰한다.
+    # 비어 있으면(기본) 전달 IP를 무시하고 Caddy가 set한 X-Real-IP(직접 peer)만 쓴다.
+    internal_proxy_token: str | None = None
     rag_enabled: bool = False
     rag_max_references: int = 6
     rag_candidate_pool: int = 15

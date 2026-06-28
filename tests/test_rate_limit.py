@@ -10,6 +10,7 @@ from slowapi import Limiter
 from slowapi.errors import RateLimitExceeded
 from starlette.datastructures import Headers
 
+from app.config import get_settings
 from app.rate_limit import client_ip, rate_limit_exceeded_handler
 
 
@@ -30,6 +31,50 @@ def test_client_ip_prefers_x_real_ip() -> None:
 def test_client_ip_falls_back_to_connection_ip() -> None:
     request = _make_request({}, "198.51.100.4")
     assert client_ip(request) == "198.51.100.4"
+
+
+def test_client_ip_trusts_forwarded_only_with_valid_token(monkeypatch) -> None:
+    monkeypatch.setenv("INTERNAL_PROXY_TOKEN", "secret-123")
+    get_settings.cache_clear()
+    try:
+        # 토큰 일치 → BFF가 넘긴 실제 브라우저 IP(X-Client-IP)를 쓴다.
+        ok = _make_request(
+            {
+                "x-internal-token": "secret-123",
+                "x-client-ip": "1.2.3.4",
+                "x-real-ip": "9.9.9.9",
+            },
+            "127.0.0.1",
+        )
+        assert client_ip(ok) == "1.2.3.4"
+
+        # 토큰 불일치 → X-Client-IP 무시, Caddy의 X-Real-IP로 폴백(스푸핑 차단).
+        bad = _make_request(
+            {
+                "x-internal-token": "wrong",
+                "x-client-ip": "1.2.3.4",
+                "x-real-ip": "9.9.9.9",
+            },
+            "127.0.0.1",
+        )
+        assert client_ip(bad) == "9.9.9.9"
+    finally:
+        monkeypatch.delenv("INTERNAL_PROXY_TOKEN", raising=False)
+        get_settings.cache_clear()
+
+
+def test_client_ip_ignores_forwarded_when_no_token_configured(monkeypatch) -> None:
+    monkeypatch.delenv("INTERNAL_PROXY_TOKEN", raising=False)
+    get_settings.cache_clear()
+    try:
+        # 토큰 미설정(기본) → 전달 IP를 신뢰하지 않고 X-Real-IP를 쓴다.
+        request = _make_request(
+            {"x-internal-token": "whatever", "x-client-ip": "1.2.3.4", "x-real-ip": "9.9.9.9"},
+            "127.0.0.1",
+        )
+        assert client_ip(request) == "9.9.9.9"
+    finally:
+        get_settings.cache_clear()
 
 
 def _build_limited_app() -> TestClient:

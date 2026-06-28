@@ -121,6 +121,8 @@ Content-Type: application/json
 
 운영에서는 Caddy가 신뢰 가능한 `X-Real-IP`로 클라이언트를 식별하며, Caddy에서 요청 본문 크기를 `1MB`로 제한한다(초과 시 Caddy가 `413` 반환).
 
+프론트가 BFF(Next.js/Vercel) 프록시로 백엔드를 호출하면 모든 요청의 출발 IP가 프록시 IP 하나로 보이므로, per-IP 한도가 전체 공용이 되는 것을 막기 위해 BFF는 실제 브라우저 IP를 `X-Client-IP`로, 공유 시크릿을 `X-Internal-Token`으로 함께 보낸다. 백엔드는 `X-Internal-Token`이 `INTERNAL_PROXY_TOKEN`과 일치할 때만 `X-Client-IP`를 신뢰하고, 아니면 `X-Real-IP`(직접 peer)로 폴백한다.
+
 ### 분류 규칙
 
 분류 기준 문서는 [CLASSIFICATION.md](CLASSIFICATION.md)다.

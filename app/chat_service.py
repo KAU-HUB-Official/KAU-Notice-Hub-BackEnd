@@ -110,7 +110,9 @@ TRIAGE_PROMPT = "\n".join(
     ]
 )
 
-RERANK_SNIPPET_CHARS = 300
+# 발췌가 짧으면 모집·접수 공지의 신청 기간·방법이 앞부분에 안 들어와 rerank가
+# 관련성을 못 보고 떨어뜨린다. 신청 기간/방법까지 보이도록 넉넉히 둔다.
+RERANK_SNIPPET_CHARS = 700
 
 RERANK_PROMPT_TEMPLATE = "\n".join(
     [
@@ -587,6 +589,9 @@ async def _rerank_candidates(
         settings.openai_model,
         _build_rerank_prompt(today),
         messages,
+        # 후보 선별은 분류 작업이라 매번 같은 결과여야 한다. 기본값(1.0)이면
+        # 같은 질문에도 선별이 흔들려 관련 공지가 들쭉날쭉 탈락한다(triage와 동일하게 고정).
+        temperature=0.0,
     )
     if not raw:
         return candidates[:limit]

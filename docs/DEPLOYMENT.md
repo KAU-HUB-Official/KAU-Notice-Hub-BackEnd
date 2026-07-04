@@ -309,7 +309,7 @@ git push origin main
 
 ```bash
 mkdir -p data
-cp ../MVP/kau_official_posts.json data/kau_official_posts.json
+cp ../FrontEnd/kau_official_posts.json data/kau_official_posts.json
 ```
 
 Docker volume을 미리 채우고 싶다면 crawler tool profile을 한 번 실행하거나, 운영 서버에서 volume 내부에 초기 JSON을 넣는다.

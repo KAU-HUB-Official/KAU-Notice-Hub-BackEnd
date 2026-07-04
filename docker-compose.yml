@@ -38,6 +38,9 @@ services:
     ports:
       - "127.0.0.1:${BACKEND_PORT:-8000}:8000"
     restart: unless-stopped
+    # 911MiB Lightsail 호스트 보호: 크롤 ingest 스파이크가 호스트 전체를 흔들지 않도록 상한.
+    # 초과 시 이 컨테이너만 OOM kill되고 restart 정책이 되살린다. (스왑 2G 존재 여부는 free -h로 확인)
+    mem_limit: 750m
 
   crawler:
     build:

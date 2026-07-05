@@ -35,7 +35,7 @@ class Settings(BaseSettings):
     # Per-IP 레이트리밋. api는 Caddy 뒤에 있고 Caddy가 X-Real-IP를 set 한다(app/rate_limit.py).
     # 값 형식은 slowapi/limits 표기("15/minute", "120/minute" 등). 테스트는 기본 비활성.
     rate_limit_enabled: bool = True
-    rate_limit_chat: str = "15/minute"
+    rate_limit_chat: str = "7/minute"
     rate_limit_notices: str = "120/minute"
     # BFF(Next.js/Vercel) 프록시가 실제 브라우저 IP를 X-Client-IP로 전달할 때 쓰는
     # 공유 시크릿. 요청의 X-Internal-Token이 이 값과 일치할 때만 X-Client-IP를 신뢰한다.

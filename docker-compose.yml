@@ -33,6 +33,10 @@ services:
       RAG_MAX_REFERENCES: ${RAG_MAX_REFERENCES:-6}
       RAG_CANDIDATE_POOL: ${RAG_CANDIDATE_POOL:-15}
       RAG_QUERY_EXTRACTION_ENABLED: ${RAG_QUERY_EXTRACTION_ENABLED:-true}
+      # 챗봇 Q/A 세션 로깅. .env로 껐다 켜려면 이 변수가 environment에 있어야 컨테이너로 전달된다.
+      # 경로는 반드시 볼륨(/data) 아래로 둔다. 상대경로 기본값(./data)은 컨테이너 재생성 시 유실.
+      CHAT_LOGGING_ENABLED: ${CHAT_LOGGING_ENABLED:-true}
+      CHAT_LOG_DB_PATH: ${CHAT_LOG_DB_PATH:-/data/chat_sessions.db}
     volumes:
       - notice_data:/data
     ports:

@@ -5,7 +5,7 @@ from fastapi import APIRouter, BackgroundTasks, Depends, Request
 from fastapi.responses import JSONResponse, StreamingResponse
 
 from app import chat_log
-from app.chat_service import ask_notice_question, stream_notice_question
+from app.chat_service import ask_notice_question_with_trace, stream_notice_question
 from app.config import get_settings
 from app.dependencies import get_notice_service
 from app.rate_limit import chat_rate_limit, limiter
@@ -88,7 +88,7 @@ async def chat(
         )
 
     try:
-        answer = await ask_notice_question(
+        answer, trace = await ask_notice_question_with_trace(
             service, question, _query_from_body(body), body.history
         )
     except NoticeRepositoryError:
@@ -107,6 +107,7 @@ async def chat(
             references=[ref.model_dump() for ref in answer.references],
             used_fallback=answer.usedFallback,
             model=answer.model,
+            retrieval=trace.to_dict(),
         )
     return answer
 
@@ -147,12 +148,17 @@ async def chat_stream(
 
         # 스트림 이벤트를 흘려보내며 최종 답변/references를 함께 모은다.
         references: list[dict] = []
+        retrieval: dict | None = None
         answer: str | None = None
         used_fallback = True
         model: str | None = None
         try:
             async for event in stream_notice_question(service, question, filters, history):
                 event_type = event.get("type")
+                if event_type == "_retrieval_trace":
+                    # 내부 진단 이벤트. 로그에만 남기고 클라이언트로는 내보내지 않는다.
+                    retrieval = event.get("trace")
+                    continue
                 if event_type == "search_completed":
                     references = event.get("references", [])
                 elif event_type == "answer_completed":
@@ -182,6 +188,7 @@ async def chat_stream(
                 references=references,
                 used_fallback=used_fallback,
                 model=model,
+                retrieval=retrieval,
             )
 
     return StreamingResponse(

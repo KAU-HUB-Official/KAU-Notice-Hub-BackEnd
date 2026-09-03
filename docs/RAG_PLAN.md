@@ -47,6 +47,10 @@
   -> 실패/비활성화/references 0건 시 기존 local fallback
 ```
 
+세션 로깅(`CHAT_LOGGING_ENABLED=true` + `sessionId`)이 켜져 있으면 위 각 단계의 결과(분기 mode,
+triage keywords, 후보 목록, rerank outcome, 단계별 latency)가 assistant 턴의 `retrieval_json`으로
+`chat_sessions.db`에 함께 기록된다. API 응답과 SSE 이벤트에는 나가지 않는다.
+
 ## 비목표
 
 - 임베딩 인덱스, 별도 vector DB, OpenAI hosted file search를 도입하지 않는다.

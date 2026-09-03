@@ -42,11 +42,16 @@ SCHEMA_STATEMENTS: tuple[str, ...] = (
         source_group TEXT,
         source TEXT,
         category TEXT,
-        department TEXT
+        department TEXT,
+        retrieval_json TEXT
     )
     """,
     "CREATE INDEX IF NOT EXISTS idx_chat_messages_session ON chat_messages(session_id, id)",
 )
+
+# 이미 만들어진 DB에는 CREATE TABLE IF NOT EXISTS가 새 컬럼을 추가하지 않는다.
+# (컬럼명, 타입)을 순서대로 멱등 적용해 운영 DB를 수작업 없이 따라오게 한다.
+MIGRATION_COLUMNS: tuple[tuple[str, str], ...] = (("retrieval_json", "TEXT"),)
 
 _init_lock = threading.Lock()
 _initialized: set[str] = set()
@@ -66,6 +71,18 @@ def _connect(db_path: str | Path) -> sqlite3.Connection:
     return conn
 
 
+def _migrate(conn: sqlite3.Connection) -> None:
+    """기존 테이블에 없는 컬럼을 추가한다(멱등).
+
+    ALTER TABLE ADD COLUMN은 SQLite에서 즉시 반환되고, WAL 동시 쓰기와는
+    busy_timeout으로 대기해 처리된다.
+    """
+    existing = {row["name"] for row in conn.execute("PRAGMA table_info(chat_messages)")}
+    for name, column_type in MIGRATION_COLUMNS:
+        if name not in existing:
+            conn.execute(f"ALTER TABLE chat_messages ADD COLUMN {name} {column_type}")
+
+
 def _ensure_initialized(db_path: str | Path) -> None:
     key = str(Path(db_path).expanduser().resolve())
     if key in _initialized:
@@ -77,6 +94,7 @@ def _ensure_initialized(db_path: str | Path) -> None:
         try:
             for statement in SCHEMA_STATEMENTS:
                 conn.execute(statement)
+            _migrate(conn)
         finally:
             conn.close()
         _initialized.add(key)
@@ -96,6 +114,7 @@ def _insert_message(
     used_fallback: bool | None = None,
     model: str | None = None,
     filters: dict[str, Any] | None = None,
+    retrieval_json: str | None = None,
 ) -> None:
     _ensure_initialized(db_path)
     flt = filters or {}
@@ -106,8 +125,9 @@ def _insert_message(
             INSERT INTO chat_messages (
                 session_id, role, content, created_at,
                 references_json, used_fallback, model,
-                audience_group, source_group, source, category, department
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                audience_group, source_group, source, category, department,
+                retrieval_json
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 session_id,
@@ -122,6 +142,7 @@ def _insert_message(
                 flt.get("source"),
                 flt.get("category"),
                 flt.get("department"),
+                retrieval_json,
             ),
         )
     finally:
@@ -156,11 +177,19 @@ def record_assistant_message(
     references: list[dict[str, Any]] | None = None,
     used_fallback: bool | None = None,
     model: str | None = None,
+    retrieval: dict[str, Any] | None = None,
 ) -> None:
-    """LLM 답변 한 턴을 references·model·fallback과 함께 저장한다(best-effort)."""
+    """LLM 답변 한 턴을 references·model·fallback과 함께 저장한다(best-effort).
+
+    `retrieval`은 검색 단계 trace(`RetrievalTrace.to_dict()`)로, 주어지면
+    `retrieval_json`에 JSON 문자열로 남긴다.
+    """
     try:
         references_json = (
             json.dumps(references, ensure_ascii=False) if references else None
+        )
+        retrieval_json = (
+            json.dumps(retrieval, ensure_ascii=False) if retrieval else None
         )
         _insert_message(
             db_path,
@@ -170,6 +199,7 @@ def record_assistant_message(
             references_json=references_json,
             used_fallback=used_fallback,
             model=model,
+            retrieval_json=retrieval_json,
         )
     except Exception:  # noqa: BLE001
         logger.warning("chat log: failed to record assistant message", exc_info=True)

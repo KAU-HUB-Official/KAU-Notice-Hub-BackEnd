@@ -3,7 +3,9 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+from dataclasses import asdict, dataclass, field
 from datetime import date
+from time import perf_counter
 from typing import Any, AsyncIterator, Callable, Iterator, NamedTuple
 
 import requests
@@ -469,6 +471,63 @@ class Triage(NamedTuple):
     keywords: list[str]
 
 
+# trace에 남기는 LLM 원문 길이 상한. 파싱 실패 진단이 목적이라 앞부분만 있으면 된다.
+TRIAGE_RAW_MAX_CHARS = 500
+RERANK_RAW_MAX_CHARS = 1000
+
+
+def _ms(started: float) -> int:
+    """`perf_counter()` 시작값 기준 경과 시간(ms)."""
+    return int((perf_counter() - started) * 1000)
+
+
+@dataclass
+class RetrievalTrace:
+    """검색 단계별 입력·결과·소요시간 기록.
+
+    검색이 어긋난 세션이 triage / 검색 / rerank 중 어디서 틀어졌는지 로그만으로
+    판별하려고 남긴다. API 응답에는 나가지 않고 세션 로그 DB에만 저장한다.
+
+    mode="legacy"는 `rag_enabled`이지만 triage가 실패해 질문 원문으로 검색한 경우와
+    `rag_enabled=False`인 경우다. 반환 mode 문자열로는 "search"와 구분되지 않는다.
+    """
+
+    mode: str  # "search" | "history" | "out_of_domain" | "legacy"
+    triage_called: bool = False
+    triage_keywords: list[str] | None = None  # triage 실패/비활성 시 None
+    triage_raw: str | None = None  # LLM 원문(파싱 실패 진단용)
+    search_query: str | None = None  # 실제 검색에 쓴 문자열
+    used_keyword_fallback: bool | None = None  # fallback_to_latest 값
+    candidate_pool: int | None = None
+    candidates: list[dict[str, Any]] = field(default_factory=list)  # 검색 순서 그대로
+    rerank_called: bool = False
+    # "selected" | "empty" | "parse_failed" | "llm_failed"
+    # | "skipped_within_limit" | "skipped_disabled" | "no_candidates"
+    rerank_outcome: str | None = None
+    rerank_raw: str | None = None
+    rerank_selected_ids: list[str] = field(default_factory=list)
+    latency_ms: dict[str, int] = field(default_factory=dict)
+
+    def to_dict(self) -> dict[str, Any]:
+        return asdict(self)
+
+
+def _record_rerank(
+    trace: RetrievalTrace | None,
+    *,
+    called: bool,
+    outcome: str,
+    selected_ids: list[str] | None = None,
+) -> None:
+    if trace is None:
+        return
+    trace.rerank_called = called
+    trace.rerank_outcome = outcome
+    if selected_ids is not None:
+        # by_id에 없는 id도 그대로 보존해 LLM 환각 id를 진단할 수 있게 한다.
+        trace.rerank_selected_ids = list(selected_ids)
+
+
 def _parse_triage(raw: str, has_history: bool) -> Triage | None:
     """분기 LLM 응답을 Triage로 파싱.
 
@@ -538,12 +597,16 @@ def _trim_history(history: list[ChatMessage] | None) -> list[dict[str, str]]:
 async def _triage_with_openai(
     question: str,
     history: list[ChatMessage] | None = None,
+    *,
+    trace: RetrievalTrace | None = None,
 ) -> Triage | None:
     settings = get_settings()
     if not settings.rag_query_extraction_enabled or not settings.openai_api_key:
         return None
 
     messages = _trim_history(history) + [{"role": "user", "content": question}]
+    if trace is not None:
+        trace.triage_called = True
     raw = await asyncio.to_thread(
         _call_openai_sync,
         settings.openai_api_key,
@@ -553,6 +616,8 @@ async def _triage_with_openai(
         # 분류·키워드 추출은 매번 같은 결과여야 한다(라우팅 흔들림 방지).
         temperature=0.0,
     )
+    if trace is not None and isinstance(raw, str):
+        trace.triage_raw = raw[:TRIAGE_RAW_MAX_CHARS]
     if not raw:
         return None
     return _parse_triage(raw, has_history=bool(history))
@@ -563,6 +628,8 @@ async def _rerank_candidates(
     question: str,
     history: list[ChatMessage] | None = None,
     today: date | None = None,
+    *,
+    trace: RetrievalTrace | None = None,
 ) -> list[Notice]:
     """후보 공지를 제목·게시일·본문 발췌로 LLM에 추려 최대 rag_max_references개로 좁힌다.
 
@@ -576,10 +643,13 @@ async def _rerank_candidates(
     settings = get_settings()
     limit = settings.rag_max_references
     if not candidates:
+        _record_rerank(trace, called=False, outcome="no_candidates")
         return []
     if len(candidates) <= limit:
+        _record_rerank(trace, called=False, outcome="skipped_within_limit")
         return candidates
     if not settings.rag_enabled or not settings.openai_api_key:
+        _record_rerank(trace, called=False, outcome="skipped_disabled")
         return candidates[:limit]
 
     user_message = "\n\n".join(
@@ -601,16 +671,22 @@ async def _rerank_candidates(
         # 같은 질문에도 선별이 흔들려 관련 공지가 들쭉날쭉 탈락한다(triage와 동일하게 고정).
         temperature=0.0,
     )
+    if trace is not None and isinstance(raw, str):
+        trace.rerank_raw = raw[:RERANK_RAW_MAX_CHARS]
     if not raw:
+        _record_rerank(trace, called=True, outcome="llm_failed")
         return candidates[:limit]
 
     ids = _parse_keyword_list(raw)
     if ids is None:
+        _record_rerank(trace, called=True, outcome="parse_failed")
         return candidates[:limit]
     if len(ids) == 0:
+        _record_rerank(trace, called=True, outcome="empty")
         logger.info("rag_rerank_empty candidate_count=%d", len(candidates))
         return []
 
+    _record_rerank(trace, called=True, outcome="selected", selected_ids=ids)
     by_id = {notice.id: notice for notice in candidates}
     selected = [by_id[notice_id] for notice_id in ids if notice_id in by_id]
     if not selected:
@@ -751,32 +827,45 @@ async def _retrieve_references(
     filters: NoticeQuery | None,
     history: list[ChatMessage] | None = None,
     today: date | None = None,
-) -> tuple[list[Notice], list[NoticeReference], str]:
-    """검색 결과 + 분기(mode)를 반환한다.
+) -> tuple[list[Notice], list[NoticeReference], str, RetrievalTrace]:
+    """검색 결과 + 분기(mode) + 단계별 trace를 반환한다.
 
     mode 값:
     - "search": 후보를 candidate_pool개로 넓게 가져온 뒤 제목·게시일만으로
       rerank해 최대 rag_max_references개로 좁힌 결과를 함께 반환한다.
     - "history": 새 검색 없이 이전 대화만으로 답해야 하는 경우. notices는 비어 있다.
     - "out_of_domain": KAU 공지와 무관한 질문. notices는 비어 있다.
+
+    네 번째 반환값 `RetrievalTrace`는 세션 로그 진단용이며 API 응답에는 나가지 않는다.
     """
     settings = get_settings()
     pool = max(settings.rag_candidate_pool, settings.rag_max_references)
 
+    trace = RetrievalTrace(mode="legacy", candidate_pool=pool)
+    retrieval_started = perf_counter()
+
     search_query = normalized_question
     use_keyword_fallback = True
     if settings.rag_enabled:
-        triage = await _triage_with_openai(normalized_question, history)
+        triage_started = perf_counter()
+        triage = await _triage_with_openai(normalized_question, history, trace=trace)
+        trace.latency_ms["triage"] = _ms(triage_started)
         if triage is None:
-            # 분기 실패: 질문 원문으로 검색하는 legacy 경로로 폴백한다.
+            # 분기 실패: 질문 원문으로 검색하는 legacy 경로로 폴백한다(mode="legacy" 유지).
             pass
         elif triage.mode == "out_of_domain":
             logger.info("rag_out_of_domain question_len=%d", len(normalized_question))
-            return [], [], "out_of_domain"
+            trace.mode = "out_of_domain"
+            trace.latency_ms["retrieval_total"] = _ms(retrieval_started)
+            return [], [], "out_of_domain", trace
         elif triage.mode == "history":
             logger.info("rag_history_branch question_len=%d", len(normalized_question))
-            return [], [], "history"
+            trace.mode = "history"
+            trace.latency_ms["retrieval_total"] = _ms(retrieval_started)
+            return [], [], "history", trace
         elif triage.keywords:
+            trace.mode = "search"
+            trace.triage_keywords = list(triage.keywords)
             search_query = " ".join(triage.keywords)
             use_keyword_fallback = False
             logger.info(
@@ -786,19 +875,36 @@ async def _retrieve_references(
             )
         else:
             # search 모드인데 키워드가 비어 있으면(예: history 대화 중) 원문으로 검색.
+            trace.mode = "search"
+            trace.triage_keywords = []
             logger.info(
                 "rag_keyword_empty_with_history question_len=%d",
                 len(normalized_question),
             )
 
+    trace.search_query = search_query
+    trace.used_keyword_fallback = use_keyword_fallback
+
+    search_started = perf_counter()
     candidates = await service.find_relevant_notices(
         search_query,
         limit=pool,
         filters=filters,
         fallback_to_latest=use_keyword_fallback,
     )
-    notices = await _rerank_candidates(candidates, normalized_question, history, today)
-    return notices, build_references(notices), "search"
+    trace.latency_ms["search"] = _ms(search_started)
+    trace.candidates = [
+        {"rank": rank, "id": notice.id, "title": notice.title}
+        for rank, notice in enumerate(candidates, start=1)
+    ]
+
+    rerank_started = perf_counter()
+    notices = await _rerank_candidates(
+        candidates, normalized_question, history, today, trace=trace
+    )
+    trace.latency_ms["rerank"] = _ms(rerank_started)
+    trace.latency_ms["retrieval_total"] = _ms(retrieval_started)
+    return notices, build_references(notices), "search", trace
 
 
 async def stream_notice_question(
@@ -812,9 +918,13 @@ async def stream_notice_question(
 
     yield {"type": "search_started"}
 
-    references_source, references, mode = await _retrieve_references(
+    references_source, references, mode, trace = await _retrieve_references(
         service, normalized_question, filters, history, today
     )
+
+    # 내부 진단용 이벤트. `_` 접두는 클라이언트로 내보내지 않는다는 표시이며,
+    # api/chat.py가 SSE로 흘리기 전에 걸러내 세션 로그에만 저장한다.
+    yield {"type": "_retrieval_trace", "trace": trace.to_dict()}
 
     yield {
         "type": "search_completed",
@@ -860,24 +970,32 @@ async def stream_notice_question(
     }
 
 
-async def ask_notice_question(
+async def ask_notice_question_with_trace(
     service: NoticeService,
     question: str,
     filters: NoticeQuery | None = None,
     history: list[ChatMessage] | None = None,
     today: date | None = None,
-) -> ChatAnswer:
+) -> tuple[ChatAnswer, RetrievalTrace]:
+    """`ask_notice_question`과 동일하되 검색 단계 trace를 함께 반환한다.
+
+    `ChatAnswer`는 공개 응답 모델이라 필드를 늘리지 않고, trace가 필요한 라우트만
+    이 함수를 쓴다.
+    """
     normalized_question = question.strip()
-    references_source, references, mode = await _retrieve_references(
+    references_source, references, mode, trace = await _retrieve_references(
         service, normalized_question, filters, history, today
     )
 
     if mode == "out_of_domain":
-        return ChatAnswer(
-            answer=OUT_OF_DOMAIN_ANSWER,
-            references=[],
-            usedFallback=True,
-            model="local-fallback",
+        return (
+            ChatAnswer(
+                answer=OUT_OF_DOMAIN_ANSWER,
+                references=[],
+                usedFallback=True,
+                model="local-fallback",
+            ),
+            trace,
         )
 
     if mode == "history":
@@ -888,16 +1006,35 @@ async def ask_notice_question(
         )
     if result is not None:
         answer, model = result
-        return ChatAnswer(
-            answer=answer,
-            references=references,
-            usedFallback=False,
-            model=model,
+        return (
+            ChatAnswer(
+                answer=answer,
+                references=references,
+                usedFallback=False,
+                model=model,
+            ),
+            trace,
         )
 
-    return ChatAnswer(
-        answer=fallback_answer(normalized_question, references_source),
-        references=references,
-        usedFallback=True,
-        model="local-fallback",
+    return (
+        ChatAnswer(
+            answer=fallback_answer(normalized_question, references_source),
+            references=references,
+            usedFallback=True,
+            model="local-fallback",
+        ),
+        trace,
     )
+
+
+async def ask_notice_question(
+    service: NoticeService,
+    question: str,
+    filters: NoticeQuery | None = None,
+    history: list[ChatMessage] | None = None,
+    today: date | None = None,
+) -> ChatAnswer:
+    answer, _trace = await ask_notice_question_with_trace(
+        service, question, filters, history, today
+    )
+    return answer

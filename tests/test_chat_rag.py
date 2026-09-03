@@ -46,6 +46,11 @@ def _stub_call(
     return fake
 
 
+def _public_events(events: list[dict]) -> list[dict]:
+    """클라이언트로 나가는 이벤트만 남긴다(`_` 접두는 서버 내부 전용 이벤트)."""
+    return [event for event in events if not event["type"].startswith("_")]
+
+
 def _stub_stream(*chunks: str):
     """`_stream_openai_sync` stub. 주어진 chunk들을 차례로 yield하는 동기 제너레이터."""
 
@@ -506,6 +511,7 @@ async def test_stream_emits_token_deltas_then_completed(
             )
         ]
 
+    events = _public_events(events)
     assert [event["type"] for event in events] == [
         "search_started",
         "search_completed",
@@ -535,6 +541,7 @@ async def test_stream_falls_back_when_openai_disabled(
         async for event in chat_service.stream_notice_question(service, "수강신청")
     ]
 
+    events = _public_events(events)
     assert events[0]["type"] == "search_started"
     assert events[1]["type"] == "search_completed"
     assert events[2]["type"] == "answer_completed"
@@ -563,6 +570,7 @@ async def test_stream_falls_back_when_no_tokens_streamed(
             )
         ]
 
+    events = _public_events(events)
     assert [event["type"] for event in events] == [
         "search_started",
         "search_completed",
@@ -585,6 +593,7 @@ async def test_stream_out_of_domain_emits_guard_event(rag_env) -> None:
             async for event in chat_service.stream_notice_question(svc, "비트코인 가격")
         ]
 
+    events = _public_events(events)
     assert [event["type"] for event in events] == [
         "search_started",
         "search_completed",
@@ -697,6 +706,7 @@ async def test_stream_history_branch_empty_refs_then_answer(
             )
         ]
 
+    events = _public_events(events)
     assert [event["type"] for event in events] == [
         "search_started",
         "search_completed",
@@ -720,11 +730,16 @@ async def test_rerank_trims_candidates_to_selected_ids(rag_env) -> None:
     fake = _stub_call(answer="답변", extracted=["장학금"], rerank=["n2", "n5"])
 
     with patch.object(chat_service, "_call_openai_sync", side_effect=fake) as mock_call:
-        answer = await chat_service.ask_notice_question(svc, "장학금 공지 알려줘")
+        answer, trace = await chat_service.ask_notice_question_with_trace(
+            svc, "장학금 공지 알려줘"
+        )
 
     assert [reference.id for reference in answer.references] == ["n2", "n5"]
     assert answer.usedFallback is False
     assert mock_call.call_count == 3  # 분기 + rerank + 답변
+    assert trace.rerank_called is True
+    assert trace.rerank_outcome == "selected"
+    assert trace.rerank_selected_ids == ["n2", "n5"]
 
 
 @pytest.mark.anyio
@@ -734,11 +749,15 @@ async def test_rerank_empty_returns_no_references(rag_env) -> None:
     fake = _stub_call(answer="답변", extracted=["장학금"], rerank=[])
 
     with patch.object(chat_service, "_call_openai_sync", side_effect=fake):
-        answer = await chat_service.ask_notice_question(svc, "장학금 공지 알려줘")
+        answer, trace = await chat_service.ask_notice_question_with_trace(
+            svc, "장학금 공지 알려줘"
+        )
 
     assert answer.references == []
     assert answer.usedFallback is True
     assert "관련 공지를 찾지 못했습니다" in answer.answer
+    assert trace.rerank_called is True
+    assert trace.rerank_outcome == "empty"
 
 
 @pytest.mark.anyio
@@ -750,11 +769,16 @@ async def test_rerank_parse_failure_falls_back_to_top_n(rag_env) -> None:
     )
 
     with patch.object(chat_service, "_call_openai_sync", side_effect=fake):
-        answer = await chat_service.ask_notice_question(svc, "장학금 공지 알려줘")
+        answer, trace = await chat_service.ask_notice_question_with_trace(
+            svc, "장학금 공지 알려줘"
+        )
 
     # 파싱 실패 시 후보 상위 rag_max_references개로 폴백한다.
     assert len(answer.references) == get_settings().rag_max_references
     assert answer.usedFallback is False
+    assert trace.rerank_called is True
+    assert trace.rerank_outcome == "parse_failed"
+    assert trace.rerank_raw == "관련 공지를 못 고르겠음"
 
 
 @pytest.mark.anyio
@@ -766,10 +790,14 @@ async def test_rerank_skipped_when_candidates_within_limit(
     fake = _stub_call(answer="답변", extracted=["수강신청"], rerank=["없는id"])
 
     with patch.object(chat_service, "_call_openai_sync", side_effect=fake) as mock_call:
-        answer = await chat_service.ask_notice_question(service, "수강신청 알려줘")
+        answer, trace = await chat_service.ask_notice_question_with_trace(
+            service, "수강신청 알려줘"
+        )
 
     assert [reference.id for reference in answer.references] == ["a"]
     assert mock_call.call_count == 2  # 분기 + 답변 (rerank 없음)
+    assert trace.rerank_called is False
+    assert trace.rerank_outcome == "skipped_within_limit"
 
 
 # ---- _parse_triage / build_rerank_list 단위 ----
@@ -851,6 +879,146 @@ def test_rerank_prompt_injects_today() -> None:
     assert "오늘 날짜는 2026-06-03" in prompt
     assert "신청·접수 마감일" in prompt  # 마감 인지 지시 포함
     assert "공지 검색 보조자" in prompt  # rerank 마커 유지
+
+
+# ---- RetrievalTrace (검색 단계 진단 로그) ----
+
+
+@pytest.mark.anyio
+async def test_trace_records_keywords_and_candidates(rag_env) -> None:
+    """triage가 키워드를 내면 mode·keywords·search_query·후보 목록이 순서대로 남는다."""
+    rag_env(enabled=True, api_key="sk-test")
+    notices = _scholarship_notices(8)
+    svc = NoticeService(MemoryRepository(notices))
+    fake = _stub_call(answer="답변", extracted=["장학금"], rerank=["n2", "n5"])
+
+    with patch.object(chat_service, "_call_openai_sync", side_effect=fake):
+        _answer, trace = await chat_service.ask_notice_question_with_trace(
+            svc, "장학금 공지 알려줘"
+        )
+
+    settings = get_settings()
+    assert trace.mode == "search"
+    assert trace.triage_called is True
+    assert trace.triage_keywords == ["장학금"]
+    assert trace.triage_raw == '["장학금"]'
+    assert trace.search_query == "장학금"
+    assert trace.used_keyword_fallback is False
+    assert trace.candidate_pool == max(
+        settings.rag_candidate_pool, settings.rag_max_references
+    )
+    # 후보는 검색 순서 그대로, rank는 1부터 연속이어야 한다.
+    assert len(trace.candidates) == len(notices)
+    assert [candidate["rank"] for candidate in trace.candidates] == list(
+        range(1, len(notices) + 1)
+    )
+    assert {candidate["id"] for candidate in trace.candidates} == {
+        notice.id for notice in notices
+    }
+    assert all(candidate["title"] for candidate in trace.candidates)
+    assert set(trace.latency_ms) == {"triage", "search", "rerank", "retrieval_total"}
+
+
+@pytest.mark.anyio
+async def test_trace_marks_legacy_when_triage_fails(
+    service: NoticeService, rag_env
+) -> None:
+    """triage 실패로 질문 원문을 검색한 경로는 mode="legacy"로 구분된다."""
+    rag_env(enabled=True, api_key="sk-test")
+    fake = _stub_call(answer="답변", extracted=None)
+
+    with patch.object(chat_service, "_call_openai_sync", side_effect=fake):
+        _answer, trace = await chat_service.ask_notice_question_with_trace(
+            service, "수강신청 알려줘"
+        )
+
+    assert trace.mode == "legacy"
+    assert trace.triage_called is True
+    assert trace.triage_keywords is None
+    assert trace.search_query == "수강신청 알려줘"
+    assert trace.used_keyword_fallback is True
+
+
+@pytest.mark.anyio
+async def test_trace_marks_legacy_when_rag_disabled(
+    service: NoticeService, rag_env
+) -> None:
+    """RAG 자체가 꺼져 있으면 triage 호출 없이 legacy로 남는다."""
+    rag_env(enabled=False, api_key="")
+
+    _answer, trace = await chat_service.ask_notice_question_with_trace(
+        service, "수강신청"
+    )
+
+    assert trace.mode == "legacy"
+    assert trace.triage_called is False
+    assert trace.triage_raw is None
+    assert trace.rerank_outcome == "skipped_within_limit"
+
+
+@pytest.mark.anyio
+async def test_trace_out_of_domain_has_no_candidates(rag_env) -> None:
+    rag_env(enabled=True, api_key="sk-test")
+    svc = NoticeService(MemoryRepository([make_notice("a", "수강신청 안내")]))
+    fake = _stub_call(answer="답변", extracted=[])
+
+    with patch.object(chat_service, "_call_openai_sync", side_effect=fake):
+        _answer, trace = await chat_service.ask_notice_question_with_trace(
+            svc, "비트코인 가격"
+        )
+
+    assert trace.mode == "out_of_domain"
+    assert trace.candidates == []
+    assert trace.search_query is None
+    assert trace.rerank_called is False
+    assert trace.rerank_outcome is None
+    assert "retrieval_total" in trace.latency_ms
+
+
+@pytest.mark.anyio
+async def test_trace_records_no_candidates_outcome(rag_env) -> None:
+    """검색 0건이면 rerank는 호출되지 않고 no_candidates로 남는다."""
+    rag_env(enabled=True, api_key="sk-test")
+    svc = NoticeService(MemoryRepository([make_notice("other", "헌혈 행사")]))
+    fake = _stub_call(answer="답변", extracted=["수강신청"])
+
+    with patch.object(chat_service, "_call_openai_sync", side_effect=fake):
+        _answer, trace = await chat_service.ask_notice_question_with_trace(
+            svc, "수강신청 알려줘"
+        )
+
+    assert trace.candidates == []
+    assert trace.rerank_called is False
+    assert trace.rerank_outcome == "no_candidates"
+
+
+@pytest.mark.anyio
+async def test_stream_emits_internal_trace_before_search_completed(
+    service: NoticeService, rag_env
+) -> None:
+    rag_env(enabled=True, api_key="sk-test")
+    fake = _stub_call(extracted=["수강신청"])
+    stream = _stub_stream("답변")
+
+    with (
+        patch.object(chat_service, "_call_openai_sync", side_effect=fake),
+        patch.object(chat_service, "_stream_openai_sync", side_effect=stream),
+    ):
+        events = [
+            event
+            async for event in chat_service.stream_notice_question(
+                service, "수강신청 알려줘"
+            )
+        ]
+
+    types = [event["type"] for event in events]
+    assert types.count("_retrieval_trace") == 1
+    assert types.index("_retrieval_trace") == types.index("search_completed") - 1
+
+    trace = events[types.index("_retrieval_trace")]["trace"]
+    assert trace["mode"] == "search"
+    assert trace["triage_keywords"] == ["수강신청"]
+    assert [candidate["id"] for candidate in trace["candidates"]] == ["a"]
 
 
 @pytest.fixture

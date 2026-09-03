@@ -231,8 +231,12 @@ notice 스키마와 독립적이며 `SCHEMA_VERSION` 버전 관리·재ingest �
 | `source` | `text` | 아니오 | user 행: 요청에 적용된 필터 |
 | `category` | `text` | 아니오 | user 행: 요청에 적용된 필터 |
 | `department` | `text` | 아니오 | user 행: 요청에 적용된 필터 |
+| `retrieval_json` | `text` | 아니오 | assistant 행: 검색 단계 trace(mode, triage keywords, 후보 목록, rerank 결과, 단계별 latency) JSON |
 
 인덱스 `idx_chat_messages_session (session_id, id)`로 세션별 시간순 조회를 받친다.
+
+`retrieval_json`은 나중에 추가된 컬럼이라, 기존 DB에는 `_ensure_initialized`가 `MIGRATION_COLUMNS`를
+보고 `ALTER TABLE ADD COLUMN`으로 멱등하게 채운다(기존 행은 `NULL`).
 
 ## API 논리 모델
 

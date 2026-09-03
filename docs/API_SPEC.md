@@ -497,6 +497,8 @@ interface ChatRequestBody {
 
 `sessionId`는 선택 필드다. 클라이언트가 대화 시작 시 한 번 발급(예: UUID)해 같은 대화의 매 `/api/chat`·`/api/chat/stream` 요청에 함께 보낸다. 서버에서 `CHAT_LOGGING_ENABLED=true`이고 요청에 `sessionId`가 있을 때만, 평가셋·챗봇 개선용으로 각 턴(사용자 질문 / LLM 답변)을 별도 SQLite 파일(`CHAT_LOG_DB_PATH`, 운영 notice DB와 분리)에 append 저장한다. 저장은 응답 전송과 분리된 백그라운드에서 best-effort로 수행되며, 실패해도 응답에는 영향을 주지 않는다. `sessionId`가 없거나 로깅이 꺼져 있으면 아무것도 저장하지 않으며 응답 형태도 동일하다(비파괴적). 응답 본문에는 로깅 관련 필드가 추가되지 않는다.
 
+assistant 턴에는 검색 단계 trace(triage keywords, 후보 목록, rerank 결과, 단계별 latency)가 `retrieval_json`으로 함께 저장된다. 검색이 어긋난 세션이 triage / 검색 / rerank 중 어디서 틀어졌는지 로그만으로 판별하기 위한 진단용이며, 응답 body와 SSE 이벤트에는 노출되지 않는다.
+
 #### 요청 예시
 
 ```json

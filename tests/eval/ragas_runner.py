@@ -140,7 +140,9 @@ async def _collect_sample(
     question = case["question"]
     filters = _filters_from_case(case)
 
-    notices, _references, mode = await _retrieve_references(service, question, filters)
+    notices, _references, mode, _trace = await _retrieve_references(
+        service, question, filters
+    )
     if mode != "search" or not notices:
         return None
 

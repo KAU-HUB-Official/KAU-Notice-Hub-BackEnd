@@ -106,6 +106,10 @@ async def run_stream(svc, question):
     print(f"[STREAM]  질문: {question!r}")
     types = []
     async for event in chat_service.stream_notice_question(svc, question):
+        # `_` 접두는 서버 내부 전용 이벤트라 클라이언트로 나가지 않는다(api/chat.py에서 필터).
+        # 여기서도 걸러야 실제 클라이언트가 보는 순서와 같아진다.
+        if event["type"].startswith("_"):
+            continue
         types.append(event["type"])
     print(f"이벤트 순서: {types}")
 

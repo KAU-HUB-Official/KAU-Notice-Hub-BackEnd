@@ -501,7 +501,7 @@ class RetrievalTrace:
     candidate_pool: int | None = None
     candidates: list[dict[str, Any]] = field(default_factory=list)  # 검색 순서 그대로
     rerank_called: bool = False
-    # "selected" | "empty" | "parse_failed" | "llm_failed"
+    # "selected" | "empty" | "parse_failed" | "llm_failed" | "invalid_ids"
     # | "skipped_within_limit" | "skipped_disabled" | "no_candidates"
     rerank_outcome: str | None = None
     rerank_raw: str | None = None
@@ -686,11 +686,15 @@ async def _rerank_candidates(
         logger.info("rag_rerank_empty candidate_count=%d", len(candidates))
         return []
 
-    _record_rerank(trace, called=True, outcome="selected", selected_ids=ids)
     by_id = {notice.id: notice for notice in candidates}
     selected = [by_id[notice_id] for notice_id in ids if notice_id in by_id]
     if not selected:
+        # id를 냈지만 후보에 하나도 없다(환각, 또는 공백·따옴표·잘림 같은 형식 깨짐).
+        # 동작은 parse_failed와 같은 상위 N개 폴백이라, 분석에서 정상 선별과 섞이지
+        # 않도록 별도 outcome으로 남긴다.
+        _record_rerank(trace, called=True, outcome="invalid_ids", selected_ids=ids)
         return candidates[:limit]
+    _record_rerank(trace, called=True, outcome="selected", selected_ids=ids)
     logger.info(
         "rag_rerank_selected candidate_count=%d selected_count=%d",
         len(candidates),

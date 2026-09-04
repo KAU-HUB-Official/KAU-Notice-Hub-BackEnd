@@ -782,6 +782,26 @@ async def test_rerank_parse_failure_falls_back_to_top_n(rag_env) -> None:
 
 
 @pytest.mark.anyio
+async def test_rerank_invalid_ids_falls_back_to_top_n(rag_env) -> None:
+    """LLM이 후보에 없는 id만 고르면 상위 N개로 폴백하고 invalid_ids로 구분된다."""
+    rag_env(enabled=True, api_key="sk-test")
+    svc = NoticeService(MemoryRepository(_scholarship_notices(8)))
+    fake = _stub_call(answer="답변", extracted=["장학금"], rerank=["없는id1", "없는id2"])
+
+    with patch.object(chat_service, "_call_openai_sync", side_effect=fake):
+        answer, trace = await chat_service.ask_notice_question_with_trace(
+            svc, "장학금 공지 알려줘"
+        )
+
+    assert len(answer.references) == get_settings().rag_max_references
+    assert answer.usedFallback is False
+    assert trace.rerank_called is True
+    assert trace.rerank_outcome == "invalid_ids"
+    # 원인(환각/형식 깨짐)을 사후 진단할 수 있게 LLM 원본 id를 그대로 보존한다.
+    assert trace.rerank_selected_ids == ["없는id1", "없는id2"]
+
+
+@pytest.mark.anyio
 async def test_rerank_skipped_when_candidates_within_limit(
     service: NoticeService, rag_env
 ) -> None:

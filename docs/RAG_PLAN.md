@@ -51,6 +51,22 @@
 triage keywords, 후보 목록, rerank outcome, 단계별 latency)가 assistant 턴의 `retrieval_json`으로
 `chat_sessions.db`에 함께 기록된다. API 응답과 SSE 이벤트에는 나가지 않는다.
 
+`rerank_outcome` 값은 rerank 단계가 어떻게 끝났는지를 한 필드로 가른다.
+
+| 값 | 의미 | 최종 공지 |
+| --- | --- | --- |
+| `no_candidates` | 검색 0건 | `[]` |
+| `skipped_within_limit` | 후보 ≤ `RAG_MAX_REFERENCES`라 호출 생략 | 후보 그대로 |
+| `skipped_disabled` | `RAG_ENABLED=false` 또는 API key 부재 | 상위 N개 |
+| `llm_failed` | rerank 호출이 빈 응답 | 상위 N개 |
+| `parse_failed` | 응답을 id 배열로 파싱 실패 | 상위 N개 |
+| `invalid_ids` | id를 냈지만 후보에 하나도 없음(환각·형식 깨짐) | 상위 N개 |
+| `empty` | LLM이 빈 배열 = 관련 공지 없음 | `[]` |
+| `selected` | 유효 id 선별 | 선별분 |
+
+`rerank_selected_ids`에는 `selected`·`invalid_ids` 모두 LLM이 낸 원본 id를 그대로 남긴다.
+일부만 유효한 경우는 `selected`이며, 필요하면 분석 쪽에서 후보와의 교집합으로 본다.
+
 ## 비목표
 
 - 임베딩 인덱스, 별도 vector DB, OpenAI hosted file search를 도입하지 않는다.

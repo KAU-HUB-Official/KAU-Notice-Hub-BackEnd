@@ -238,12 +238,10 @@ def test_chat_stream_logs_turn_with_retrieval_trace(tmp_path, monkeypatch) -> No
     assert "_retrieval_trace" not in body
     assert '"type": "search_completed"' in body
 
-    # 스트림 경로는 user/assistant 저장이 각각 별도 fire_and_forget 태스크라
-    # INSERT 순서(=id 순서)가 보장되지 않는다. 여기서는 두 턴이 모두 남고
-    # assistant 턴에 trace가 붙는지만 본다.
-    assert sorted(r["role"] for r in rows) == ["assistant", "user"]
-    assistant_row = next(r for r in rows if r["role"] == "assistant")
-    retrieval = json.loads(assistant_row["retrieval_json"])
+    # 순서까지 본다. user 턴 저장을 await하지 않으면 두 INSERT가 워커 스레드에서
+    # 경합해 id가 뒤집히고, ORDER BY id가 대화 순서를 거꾸로 복원한다.
+    assert [r["role"] for r in rows] == ["user", "assistant"]
+    retrieval = json.loads(rows[1]["retrieval_json"])
     assert retrieval["mode"]
     assert "candidates" in retrieval
     assert "latency_ms" in retrieval

@@ -1,3 +1,4 @@
+import asyncio
 import json
 import logging
 
@@ -138,7 +139,11 @@ async def chat_stream(
 
     async def event_source():
         if log_db:
-            chat_log.fire_and_forget(
+            # 답변 턴보다 반드시 먼저 저장돼야 한다. fire_and_forget으로 두면 두 INSERT가
+            # 워커 스레드에서 경합해 id 순서가 뒤집히고, read_session_messages의
+            # ORDER BY id가 대화 순서를 거꾸로 복원한다. 로컬 SQLite 쓰기 1회라
+            # 스트림 시작 지연은 무시할 수준이다.
+            await asyncio.to_thread(
                 chat_log.record_user_message,
                 log_db,
                 body.sessionId,

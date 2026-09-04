@@ -46,8 +46,10 @@ def _classify(system_prompt: str) -> str:
     return "other"
 
 
-def _wrapped_call(api_key, model, system_prompt, messages):
-    out = _orig_call(api_key, model, system_prompt, messages)
+def _wrapped_call(api_key, model, system_prompt, messages, **kwargs):
+    # temperature 등 호출부가 넘기는 인자를 그대로 흘려보낸다. 삼키면 triage·rerank가
+    # 운영과 다른 temperature로 돌아 QA 결과가 실제 동작과 어긋난다.
+    out = _orig_call(api_key, model, system_prompt, messages, **kwargs)
     kind = _classify(system_prompt)
     preview = (out or "").strip().replace("\n", " ")
     limit = 200 if kind in {"triage", "rerank"} else 60

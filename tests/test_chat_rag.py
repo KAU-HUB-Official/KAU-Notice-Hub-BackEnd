@@ -727,19 +727,21 @@ async def test_stream_history_branch_empty_refs_then_answer(
 async def test_rerank_trims_candidates_to_selected_ids(rag_env) -> None:
     rag_env(enabled=True, api_key="sk-test")
     svc = NoticeService(MemoryRepository(_scholarship_notices(8)))
-    fake = _stub_call(answer="답변", extracted=["장학금"], rerank=["n2", "n5"])
+    fake = _stub_call(answer="답변", extracted=["장학금"], rerank=[3, 6])
 
     with patch.object(chat_service, "_call_openai_sync", side_effect=fake) as mock_call:
         answer, trace = await chat_service.ask_notice_question_with_trace(
             svc, "장학금 공지 알려줘"
         )
 
-    assert [reference.id for reference in answer.references] == ["n2", "n5"]
+    # 번호는 후보 목록의 1-based 위치를 가리킨다.
+    expected = [trace.candidates[2]["id"], trace.candidates[5]["id"]]
+    assert [reference.id for reference in answer.references] == expected
     assert answer.usedFallback is False
     assert mock_call.call_count == 3  # 분기 + rerank + 답변
     assert trace.rerank_called is True
     assert trace.rerank_outcome == "selected"
-    assert trace.rerank_selected_ids == ["n2", "n5"]
+    assert trace.rerank_selected_ids == expected
 
 
 @pytest.mark.anyio
@@ -782,11 +784,11 @@ async def test_rerank_parse_failure_falls_back_to_top_n(rag_env) -> None:
 
 
 @pytest.mark.anyio
-async def test_rerank_invalid_ids_falls_back_to_top_n(rag_env) -> None:
-    """LLM이 후보에 없는 id만 고르면 상위 N개로 폴백하고 invalid_ids로 구분된다."""
+async def test_rerank_invalid_numbers_fall_back_to_top_n(rag_env) -> None:
+    """쓸 수 있는 번호가 하나도 없으면 상위 N개로 폴백하고 invalid_ids로 구분된다."""
     rag_env(enabled=True, api_key="sk-test")
     svc = NoticeService(MemoryRepository(_scholarship_notices(8)))
-    fake = _stub_call(answer="답변", extracted=["장학금"], rerank=["없는id1", "없는id2"])
+    fake = _stub_call(answer="답변", extracted=["장학금"], rerank=[99, 0])
 
     with patch.object(chat_service, "_call_openai_sync", side_effect=fake):
         answer, trace = await chat_service.ask_notice_question_with_trace(
@@ -797,8 +799,44 @@ async def test_rerank_invalid_ids_falls_back_to_top_n(rag_env) -> None:
     assert answer.usedFallback is False
     assert trace.rerank_called is True
     assert trace.rerank_outcome == "invalid_ids"
-    # 원인(환각/형식 깨짐)을 사후 진단할 수 있게 LLM 원본 id를 그대로 보존한다.
-    assert trace.rerank_selected_ids == ["없는id1", "없는id2"]
+    # 매핑된 게 없으니 selected_ids는 비고, 원문 번호는 rerank_raw로 진단한다.
+    assert trace.rerank_selected_ids == []
+    assert trace.rerank_raw == "[99, 0]"
+
+
+@pytest.mark.anyio
+async def test_rerank_ignores_out_of_range_but_keeps_valid_numbers(rag_env) -> None:
+    """일부만 유효하면 유효한 번호로 선별하고 selected로 남긴다."""
+    rag_env(enabled=True, api_key="sk-test")
+    svc = NoticeService(MemoryRepository(_scholarship_notices(8)))
+    # 2는 유효, 99는 범위 밖, 2 중복은 무시.
+    fake = _stub_call(answer="답변", extracted=["장학금"], rerank=[2, 99, 2])
+
+    with patch.object(chat_service, "_call_openai_sync", side_effect=fake):
+        answer, trace = await chat_service.ask_notice_question_with_trace(
+            svc, "장학금 공지 알려줘"
+        )
+
+    expected = [trace.candidates[1]["id"]]
+    assert [reference.id for reference in answer.references] == expected
+    assert trace.rerank_outcome == "selected"
+    assert trace.rerank_selected_ids == expected
+
+
+@pytest.mark.anyio
+async def test_rerank_old_style_id_response_is_invalid(rag_env) -> None:
+    """번호가 아닌 옛 방식(공지 id 문자열) 응답은 쓸 수 없어 invalid_ids로 떨어진다."""
+    rag_env(enabled=True, api_key="sk-test")
+    svc = NoticeService(MemoryRepository(_scholarship_notices(8)))
+    fake = _stub_call(answer="답변", extracted=["장학금"], rerank=["n2", "n5"])
+
+    with patch.object(chat_service, "_call_openai_sync", side_effect=fake):
+        answer, trace = await chat_service.ask_notice_question_with_trace(
+            svc, "장학금 공지 알려줘"
+        )
+
+    assert len(answer.references) == get_settings().rag_max_references
+    assert trace.rerank_outcome == "invalid_ids"
 
 
 @pytest.mark.anyio
@@ -879,10 +917,19 @@ def test_build_rerank_list_includes_title_date_and_snippet() -> None:
         "a", "장학금 공지", content="신청기간 2026-06-01 ~ 2026-06-30 마감"
     )
     line = chat_service.build_rerank_list([notice])
+    assert line.startswith("1. ")  # 후보마다 1부터 번호
     assert "제목: 장학금 공지" in line
     assert "게시일: 2026-04-20" in line
     assert "발췌:" in line
     assert "신청기간 2026-06-01" in line  # 마감 단서가 들어가야 함
+    assert "id=" not in line  # 긴 슬러그 id는 입력에서 뺀다(토큰 절약)
+
+
+def test_build_rerank_list_numbers_candidates_in_order() -> None:
+    notices = [make_notice(f"n{i}", f"공지 {i}") for i in range(3)]
+    lines = chat_service.build_rerank_list(notices).split("\n")
+    numbered = [line for line in lines if not line.startswith("  ")]
+    assert [line.split(".")[0] for line in numbered] == ["1", "2", "3"]
 
 
 def test_build_rerank_list_snippet_is_truncated() -> None:

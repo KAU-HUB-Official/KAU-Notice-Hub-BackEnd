@@ -13,7 +13,7 @@
 - `/api/chat`은 분기(triage) → 후보 검색 → rerank → 답변 2단계 검색 파이프라인을 거친다. `RAG_ENABLED=true`와 `OPENAI_API_KEY`가 있을 때 동작하며, 비활성화·키 부재·호출 실패·references 0건은 local fallback으로 응답한다.
   - 분기: 검색 직전 LLM 1회로 `search`/`history`/`out_of_domain`을 정한다. `history`는 이전 대화가 쌓인 상태에서 직전 답변을 재가공하는 후속 질문일 때만 선택되며, 새 검색 없이 history만으로 답한다. 이 분기 호출은 `temperature=0`으로 고정해 같은 질문이 호출마다 다른 mode/keywords로 흔들리지 않게 한다(답변 생성 호출은 영향받지 않음).
   - 후보 검색: `find_relevant_notices()`로 `RAG_CANDIDATE_POOL`(기본 15)개를 넓게 가져온다.
-  - rerank: 후보가 `RAG_MAX_REFERENCES`보다 많을 때만 LLM 1회로 제목·게시일(date)·본문 발췌(앞 300자)를 보고 관련 공지 id를 골라 최종 n개로 좁힌다. 발췌의 접수·마감 기간과 오늘 날짜를 근거로, 질문이 현재 신청·참여 가능 여부를 물으면 마감이 지난 공지·결과발표·조달(용역/물품임차) 공지를 제외한다. 후보가 n개 이하면 호출을 생략한다.
+  - rerank: 후보가 `RAG_MAX_REFERENCES`보다 많을 때만 LLM 1회로 제목·게시일(date)·본문 발췌(앞 `RERANK_SNIPPET_CHARS`자)를 보고 관련 공지의 **번호**를 골라 최종 n개로 좁힌다. 후보에는 1부터 번호를 붙여 보여주고 응답도 번호 배열로 받는다. 공지 id(제목에서 만든 48자 슬러그)를 받아쓰게 하면 잘림·오탈자로 후보에 없는 id가 돌아오기 때문이다. 입력에서도 id를 빼 호출당 750자쯤 줄어든다. 발췌의 접수·마감 기간과 오늘 날짜를 근거로, 질문이 현재 신청·참여 가능 여부를 물으면 마감이 지난 공지·결과발표·조달(용역/물품임차) 공지를 제외한다. 후보가 n개 이하면 호출을 생략한다.
 - `POST /api/chat/stream`은 같은 파이프라인을 SSE 이벤트(`search_started`, `search_completed`, `answer_delta`, `answer_completed`)로 반환한다. 답변은 OpenAI Responses API의 스트리밍(`stream=true`)으로 받아 토큰 단위 `answer_delta`로 흘려보낸다.
 - 이미지/HWP 공지는 content enrichment로 `content` 품질을 높일 수 있다.
 
@@ -38,9 +38,9 @@
        └ 실패/비활성 시 질문 원문을 그대로 검색어로 사용 (legacy)
   -> 후보 검색: local search/filter로 RAG_CANDIDATE_POOL개 후보 조회
        └ 키워드 추출 성공 시 검색 0건이면 fallback_to_latest 끔 (무관 최신 공지 노출 차단)
-  -> rerank: 후보 > RAG_MAX_REFERENCES일 때 LLM 1회로 제목·게시일·본문 발췌를 보고 관련 id 선별
+  -> rerank: 후보 > RAG_MAX_REFERENCES일 때 후보에 1..N 번호를 붙여 LLM 1회로 관련 번호 선별
        └ 발췌의 마감 기간 + 오늘 날짜로, '신청 가능' 류 질문은 마감 지난 공지/결과발표/조달 제외
-       └ 빈 배열 → references 0건 / 파싱 실패 → 후보 상위 N개 / 후보 ≤ N → 호출 생략
+       └ 빈 배열 → references 0건 / 파싱 실패·유효 번호 0개 → 후보 상위 N개 / 후보 ≤ N → 호출 생략
   -> build_context로 추린 공지의 본문 컨텍스트 구성
   -> OpenAI 답변 호출 (RAG_ENABLED + API key 있을 때)
   -> 텍스트 답변과 references 반환
@@ -60,12 +60,13 @@ triage keywords, 후보 목록, rerank outcome, 단계별 latency)가 assistant 
 | `skipped_disabled` | `RAG_ENABLED=false` 또는 API key 부재 | 상위 N개 |
 | `llm_failed` | rerank 호출이 빈 응답 | 상위 N개 |
 | `parse_failed` | 응답을 id 배열로 파싱 실패 | 상위 N개 |
-| `invalid_ids` | id를 냈지만 후보에 하나도 없음(환각·형식 깨짐) | 상위 N개 |
+| `invalid_ids` | 응답에 쓸 수 있는 번호가 하나도 없음(범위 밖·숫자 아님) | 상위 N개 |
 | `empty` | LLM이 빈 배열 = 관련 공지 없음 | `[]` |
 | `selected` | 유효 id 선별 | 선별분 |
 
-`rerank_selected_ids`에는 `selected`·`invalid_ids` 모두 LLM이 낸 원본 id를 그대로 남긴다.
-일부만 유효한 경우는 `selected`이며, 필요하면 분석 쪽에서 후보와의 교집합으로 본다.
+`rerank_selected_ids`에는 번호를 매핑한 **공지 id**를 남긴다(후보 목록도 같은 trace에 있어
+번호 ↔ 공지 복원이 가능하다). LLM이 답한 번호 원문은 `rerank_raw`에 그대로 있다.
+범위 밖·중복 번호는 그 항목만 버리고 나머지로 선별하므로, 일부만 유효한 경우는 `selected`다.
 
 ## 비목표
 

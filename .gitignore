@@ -59,6 +59,8 @@ nohup.out
 data/*.json
 data/*.tmp
 data/*.tmp.*
+# 실행별 RAGAS 상세 dump는 로컬 전용(요약 이력은 tests/eval/eval_history.csv로 커밋).
+data/ragas_runs/
 !data/.gitkeep
 
 # Local databases

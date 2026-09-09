@@ -37,11 +37,13 @@ evaluate() 경로는 answer_relevancy의 질문 생성이 n=3 요청에 1개만 
 from __future__ import annotations
 
 import asyncio
+import csv
 import json
 import logging
 import math
 import os
 import sys
+from datetime import datetime
 from pathlib import Path
 from typing import Any
 
@@ -75,11 +77,16 @@ CASES_PATH = Path(__file__).parent / "ragas_cases.yml"
 CONTEXT_CHARS = 1400
 DEFAULT_EMBEDDING_MODEL = "text-embedding-3-small"
 
-# 평가 1회의 (질문·필터·검색 context·생성 답변·점수)를 남기는 JSON 아티팩트 경로.
-# data/*.json은 .gitignore돼 커밋되지 않는다. RAGAS_DUMP_PATH로 덮어쓰고, 빈 문자열로
-# 비활성화한다. 점수만으론 0점·낮은 케이스의 원인을 못 보므로 재실행 없이 진단·전후
-# 비교를 하려고 저장한다.
-DEFAULT_DUMP_PATH = "data/ragas_run.json"
+# 평가 1회의 (질문·필터·검색 context·생성 답변·점수)를 남기는 JSON 아티팩트.
+# 실행마다 data/ragas_runs/<run_ts>.json 으로 남겨 과거 실행을 덮어쓰지 않는다(회귀
+# 추적). data/ 는 .gitignore 대상이라 이 상세 로그는 로컬 전용이고, 커밋되는 요약
+# 이력은 eval_history.csv 로 따로 남긴다. RAGAS_DUMP_PATH로 특정 경로를 강제하거나
+# 빈 문자열로 저장을 끌 수 있다. 점수만으론 낮은 케이스의 원인을 못 보므로 저장한다.
+DEFAULT_DUMP_DIR = "data/ragas_runs"
+
+# 실행별 요약 점수 이력(한 실행 = 한 행). data/ 밖(tests/eval/)에 두어 git으로 추적하고,
+# 이걸로 모델·프롬프트·리트리버 변경 전후를 비교한다. 상세 샘플은 위 dump에만 남는다.
+HISTORY_CSV_PATH = Path(__file__).parent / "eval_history.csv"
 
 # RAGAS collections 메트릭 이름 (ragas 0.4.x).
 METRIC_NAMES = [
@@ -299,10 +306,22 @@ def _clean_score(value: Any) -> float | None:
     return value
 
 
-def dump_path() -> Path | None:
-    """아티팩트 저장 경로. RAGAS_DUMP_PATH가 빈 문자열이면 None(비활성)."""
-    raw = os.environ.get("RAGAS_DUMP_PATH", DEFAULT_DUMP_PATH).strip()
-    return Path(raw) if raw else None
+def _run_timestamp() -> str:
+    """실행 식별용 타임스탬프(로컬 시각). dump 파일명과 이력 행에 함께 쓴다."""
+    return datetime.now().strftime("%Y-%m-%d_%H%M%S")
+
+
+def dump_path(run_ts: str | None = None) -> Path | None:
+    """아티팩트 저장 경로.
+
+    RAGAS_DUMP_PATH가 설정돼 있으면 그 경로(빈 문자열이면 None=저장 비활성)를 쓰고,
+    없으면 data/ragas_runs/<run_ts>.json 으로 실행마다 새 파일에 남긴다(덮어쓰기 방지).
+    """
+    raw = os.environ.get("RAGAS_DUMP_PATH")
+    if raw is not None:
+        raw = raw.strip()
+        return Path(raw) if raw else None
+    return Path(DEFAULT_DUMP_DIR) / f"{run_ts or _run_timestamp()}.json"
 
 
 def write_run_artifact(
@@ -342,6 +361,51 @@ def write_run_artifact(
     )
 
 
+def append_history(
+    rows: list[dict[str, Any]],
+    skipped: list[str],
+    *,
+    run_ts: str,
+    judge_model: str,
+    embedding_model: str,
+    dump: Path | None,
+) -> None:
+    """실행 요약 한 행을 eval_history.csv에 append 한다(회귀 추적용, git 추적 대상).
+
+    개별 케이스 점수가 아니라 지표 평균만 남긴다(상세는 dump 아티팩트에 있음). 파일이
+    없으면 헤더를 먼저 쓴다. 어떤 채점관·임베딩으로 낸 점수인지 함께 기록해, 채점 설정이
+    다른 실행끼리 잘못 비교하지 않도록 한다.
+    """
+    summary = summarize(rows)
+    fields = [
+        "run_ts",
+        "judge_model",
+        "embedding_model",
+        "scored",
+        "skipped",
+        *METRIC_NAMES,
+        "dump",
+    ]
+    record = {
+        "run_ts": run_ts,
+        "judge_model": judge_model,
+        "embedding_model": embedding_model,
+        "scored": len(rows),
+        "skipped": len(skipped),
+        "dump": str(dump) if dump is not None else "",
+    }
+    for name in METRIC_NAMES:
+        record[name] = f"{summary[name]:.4f}" if name in summary else ""
+
+    is_new = not HISTORY_CSV_PATH.exists()
+    HISTORY_CSV_PATH.parent.mkdir(parents=True, exist_ok=True)
+    with HISTORY_CSV_PATH.open("a", encoding="utf-8", newline="") as f:
+        writer = csv.DictWriter(f, fieldnames=fields)
+        if is_new:
+            writer.writeheader()
+        writer.writerow(record)
+
+
 def format_report(rows: list[dict[str, Any]], skipped: list[str]) -> str:
     short = {
         "faithfulness": "faith",
@@ -374,10 +438,23 @@ def main() -> None:
     rows = run_ragas(samples)
     print(format_report(rows, skipped))
 
-    path = dump_path()
+    settings = get_settings()
+    run_ts = _run_timestamp()
+
+    path = dump_path(run_ts)
     if path is not None:
         write_run_artifact(samples, rows, skipped, path)
         _progress(f"[저장] 질문·필터·context·답변·점수를 {path} 에 기록했습니다.")
+
+    append_history(
+        rows,
+        skipped,
+        run_ts=run_ts,
+        judge_model=settings.openai_model,
+        embedding_model=_embedding_model(),
+        dump=path,
+    )
+    _progress(f"[이력] 요약 점수를 {HISTORY_CSV_PATH} 에 append 했습니다.")
 
 
 if __name__ == "__main__":

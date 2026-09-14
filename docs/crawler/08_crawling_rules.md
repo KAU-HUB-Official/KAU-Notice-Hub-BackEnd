@@ -160,5 +160,6 @@ content 보강 실패는 위 실패 기록 파일에 쓰지 않고 각 post의 `
 ## 10) 카드형 학과/대학 게시판
 
 - `kau_card_notice`는 `notice.php?code=...&page=...` 구조를 쓰는 학과/대학 홈페이지에 사용합니다.
-- 현재 대상은 `aisw.kau.ac.kr`, `ai.kau.ac.kr:8100/8110/8120/8130/8140`, `sw.kau.ac.kr`, `ave.kau.ac.kr`입니다.
+- 현재 대상은 `aisw.kau.ac.kr`, `ai.kau.ac.kr`, `com.kau.ac.kr`, `eae.kau.ac.kr`, `sse.kau.ac.kr`, `ict.kau.ac.kr`, `sw.kau.ac.kr`, `ave.kau.ac.kr`입니다.
+- AI융합대학 전공 5곳은 `ai.kau.ac.kr:8100~8140` 포트 주소에서 전공별 도메인으로 옮겨졌습니다(2026-09 확인). 도메인이 Cloudflare 뒤로 가면서 81xx 포트는 중계되지 않아 옛 주소로는 접속되지 않습니다.
 - 상세 URL은 `code`, `mode`, `seq`만 남기도록 canonical 정규화합니다.

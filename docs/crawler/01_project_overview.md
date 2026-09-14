@@ -11,7 +11,7 @@
 - `kau.ac.kr` 공식 공지 7종
 - `career.kau.ac.kr` 대학일자리센터 공지 1종
 - `college.kau.ac.kr` 계열 공지 42종
-- `aisw.kau.ac.kr`, `ai.kau.ac.kr`, `sw.kau.ac.kr`, `ave.kau.ac.kr` 카드형 학과/대학 공지 8종
+- `aisw.kau.ac.kr`, `ai.kau.ac.kr`, `com.kau.ac.kr`, `eae.kau.ac.kr`, `sse.kau.ac.kr`, `ict.kau.ac.kr`, `sw.kau.ac.kr`, `ave.kau.ac.kr` 카드형 학과/대학 공지 8종
 - `research.kau.ac.kr` 산학협력단 공지 1종
 - `ibhak.kau.ac.kr` 입학처 공지 1종
 - `ctl.kau.ac.kr` 교수학습센터 공지 1종

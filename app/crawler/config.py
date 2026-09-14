@@ -24,8 +24,10 @@ FSC_BASE_URL = "http://fsc.kau.ac.kr"
 FSC_NOTICE_LIST_URL = "http://fsc.kau.ac.kr/info/info_01.php"
 GRAD_BASE_URL = "https://grad.kau.ac.kr"
 GRAD_NOTICE_LIST_URL = "https://grad.kau.ac.kr/community/notice_02.php"
-GRADBUS_BASE_URL = "http://gradbus.kau.ac.kr"
-GRADBUS_NOTICE_LIST_URL = "http://gradbus.kau.ac.kr/community/notice_01.php"
+# http 요청은 Cloudflare가 도메인과 경로 사이 "/"가 빠진 주소(https://gradbus.kau.ac.krcommunity/...)로
+# 리다이렉트해 이름 해석에 실패한다. https로 바로 요청한다.
+GRADBUS_BASE_URL = "https://gradbus.kau.ac.kr"
+GRADBUS_NOTICE_LIST_URL = "https://gradbus.kau.ac.kr/community/notice_01.php"
 AISW_BASE_URL = "http://aisw.kau.ac.kr"
 AISW_NOTICE_LIST_URL = "http://aisw.kau.ac.kr/pages/notice.php"
 LMS_BASE_URL = "https://lms.kau.ac.kr"
@@ -408,11 +410,13 @@ NOTICE_BOARDS = [
         bbs_id="0101",
         mnu_id="gc13106b",
     ),
+    # AI융합대학 전공 게시판은 ai.kau.ac.kr:8100~8140 포트 주소에서 전공별 도메인으로 옮겨졌다(2026-09 확인).
+    # 도메인이 Cloudflare 뒤로 가면서 81xx 포트는 중계되지 않아 옛 주소로는 연결 시간 초과가 난다.
     _card_notice_board(
         key="ai_major_notice",
         label="인공지능전공",
-        list_url="http://ai.kau.ac.kr:8100/pages/notice.php",
-        base_url="http://ai.kau.ac.kr:8100",
+        list_url="https://ai.kau.ac.kr/pages/notice.php",
+        base_url="https://ai.kau.ac.kr",
         code="s1401",
     ),
     _college_notice_board(
@@ -426,29 +430,29 @@ NOTICE_BOARDS = [
     _card_notice_board(
         key="semiconductor_system_major_notice",
         label="반도체시스템전공",
-        list_url="http://ai.kau.ac.kr:8130/pages/notice.php",
-        base_url="http://ai.kau.ac.kr:8130",
+        list_url="https://sse.kau.ac.kr/pages/notice.php",
+        base_url="https://sse.kau.ac.kr",
         code="s1401",
     ),
     _card_notice_board(
         key="computer_engineering_major_notice",
         label="컴퓨터공학전공",
-        list_url="http://ai.kau.ac.kr:8110/pages/notice.php",
-        base_url="http://ai.kau.ac.kr:8110",
+        list_url="https://com.kau.ac.kr/pages/notice.php",
+        base_url="https://com.kau.ac.kr",
         code="s1401",
     ),
     _card_notice_board(
         key="electronics_aerospace_electronics_major_notice",
         label="전자및항공전자전공",
-        list_url="http://ai.kau.ac.kr:8120/pages/notice.php",
-        base_url="http://ai.kau.ac.kr:8120",
+        list_url="https://eae.kau.ac.kr/pages/notice.php",
+        base_url="https://eae.kau.ac.kr",
         code="s1401",
     ),
     _card_notice_board(
         key="ai_convergence_ict_major_notice",
         label="AI융합ICT전공",
-        list_url="http://ai.kau.ac.kr:8140/pages/notice.php",
-        base_url="http://ai.kau.ac.kr:8140",
+        list_url="https://ict.kau.ac.kr/pages/notice.php",
+        base_url="https://ict.kau.ac.kr",
         code="s1401",
     ),
     _college_notice_board(

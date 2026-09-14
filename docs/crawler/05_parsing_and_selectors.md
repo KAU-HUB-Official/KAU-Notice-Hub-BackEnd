@@ -71,7 +71,7 @@
 ### 목록
 
 - 요청 방식: `notice.php?code=...&page=...`
-- 대상: `aisw.kau.ac.kr`, `ai.kau.ac.kr:8100/8110/8120/8130/8140`, `sw.kau.ac.kr`, `ave.kau.ac.kr`
+- 대상: `aisw.kau.ac.kr`, `ai.kau.ac.kr`, `com.kau.ac.kr`, `eae.kau.ac.kr`, `sse.kau.ac.kr`, `ict.kau.ac.kr`, `sw.kau.ac.kr`, `ave.kau.ac.kr`
 - 항목 단위: `ul.list_01 > li`
 - 링크: `a[href*='mode=read'][href*='seq=']`
 - 상시공지 판정: 항목 클래스(`notice`, `emp`, `bo_notice`) 또는 제목의 공지 표기

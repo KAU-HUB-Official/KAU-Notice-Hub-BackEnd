@@ -31,12 +31,12 @@
 | space_aerospace_materials_major_notice | 우주항공신소재전공 공지사항 | college 계열 | kau_college | http://college.kau.ac.kr/web/pages/gc49194b.do | `site_flag=new_major_aam`, `bbs_id=0402`, `mnu_id=gc49194b` |
 | semiconductor_materials_major_notice | 반도체신소재전공 공지사항 | college 계열 | kau_college | http://college.kau.ac.kr/web/pages/gc55157b.do | `site_flag=mic_www`, `bbs_id=0423`, `mnu_id=gc55157b` |
 | smart_drone_engineering_department_notice | 스마트드론공학과 공지사항 | college 계열 | kau_college | http://college.kau.ac.kr/web/pages/gc13106b.do | `site_flag=smartdrone_www`, `bbs_id=0101`, `mnu_id=gc13106b` |
-| ai_major_notice | 인공지능전공 공지사항 | 카드형 학과/대학 | kau_card_notice | http://ai.kau.ac.kr:8100/pages/notice.php | `base_url=ai.kau.ac.kr:8100`, `code=s1401` |
+| ai_major_notice | 인공지능전공 공지사항 | 카드형 학과/대학 | kau_card_notice | https://ai.kau.ac.kr/pages/notice.php | `base_url=ai.kau.ac.kr`, `code=s1401` |
 | engineering_convergence_major_notice | 공과대학 융합전공 공지사항 | college 계열 | kau_college | http://college.kau.ac.kr/web/pages/gc33372b.do | `site_flag=sme_www`, `bbs_id=0127`, `mnu_id=gc33372b` |
-| semiconductor_system_major_notice | 반도체시스템전공 공지사항 | 카드형 학과/대학 | kau_card_notice | http://ai.kau.ac.kr:8130/pages/notice.php | `base_url=ai.kau.ac.kr:8130`, `code=s1401` |
-| computer_engineering_major_notice | 컴퓨터공학전공 공지사항 | 카드형 학과/대학 | kau_card_notice | http://ai.kau.ac.kr:8110/pages/notice.php | `base_url=ai.kau.ac.kr:8110`, `code=s1401` |
-| electronics_aerospace_electronics_major_notice | 전자및항공전자전공 공지사항 | 카드형 학과/대학 | kau_card_notice | http://ai.kau.ac.kr:8120/pages/notice.php | `base_url=ai.kau.ac.kr:8120`, `code=s1401` |
-| ai_convergence_ict_major_notice | AI융합ICT전공 공지사항 | 카드형 학과/대학 | kau_card_notice | http://ai.kau.ac.kr:8140/pages/notice.php | `base_url=ai.kau.ac.kr:8140`, `code=s1401` |
+| semiconductor_system_major_notice | 반도체시스템전공 공지사항 | 카드형 학과/대학 | kau_card_notice | https://sse.kau.ac.kr/pages/notice.php | `base_url=sse.kau.ac.kr`, `code=s1401` |
+| computer_engineering_major_notice | 컴퓨터공학전공 공지사항 | 카드형 학과/대학 | kau_card_notice | https://com.kau.ac.kr/pages/notice.php | `base_url=com.kau.ac.kr`, `code=s1401` |
+| electronics_aerospace_electronics_major_notice | 전자및항공전자전공 공지사항 | 카드형 학과/대학 | kau_card_notice | https://eae.kau.ac.kr/pages/notice.php | `base_url=eae.kau.ac.kr`, `code=s1401` |
+| ai_convergence_ict_major_notice | AI융합ICT전공 공지사항 | 카드형 학과/대학 | kau_card_notice | https://ict.kau.ac.kr/pages/notice.php | `base_url=ict.kau.ac.kr`, `code=s1401` |
 | electrical_electronics_engineering_department_notice | 전기전자공학과 공지사항 | college 계열 | kau_college | http://college.kau.ac.kr/web/pages/gc84580b.do | `site_flag=eee_www`, `bbs_id=0324`, `mnu_id=gc84580b` |
 | software_department_notice | 소프트웨어학과 공지사항 | 카드형 학과/대학 | kau_card_notice | http://sw.kau.ac.kr/pages/notice.php | `base_url=sw.kau.ac.kr`, `code=s1401` |
 | eie_notice | 항공전자정보공학부 공지사항 | college 계열 | kau_college | http://college.kau.ac.kr/web/pages/gc23761b.do | `site_flag=eie_www`, `bbs_id=0015`, `mnu_id=gc23761b` |
@@ -65,7 +65,7 @@
 | ftc_notice | 비행교육원 공지사항 | 비행교육원 | kau_ftc | https://ftc.kau.ac.kr/info/notice_02.php | `code=s1102` |
 | fsc_notice | 새내기성공센터 공지사항 | 공통 PHP | kau_community_php | http://fsc.kau.ac.kr/info/info_01.php | `base_url=fsc.kau.ac.kr`, `code=s1101` |
 | grad_notice | 대학원 공지사항 | 공통 PHP | kau_community_php | https://grad.kau.ac.kr/community/notice_02.php | `base_url=grad.kau.ac.kr`, `code=s1201` |
-| gradbus_notice | 경영대학원 공지사항 | 공통 PHP | kau_community_php | http://gradbus.kau.ac.kr/community/notice_01.php | `base_url=gradbus.kau.ac.kr`, `code=s1101` |
+| gradbus_notice | 경영대학원 공지사항 | 공통 PHP | kau_community_php | https://gradbus.kau.ac.kr/community/notice_01.php (http는 Cloudflare 리다이렉트 주소가 깨져 실패) | `base_url=gradbus.kau.ac.kr`, `code=s1101` |
 | atci_notice | 항공교통관제교육원 공지사항 | college 계열 | kau_college | http://college.kau.ac.kr/web/pages/gc80226b.do | `site_flag=atci`, `bbs_id=0226`, `mnu_id=gc80226b` |
 | college_gc91652_notice | 항공우주정책대학원 공지사항 | college 계열 | kau_college | http://college.kau.ac.kr/web/pages/gc91652b.do | `site_flag=lawpolicy_www`, `bbs_id=0349`, `mnu_id=gc91652b` |
 | materials_grad_notice | 신소재공학과 대학원 공지사항 | college 계열 | kau_college | http://college.kau.ac.kr/web/pages/gc74927b.do | `site_flag=materials_www`, `bbs_id=0097`, `mnu_id=gc74927b` |
@@ -81,7 +81,7 @@
 - 공식홈: `kau.ac.kr`
 - 대학일자리센터: `career.kau.ac.kr`
 - college 계열: `college.kau.ac.kr` 42종
-- 카드형 학과/대학 계열: `aisw.kau.ac.kr`, `ai.kau.ac.kr:8100/8110/8120/8130/8140`, `sw.kau.ac.kr`, `ave.kau.ac.kr` 8종
+- 카드형 학과/대학 계열: `aisw.kau.ac.kr`, `ai.kau.ac.kr`, `com.kau.ac.kr`, `eae.kau.ac.kr`, `sse.kau.ac.kr`, `ict.kau.ac.kr`, `sw.kau.ac.kr`, `ave.kau.ac.kr` 8종
 - 산학협력단: `research.kau.ac.kr`
 - 입학처: `ibhak.kau.ac.kr`
 - 교수학습센터: `ctl.kau.ac.kr`

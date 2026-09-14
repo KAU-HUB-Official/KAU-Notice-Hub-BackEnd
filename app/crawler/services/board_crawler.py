@@ -1,11 +1,16 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import asdict, dataclass, field
+from datetime import date
 from typing import Any, Callable
 
 from ..models.post import Post
 from ..parsers.base_parser import BaseParser
-from ..policies.notice_policy import evaluate_recent_policy
+from ..policies.notice_policy import (
+    evaluate_recent_policy,
+    parse_published_date,
+    recent_stop_reason,
+)
 from ..services.content_asset_downloader import (
     extract_inline_embed_assets,
     extract_inline_image_assets,
@@ -14,6 +19,15 @@ from ..services.url_normalizer import canonicalize_original_url
 from ..utils.logger import get_logger
 
 logger = get_logger("crawler.services.board_crawler")
+
+# 게시판 수집 중단 사유 (BoardCrawlReport.stop_reason)
+STOP_SINCE_REACHED = "since_reached"  # 기간 경계(since 또는 RECENT_NOTICE_DAYS)를 넘은 일반공지에 도달
+STOP_EMPTY_LIST = "empty_list"  # 목록 페이지에 공지가 없음
+STOP_REPEATED_LIST = "repeated_list"  # 앞에서 본 목록이 그대로 되풀이됨
+STOP_REQUEST_FAILED = "request_failed"  # 목록 페이지 요청 실패
+STOP_ROBOTS_DISALLOWED = "robots_disallowed"
+STOP_NO_NEW_ITEMS = "no_new_items"  # 목록의 일반공지가 모두 이미 아는 URL
+STOP_PAGE_LIMIT = "page_limit"  # --max-pages 상한 도달
 
 
 def _board_label(board: dict[str, Any]) -> str:
@@ -37,6 +51,58 @@ class BoardAdapter:
     check_robots_on_list: bool = False
     check_robots_on_detail: bool = False
     min_pages_field: str | None = None
+
+
+@dataclass
+class BoardCrawlReport:
+    """게시판 하나의 수집 기록.
+
+    날짜가 아닌 이유(빈 목록, 반복 목록, 요청 실패)로 멈춘 게시판을 사람이 가려내는 데 쓴다.
+    게시일 범위는 상시공지를 뺀 일반공지 기준이다. 상시공지는 오래돼도 수집하므로 기간 확보
+    여부를 가리지 못한다.
+    """
+
+    board_key: str
+    list_url: str
+    pages_read: int = 0
+    posts: int = 0
+    permanent_posts: int = 0
+    oldest_published_at: str | None = None
+    newest_published_at: str | None = None
+    stop_reason: str = STOP_PAGE_LIMIT
+    stop_page: int | None = None
+    failed_items: int = 0
+    # 실패한 상세 항목(url/page/is_permanent_notice/reason). 재시도용이라 기록에는 싣지 않는다.
+    failed_details: list[dict] = field(default_factory=list, repr=False)
+
+    @property
+    def reached_since(self) -> bool:
+        return self.stop_reason == STOP_SINCE_REACHED
+
+    def update_from_posts(self, posts: list[dict]) -> None:
+        general_dates = sorted(
+            published
+            for post in posts
+            if not post.get("is_permanent_notice")
+            if (published := parse_published_date(post.get("published_at")))
+        )
+        self.posts = len(posts)
+        self.permanent_posts = sum(1 for post in posts if post.get("is_permanent_notice"))
+        self.oldest_published_at = general_dates[0].isoformat() if general_dates else None
+        self.newest_published_at = general_dates[-1].isoformat() if general_dates else None
+
+    def to_dict(self) -> dict[str, Any]:
+        data = asdict(self)
+        data.pop("failed_details")
+        data["reached_since"] = self.reached_since
+        return data
+
+
+@dataclass(frozen=True)
+class DetailRetryResult:
+    attempted_urls: list[str]
+    recovered: list[dict]
+    still_failed: list[dict]
 
 
 def _normalize_page_items(raw_items: list[dict], *, page: int) -> list[dict]:
@@ -174,6 +240,7 @@ def _evaluate_known_item_policy(
     detail_item: dict,
     *,
     known_posts_by_url: dict[str, dict],
+    since: date | None = None,
 ) -> bool:
     if bool(detail_item.get("is_permanent_notice")):
         return False
@@ -189,6 +256,7 @@ def _evaluate_known_item_policy(
         source_page=int(detail_item.get("page") or 1),
         is_permanent_notice=False,
         published_at=str(known_post.get("published_at") or ""),
+        since=since,
     )
     return decision.stop_crawling
 
@@ -215,6 +283,8 @@ def _parse_detail_item(
     known_urls: set[str],
     known_posts_by_url: dict[str, dict],
     failed_items: list[dict],
+    since: date | None = None,
+    keep_empty_content: bool = False,
 ) -> tuple[dict | None, bool]:
     board_label = _board_label(board)
     detail_url = str(detail_item["url"])
@@ -261,7 +331,9 @@ def _parse_detail_item(
         )
         _fill_missing_content_from_attachments(post)
         missing_fields = _missing_required_fields(post)
-        if missing_fields:
+        # 연구 수집은 제목만 있고 본문·이미지·첨부가 모두 없는 공지도 남긴다(사이트 원문이 빈 경우).
+        content_empty = keep_empty_content and missing_fields == ["content"]
+        if missing_fields and not content_empty:
             failed_items.append(
                 {
                     "board": board["name"],
@@ -284,13 +356,18 @@ def _parse_detail_item(
             source_page=source_page,
             is_permanent_notice=is_permanent_notice,
             published_at=post.published_at,
+            since=since,
         )
         if not decision.include_post:
             return None, decision.stop_crawling
 
         post_dict = post.to_dict()
+        post_dict["board_key"] = board.get("key")
         if inline_assets:
             post_dict["content_assets"] = inline_assets
+        if content_empty:
+            post_dict["content"] = ""
+            post_dict["content_empty"] = True
         post_dict["is_permanent_notice"] = is_permanent_notice
         known_urls.add(post.original_url)
         known_posts_by_url[post.original_url] = post_dict
@@ -314,7 +391,9 @@ def crawl_board(
     adapter: BoardAdapter,
     known_urls: set[str],
     known_posts_by_url: dict[str, dict] | None = None,
-) -> tuple[list[dict], list[dict]]:
+    since: date | None = None,
+    keep_empty_content: bool = False,
+) -> tuple[list[dict], list[dict], BoardCrawlReport]:
     parser = adapter.parser_factory(board)
     board_label = _board_label(board)
 
@@ -324,10 +403,15 @@ def crawl_board(
     seen_for_board: set[str] = set(known_urls)
     seen_page_signatures: set[tuple[str, ...]] = set()
     page_limit = _resolve_page_limit(board, max_pages=max_pages, adapter=adapter)
+    report = BoardCrawlReport(
+        board_key=str(board.get("key") or ""),
+        list_url=adapter.build_list_page_url(board, 1),
+    )
 
     page = 1
     while page_limit is None or page <= page_limit:
         page_url = adapter.build_list_page_url(board, page)
+        report.stop_page = page
 
         if (
             adapter.check_robots_on_list
@@ -342,6 +426,7 @@ def crawl_board(
                 }
             )
             logger.warning("수집 종료 | 게시판=%s | 사유=robots 차단 | 페이지=%s", board_label, page)
+            report.stop_reason = STOP_ROBOTS_DISALLOWED
             # robots가 전역 차단인 경우가 많으므로 페이지 루프를 조기 종료한다.
             break
 
@@ -354,18 +439,22 @@ def crawl_board(
                 page,
                 page_url,
             )
+            report.stop_reason = STOP_REQUEST_FAILED
             break
 
         page_items = _normalize_page_items(parser.parse_post_items(html, page_url), page=page)
         if not page_items:
             logger.info("수집 종료 | 게시판=%s | 사유=목록 없음 | 페이지=%s", board_label, page)
+            report.stop_reason = STOP_EMPTY_LIST
             break
 
         page_signature = tuple(str(item.get("url") or "") for item in page_items)
         if page_signature in seen_page_signatures:
             logger.info("수집 종료 | 게시판=%s | 사유=반복 목록 | 페이지=%s", board_label, page)
+            report.stop_reason = STOP_REPEATED_LIST
             break
         seen_page_signatures.add(page_signature)
+        report.pages_read += 1
 
         new_page_items = [
             item
@@ -407,18 +496,26 @@ def crawl_board(
 
             if detail_url in seen_for_board:
                 _sync_known_item_metadata(detail_item, known_posts_by_url=known_posts)
-                if _evaluate_known_item_policy(board, detail_item, known_posts_by_url=known_posts):
+                if _evaluate_known_item_policy(
+                    board,
+                    detail_item,
+                    known_posts_by_url=known_posts,
+                    since=since,
+                ):
                     logger.info(
-                        "수집 종료 | 게시판=%s | 사유=기존 일반공지 1년 초과 | 페이지=%s | url=%s",
+                        "수집 종료 | 게시판=%s | 사유=기존 %s | 페이지=%s | url=%s",
                         board_label,
+                        recent_stop_reason(since),
                         page,
                         detail_url,
                     )
+                    report.stop_reason = STOP_SINCE_REACHED
                     stop_board = True
                     break
                 continue
 
             seen_for_board.add(detail_url)
+            failed_before = len(failed_items)
             post, should_stop = _parse_detail_item(
                 board,
                 detail_item,
@@ -427,20 +524,22 @@ def crawl_board(
                 known_urls=known_urls,
                 known_posts_by_url=known_posts,
                 failed_items=failed_items,
+                since=since,
+                keep_empty_content=keep_empty_content,
             )
+            if len(failed_items) > failed_before:
+                report.failed_details.append({**detail_item, "reason": failed_items[-1]["reason"]})
             if post:
                 posts.append(post)
             if should_stop:
                 logger.info(
-                    (
-                        "수집 종료 | 게시판=%s "
-                        "| 사유=일반공지 1년 초과 "
-                        "| 페이지=%s | url=%s"
-                    ),
+                    "수집 종료 | 게시판=%s | 사유=%s | 페이지=%s | url=%s",
                     board_label,
+                    recent_stop_reason(since),
                     page,
                     detail_url,
                 )
+                report.stop_reason = STOP_SINCE_REACHED
                 stop_board = True
                 break
 
@@ -451,8 +550,57 @@ def crawl_board(
                     board_label,
                     page,
                 )
+                report.stop_reason = STOP_NO_NEW_ITEMS
             break
 
         page += 1
 
-    return posts, failed_items
+    report.update_from_posts(posts)
+    report.failed_items = len(failed_items)
+    return posts, failed_items, report
+
+
+def retry_failed_details(
+    board: dict[str, Any],
+    report: BoardCrawlReport,
+    *,
+    adapter: BoardAdapter,
+    known_urls: set[str],
+    known_posts_by_url: dict[str, dict],
+    since: date | None = None,
+    keep_empty_content: bool = False,
+) -> DetailRetryResult:
+    """수집 중 실패한 상세 공지를 한 번 더 시도한다.
+
+    robots 차단은 다시 시도해도 같으므로 건너뛴다. 기간 경계 판정은 첫 시도와 같게 적용해
+    재시도로 기간 밖 공지가 들어오지 않게 한다.
+    """
+    parser = adapter.parser_factory(board)
+    attempted_urls: list[str] = []
+    recovered: list[dict] = []
+    still_failed: list[dict] = []
+
+    for failed in report.failed_details:
+        if failed.get("reason") == "robots_disallowed":
+            continue
+        detail_item = {key: failed[key] for key in ("url", "page", "is_permanent_notice")}
+        attempted_urls.append(str(detail_item["url"]))
+        post, _should_stop = _parse_detail_item(
+            board,
+            detail_item,
+            adapter=adapter,
+            parser=parser,
+            known_urls=known_urls,
+            known_posts_by_url=known_posts_by_url,
+            failed_items=still_failed,
+            since=since,
+            keep_empty_content=keep_empty_content,
+        )
+        if post:
+            recovered.append(post)
+
+    return DetailRetryResult(
+        attempted_urls=attempted_urls,
+        recovered=recovered,
+        still_failed=still_failed,
+    )

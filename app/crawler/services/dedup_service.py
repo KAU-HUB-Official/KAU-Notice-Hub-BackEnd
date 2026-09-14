@@ -142,7 +142,12 @@ def _merge_title_duplicate(existing_post: dict, duplicate_post: dict) -> None:
     _merge_attachments(existing_post, duplicate_post)
 
 
-def merge_posts_with_dedup(existing_posts: list[dict], new_posts: list[dict]) -> MergeResult:
+def merge_posts_with_dedup(
+    existing_posts: list[dict],
+    new_posts: list[dict],
+    *,
+    merge_title_duplicates: bool = True,
+) -> MergeResult:
     url_dedup_posts: list[dict] = []
     seen_url_to_index: dict[str, int] = {}
 
@@ -160,6 +165,15 @@ def merge_posts_with_dedup(existing_posts: list[dict], new_posts: list[dict]) ->
         copied["original_url"] = original_url
         seen_url_to_index[original_url] = len(url_dedup_posts)
         url_dedup_posts.append(copied)
+
+    url_dedup_removed = len(existing_posts) + len(new_posts) - len(url_dedup_posts)
+    if not merge_title_duplicates:
+        # 연구 수집: 제목이 같아도 해마다 올라오는 다른 회차일 수 있어 URL 기준으로만 합친다.
+        return MergeResult(
+            posts=url_dedup_posts,
+            url_dedup_removed=url_dedup_removed,
+            title_dedup_removed=0,
+        )
 
     dedup_posts: list[dict] = []
     title_to_index: dict[str, int] = {}
@@ -183,7 +197,6 @@ def merge_posts_with_dedup(existing_posts: list[dict], new_posts: list[dict]) ->
         if title_key:
             title_to_index[title_key] = len(dedup_posts) - 1
 
-    url_dedup_removed = len(existing_posts) + len(new_posts) - len(url_dedup_posts)
     return MergeResult(
         posts=dedup_posts,
         url_dedup_removed=url_dedup_removed,

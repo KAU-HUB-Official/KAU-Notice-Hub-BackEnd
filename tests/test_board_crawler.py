@@ -1,8 +1,25 @@
 from __future__ import annotations
 
+from dataclasses import replace
+from datetime import date
+
+import pytest
+
 from app.crawler.models.post import Post
 from app.crawler.parsers.base_parser import BaseParser
-from app.crawler.services.board_crawler import BoardAdapter, DetailFetchResult, crawl_board
+from app.crawler.services.board_crawler import (
+    STOP_EMPTY_LIST,
+    STOP_REPEATED_LIST,
+    STOP_REQUEST_FAILED,
+    STOP_SINCE_REACHED,
+    BoardAdapter,
+    DetailFetchResult,
+    crawl_board,
+    retry_failed_details,
+)
+
+SINCE = date(2023, 1, 1)
+BOARD = {"key": "test_board", "name": "테스트 공지사항"}
 
 
 class FakeParser(BaseParser):
@@ -72,7 +89,7 @@ def test_crawl_board_stops_when_page_has_no_new_general_items() -> None:
         fetched_details=fetched_details,
     )
 
-    posts, failed_items = crawl_board(
+    posts, failed_items, _report = crawl_board(
         {"key": "test_board", "name": "테스트 공지사항"},
         max_pages=0,
         adapter=adapter,
@@ -104,7 +121,7 @@ def test_crawl_board_collects_new_permanent_item_before_no_new_general_stop() ->
         fetched_details=fetched_details,
     )
 
-    posts, failed_items = crawl_board(
+    posts, failed_items, _report = crawl_board(
         {"key": "test_board", "name": "테스트 공지사항"},
         max_pages=0,
         adapter=adapter,
@@ -134,7 +151,7 @@ def test_crawl_board_continues_when_page_has_only_known_permanent_items() -> Non
         fetched_details=fetched_details,
     )
 
-    posts, failed_items = crawl_board(
+    posts, failed_items, _report = crawl_board(
         {"key": "test_board", "name": "테스트 공지사항"},
         max_pages=2,
         adapter=adapter,
@@ -147,3 +164,146 @@ def test_crawl_board_continues_when_page_has_only_known_permanent_items() -> Non
     assert failed_items == []
     assert fetched_pages == [1, 2]
     assert fetched_details == [new_general_url]
+
+
+def test_crawl_board_stops_before_since_and_reports_board() -> None:
+    on_since_url = "https://example.com/on-since"
+    before_since_url = "https://example.com/before-since"
+    fetched_pages: list[int] = []
+    adapter = make_adapter(
+        items_by_page={
+            1: [
+                {"url": on_since_url, "is_permanent_notice": False},
+                {"url": before_since_url, "is_permanent_notice": False},
+            ],
+            2: [{"url": "https://example.com/older", "is_permanent_notice": False}],
+        },
+        posts_by_url={
+            on_since_url: make_post(on_since_url, published_at="2023-01-01"),
+            before_since_url: make_post(before_since_url, published_at="2022-12-31"),
+        },
+        fetched_pages=fetched_pages,
+        fetched_details=[],
+    )
+
+    posts, failed_items, report = crawl_board(
+        BOARD, max_pages=0, adapter=adapter, known_urls=set(), since=SINCE
+    )
+
+    assert [post["original_url"] for post in posts] == [on_since_url]
+    assert posts[0]["board_key"] == "test_board"
+    assert failed_items == []
+    assert fetched_pages == [1]
+    assert (report.stop_reason, report.reached_since, report.stop_page, report.pages_read) == (
+        STOP_SINCE_REACHED,
+        True,
+        1,
+        1,
+    )
+    assert report.to_dict() == {
+        "board_key": "test_board",
+        "list_url": "https://example.com/list?page=1",
+        "pages_read": 1,
+        "posts": 1,
+        "permanent_posts": 0,
+        "oldest_published_at": "2023-01-01",
+        "newest_published_at": "2023-01-01",
+        "stop_reason": STOP_SINCE_REACHED,
+        "stop_page": 1,
+        "failed_items": 0,
+        "reached_since": True,
+    }
+
+
+@pytest.mark.parametrize(
+    "second_page, reason",
+    [
+        ([], STOP_EMPTY_LIST),
+        ([{"url": "https://example.com/a", "is_permanent_notice": False}], STOP_REPEATED_LIST),
+        (None, STOP_REQUEST_FAILED),
+    ],
+)
+def test_crawl_board_reports_non_date_stop_reason(second_page, reason) -> None:
+    url = "https://example.com/a"
+    items_by_page = {1: [{"url": url, "is_permanent_notice": False}]}
+    if second_page is not None:
+        items_by_page[2] = second_page
+    adapter = make_adapter(
+        items_by_page=items_by_page,
+        posts_by_url={url: make_post(url, published_at="2026-05-01")},
+        fetched_pages=[],
+        fetched_details=[],
+    )
+
+    _posts, _failed_items, report = crawl_board(
+        BOARD, max_pages=0, adapter=adapter, known_urls=set(), since=SINCE
+    )
+
+    assert (report.stop_reason, report.stop_page, report.pages_read, report.reached_since) == (
+        reason,
+        2,
+        1,
+        False,
+    )
+
+
+def test_crawl_board_keeps_title_only_notice_only_in_research_mode() -> None:
+    url = "https://example.com/title-only"
+
+    def run(keep_empty_content: bool) -> tuple[list[dict], list[dict]]:
+        title_only = replace(make_post(url, title="학점교류 수강안내"), content="")
+        adapter = make_adapter(
+            items_by_page={1: [{"url": url, "is_permanent_notice": False}]},
+            posts_by_url={url: title_only},
+            fetched_pages=[],
+            fetched_details=[],
+        )
+        posts, failed_items, _report = crawl_board(
+            BOARD,
+            max_pages=0,
+            adapter=adapter,
+            known_urls=set(),
+            since=SINCE,
+            keep_empty_content=keep_empty_content,
+        )
+        return posts, failed_items
+
+    posts, failed_items = run(False)
+    assert posts == []
+    assert [item["reason"] for item in failed_items] == ["required_field_empty:content"]
+
+    posts, failed_items = run(True)
+    assert [(post["content"], post["content_empty"]) for post in posts] == [("", True)]
+    assert failed_items == []
+
+
+def test_retry_failed_details_recovers_transient_detail_failure() -> None:
+    url = "https://example.com/flaky"
+    attempts: list[str] = []
+    parser = FakeParser({1: [{"url": url, "is_permanent_notice": False}]}, {url: make_post(url)})
+
+    def fetch_detail(board: dict, detail_url: str) -> DetailFetchResult:
+        attempts.append(detail_url)
+        return DetailFetchResult(html="<html></html>" if len(attempts) > 1 else None)
+
+    adapter = BoardAdapter(
+        parser_factory=lambda board: parser,
+        build_list_page_url=lambda board, page: f"https://example.com/list?page={page}",
+        fetch_list_html=lambda board, page: str(page) if page == 1 else None,
+        fetch_detail=fetch_detail,
+    )
+
+    posts, failed_items, report = crawl_board(
+        BOARD, max_pages=0, adapter=adapter, known_urls=set(), since=SINCE
+    )
+    assert posts == []
+    assert [item["reason"] for item in failed_items] == ["request_failed"]
+    assert report.failed_items == 1
+
+    result = retry_failed_details(
+        BOARD, report, adapter=adapter, known_urls=set(), known_posts_by_url={}, since=SINCE
+    )
+
+    assert result.attempted_urls == [url]
+    assert [post["original_url"] for post in result.recovered] == [url]
+    assert result.still_failed == []

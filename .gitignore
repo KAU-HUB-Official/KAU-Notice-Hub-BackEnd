@@ -65,6 +65,8 @@ data/ragas_runs/
 data/branch_runs/
 # 평가용 고정 공지 스냅샷. 학번 명단 등 개인정보가 담긴 원문이라 커밋하지 않는다.
 data/eval/
+# 연구용 원본 수집. 공지 원문에 학번·성명이 섞여 있어 커밋하지 않는다.
+data/research/
 !data/.gitkeep
 
 # Local databases

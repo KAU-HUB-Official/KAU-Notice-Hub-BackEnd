@@ -73,3 +73,24 @@ def test_title_duplicate_with_permanent_source_meta_survives_pruning() -> None:
     assert merge_result.title_dedup_removed == 1
     assert prune_result.stale_pruned == 0
     assert [post["id"] for post in prune_result.posts] == ["old"]
+
+
+def test_research_merge_keeps_same_title_notices_from_different_years() -> None:
+    last_year = make_post("2025", title="유고결석 신청 관련 공지", published_at="2025-04-01")
+    this_year = make_post("2026", title="유고결석  신청 관련 공지", published_at="2026-03-31")
+
+    result = merge_posts_with_dedup([], [last_year, this_year], merge_title_duplicates=False)
+
+    assert result.title_dedup_removed == 0
+    assert [post["published_at"] for post in result.posts] == ["2025-04-01", "2026-03-31"]
+    assert all(isinstance(post["source_name"], str) for post in result.posts)
+    assert all("source_meta" not in post for post in result.posts)
+
+
+def test_research_merge_still_removes_same_url() -> None:
+    first = make_post("same", title="공지", published_at="2026-03-31")
+    again = make_post("same", title="공지", published_at="2026-03-31")
+
+    result = merge_posts_with_dedup([], [first, again], merge_title_duplicates=False)
+
+    assert (len(result.posts), result.url_dedup_removed) == (1, 1)

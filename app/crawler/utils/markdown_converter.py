@@ -84,7 +84,9 @@ def make_image_only_markdown(
             continue
         if src.lower().startswith(("data:", "javascript:")):
             continue
-        absolute = urljoin(base_url, src) if base_url else src
+        absolute = _absolute_url(base_url, src)
+        if absolute is None:
+            continue
         absolute = _escape_markdown_url(absolute)
         if absolute in seen:
             continue
@@ -126,9 +128,11 @@ def _preprocess(html: str, *, base_url: str | None) -> str:
                 continue
             if lowered.startswith(("javascript:", "mailto:", "tel:", "#")):
                 continue
-            if base_url:
-                value = urljoin(base_url, value)
-            tag[attr] = _escape_markdown_url(value)
+            absolute = _absolute_url(base_url, value)
+            if absolute is None:
+                tag.attrs.pop(attr, None)
+                continue
+            tag[attr] = _escape_markdown_url(absolute)
 
     return soup.decode()
 
@@ -142,8 +146,10 @@ def _normalize_image_sources(soup: BeautifulSoup, *, base_url: str | None) -> No
         if not candidate:
             img.decompose()
             continue
-        if base_url:
-            candidate = urljoin(base_url, candidate)
+        candidate = _absolute_url(base_url, candidate)
+        if candidate is None:
+            img.decompose()
+            continue
         img["src"] = _escape_markdown_url(candidate)
         img.attrs.pop("data-src", None)
         # alt에 줄바꿈/연속 공백이 있으면 markdownify가 `![줄1\n줄2](url)` 같은
@@ -161,6 +167,22 @@ def _first_non_data_url(*values: str) -> str:
             continue
         return value
     return ""
+
+
+def _absolute_url(base_url: str | None, value: str) -> str | None:
+    """base_url 기준 절대 URL. 주소가 깨져 합칠 수 없으면 None.
+
+    공지 편집기가 `( http://example.com)]`처럼 본문 괄호까지 링크에 붙이는 경우가 있고,
+    최근 파이썬 패치(3.13.9·3.14.2에서 확인)는 대괄호 짝이 맞지 않는 호스트를
+    ValueError("Invalid IPv6 URL")로 거부한다. 링크 하나 때문에 공지 전체 파싱이 실패하지
+    않도록 호출부에서 그 링크나 이미지만 버린다.
+    """
+    if not base_url:
+        return value
+    try:
+        return urljoin(base_url, value)
+    except ValueError:
+        return None
 
 
 def _escape_markdown_url(value: str) -> str:

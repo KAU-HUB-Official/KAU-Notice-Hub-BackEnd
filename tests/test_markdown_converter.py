@@ -429,3 +429,29 @@ def test_normalize_keeps_well_formed_strong() -> None:
     md = html_node_to_markdown(node)
     assert "**매우 중요한**" in md
     assert "**중요 공지**" in md
+
+
+def test_html_node_to_markdown_drops_only_links_that_cannot_be_absolutized() -> None:
+    # 학사공지 seq=9854 실제 사례: 편집기가 본문 괄호를 링크에 붙였다. urljoin 이
+    # ValueError 를 내도 공지 전체가 아니라 그 링크·이미지만 버려야 한다.
+    node = _node(
+        '<div><p>[서울디지털대학교( <a href="http://union.sdu.ac.kr)]">http://union.sdu.ac.kr)]</a>)</p>'
+        '<p><a href="/notice/1">상세</a></p>'
+        '<img src="http://bad.example)]/poster.png" alt="포스터"></div>'
+    )
+
+    md = html_node_to_markdown(node, base_url="https://kau.ac.kr/kaulife/acdnoti.php")
+
+    assert "서울디지털대학교" in md and "union.sdu.ac.kr" in md
+    assert "](http://union.sdu.ac.kr" not in md
+    assert "(https://kau.ac.kr/notice/1)" in md
+    assert "bad.example" not in md
+
+
+def test_make_image_only_markdown_skips_image_that_cannot_be_absolutized() -> None:
+    soup = BeautifulSoup('<img src="http://bad.example)]/a.png"><img src="ok.png">', "html.parser")
+
+    md = make_image_only_markdown(soup.select("img"), base_url="https://x.test/")
+
+    assert "bad.example" not in md
+    assert "https://x.test/ok.png" in md

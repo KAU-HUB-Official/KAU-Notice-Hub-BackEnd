@@ -35,7 +35,7 @@ from datetime import date, datetime
 from pathlib import Path
 from typing import Any
 
-DEFAULT_SNAPSHOT_DIR = Path("data/eval/snapshot-2026-09-14")
+DEFAULT_SNAPSHOT_DIR = Path("data/eval/snapshot-2026-09-15")
 POSTS_FILE = "posts.json"
 CRAWL_META_FILE = "crawl_meta.json"
 DB_FILE = "kau_notice_hub.db"

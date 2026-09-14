@@ -57,6 +57,7 @@ def _progress(message: str) -> None:
     print(message, file=sys.stderr, flush=True)
 
 from app.chat_service import (
+    CONTEXT_CONTENT_CHARS,
     _generate_with_openai,
     _retrieve_references,
     truncate,
@@ -67,9 +68,6 @@ from app.schemas import Notice
 from app.service import NoticeQuery, NoticeService
 
 CASES_PATH = Path(__file__).parent / "ragas_cases.yml"
-
-# build_context가 LLM에 넣는 본문 길이와 맞춰, 실제로 모델이 본 context를 채점한다.
-CONTEXT_CHARS = 1400
 
 # 평가 1회의 (질문·필터·검색 context·생성 답변·점수)를 남기는 JSON 아티팩트.
 # 실행마다 data/ragas_runs/<run_ts>.json 으로 남겨 과거 실행을 덮어쓰지 않는다(회귀
@@ -111,7 +109,7 @@ def _filters_from_case(case: dict[str, Any]) -> NoticeQuery:
 def _contexts_from_notices(notices: list[Notice]) -> list[str]:
     """검색된 공지를 RAGAS retrieved_contexts(문자열 리스트)로 변환.
 
-    한 공지 = 한 context chunk. content를 build_context와 같은 길이(CONTEXT_CHARS)로
+    한 공지 = 한 context chunk. content를 build_context와 같은 길이(CONTEXT_CONTENT_CHARS)로
     자른다. content가 비면 제목으로 폴백하고, 그래도 비면 제외한다. 이미지뿐인 공지는
     enrichment가 content를 실제 텍스트로 채우므로 content 하나면 충분하다(summary 필드
     제거 후 읽는 본문은 content로 단일화됨).
@@ -119,7 +117,7 @@ def _contexts_from_notices(notices: list[Notice]) -> list[str]:
     contexts: list[str] = []
     for notice in notices:
         text = (notice.content or "").strip()
-        text = truncate(text, CONTEXT_CHARS) if text else (notice.title or "").strip()
+        text = truncate(text, CONTEXT_CONTENT_CHARS) if text else (notice.title or "").strip()
         if text:
             contexts.append(text)
     return contexts
@@ -127,37 +125,45 @@ def _contexts_from_notices(notices: list[Notice]) -> list[str]:
 
 async def _collect_sample(
     service: NoticeService, case: dict[str, Any]
-) -> dict[str, Any] | None:
+) -> tuple[dict[str, Any] | None, str]:
     """케이스 하나를 실제 chat 파이프라인에 돌려 RAGAS 샘플 dict를 만든다.
 
-    검색 분기(search)가 아니거나, 검색 0건이거나, 답변 생성이 실패하면 None을
-    반환한다(채점 불가 케이스). 호출자가 사유를 로깅한다.
+    채점할 수 없으면 (None, 스킵 사유)를 반환한다.
+
+    분기는 반환 mode가 아니라 trace.mode로 판정한다. 분기 LLM이 실패한 legacy 경로도
+    반환 mode는 "search"이고, 질문 원문 검색에 최신 공지 폴백까지 붙어 결과가 채워지므로
+    반환 mode만 보면 운영 경로 샘플과 구분되지 않는다.
     """
     question = case["question"]
     filters = _filters_from_case(case)
 
-    notices, _references, mode, _trace = await _retrieve_references(
+    notices, _references, _mode, trace = await _retrieve_references(
         service, question, filters
     )
-    if mode != "search" or not notices:
-        return None
+    if trace.mode == "legacy":
+        return None, "분기 실패(legacy)"
+    if trace.mode != "search":
+        return None, f"분기 {trace.mode}"
+    if not notices:
+        return None, "검색 0건"
 
     contexts = _contexts_from_notices(notices)
     if not contexts:
-        return None
+        return None, "context 없음"
 
     result = await _generate_with_openai(question, filters, notices)
     if result is None:
-        return None
+        return None, "답변 생성 실패"
     answer, _model = result
 
-    return {
+    sample = {
         "case_id": case.get("id", question[:20]),
         "user_input": question,
         "filters": case.get("filters") or {},
         "retrieved_contexts": contexts,
         "response": answer,
     }
+    return sample, ""
 
 
 async def collect_samples() -> tuple[list[dict[str, Any]], list[str]]:
@@ -171,10 +177,10 @@ async def collect_samples() -> tuple[list[dict[str, Any]], list[str]]:
     for index, case in enumerate(cases, start=1):
         case_id = str(case.get("id", case.get("question", "?")))
         _progress(f"  [{index}/{total}] {case_id} … triage→검색→rerank→답변 생성")
-        sample = await _collect_sample(service, case)
+        sample, reason = await _collect_sample(service, case)
         if sample is None:
-            skipped.append(case_id)
-            _progress(f"  [{index}/{total}] {case_id} → 스킵(검색 0건·도메인외·생성실패)")
+            skipped.append(f"{case_id}({reason})")
+            _progress(f"  [{index}/{total}] {case_id} → 스킵: {reason}")
         else:
             samples.append(sample)
             _progress(
@@ -282,6 +288,22 @@ def summarize(rows: list[dict[str, Any]]) -> dict[str, float]:
     return summary
 
 
+def valid_counts(rows: list[dict[str, Any]]) -> dict[str, int]:
+    """지표별로 실제 채점에 성공한(NaN이 아닌) 샘플 수.
+
+    summarize()의 평균은 채점 실패(NaN)를 뺀 값이라, 이 수를 함께 보지 않으면 일부
+    샘플만으로 낸 평균이 전체 평균처럼 보인다.
+    """
+    return {
+        name: sum(
+            1
+            for r in rows
+            if isinstance(r.get(name), float) and not math.isnan(r[name])
+        )
+        for name in METRIC_NAMES
+    }
+
+
 def _clean_score(value: Any) -> float | None:
     """NaN(채점 실패)을 JSON에 유효한 null로 바꾼다."""
     if isinstance(value, float) and math.isnan(value):
@@ -333,6 +355,7 @@ def write_run_artifact(
         )
     payload = {
         "summary": summarize(rows),
+        "valid_counts": valid_counts(rows),
         "scored": len(records),
         "skipped": skipped,
         "samples": records,
@@ -353,9 +376,9 @@ def append_history(
 ) -> None:
     """실행 요약 한 행을 eval_history.csv에 append 한다(회귀 추적용, git 추적 대상).
 
-    개별 케이스 점수가 아니라 지표 평균만 남긴다(상세는 dump 아티팩트에 있음). 파일이
-    없으면 헤더를 먼저 쓴다. 어떤 채점관으로 낸 점수인지 함께 기록해, 채점 설정이
-    다른 실행끼리 잘못 비교하지 않도록 한다.
+    개별 케이스 점수가 아니라 지표 평균과 지표별 채점 성공 수(`<지표>_n`)만 남긴다(상세는
+    dump 아티팩트에 있음). 파일이 없으면 헤더를 먼저 쓴다. 어떤 채점관으로 낸 점수인지
+    함께 기록해, 채점 설정이 다른 실행끼리 잘못 비교하지 않도록 한다.
     """
     summary = summarize(rows)
     fields = [
@@ -364,6 +387,7 @@ def append_history(
         "scored",
         "skipped",
         *METRIC_NAMES,
+        *(f"{name}_n" for name in METRIC_NAMES),
         "dump",
     ]
     record = {
@@ -373,8 +397,10 @@ def append_history(
         "skipped": len(skipped),
         "dump": str(dump) if dump is not None else "",
     }
+    counts = valid_counts(rows)
     for name in METRIC_NAMES:
         record[name] = f"{summary[name]:.4f}" if name in summary else ""
+        record[f"{name}_n"] = counts[name]
 
     is_new = not HISTORY_CSV_PATH.exists()
     HISTORY_CSV_PATH.parent.mkdir(parents=True, exist_ok=True)
@@ -400,10 +426,19 @@ def format_report(rows: list[dict[str, Any]], skipped: list[str]) -> str:
     lines.append("-" * len(header))
     avg_cells = " ".join(f"{summary.get(c, float('nan')):9.3f}" for c in METRIC_NAMES)
     lines.append(f"{'AVG':10s} {avg_cells}")
+    counts = valid_counts(rows)
+    n_cells = " ".join(f"{counts[c]:>9d}" for c in METRIC_NAMES)
+    lines.append(f"{'n':10s} {n_cells}")
     lines.append("")
     lines.append(f"채점 샘플 {len(rows)}건 / 스킵 {len(skipped)}건")
+    partial = [c for c in METRIC_NAMES if counts[c] < len(rows)]
+    if partial:
+        lines.append(
+            "주의: 채점 실패(NaN)가 있어 평균은 성공한 샘플로만 계산됨 — "
+            + ", ".join(f"{c} {counts[c]}/{len(rows)}" for c in partial)
+        )
     if skipped:
-        lines.append(f"스킵(검색 0건·도메인외·생성실패): {', '.join(skipped)}")
+        lines.append(f"스킵: {', '.join(skipped)}")
     return "\n".join(lines)
 
 

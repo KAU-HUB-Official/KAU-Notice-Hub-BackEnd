@@ -51,10 +51,13 @@ RAGAS 평가는 운영 데이터(`data/kau_notice_hub.db`)가 있어야 검색�
 흐름: 평가셋의 각 질문을 실제 `/api/chat` 파이프라인에 돌려
 `(question, retrieved_contexts, response)`를 모은 뒤 ragas collections 메트릭의
 `ascore()`로 채점한다(native `llm_factory`, 비동기 클라이언트).
-`retrieved_contexts`는 공지마다 `content`를 `build_context`와 같은 길이(1400자)로 잘라
+`retrieved_contexts`는 공지마다 `content`를 `build_context`와 같은 길이(`CONTEXT_CONTENT_CHARS`, 1400자)로 잘라
 담는다 — 모델이 실제로 본 context를 채점하기 위함이다. 이미지뿐인 공지도 enrichment가
 `content`를 실제 텍스트로 채우므로(읽는 본문은 `content` 하나로 단일화) content만으로
-충분하다. `search` 분기가 아니거나(도메인외/history) 검색 0건인 케이스는 채점에서 스킵한다.
+충분하다. 분기가 `search`가 아니거나(도메인외/history), 분기 LLM이 실패해 질문 원문으로
+검색했거나(legacy), 검색 0건인 케이스는 채점에서 스킵하고 사유를 스킵 목록에 남긴다. legacy는
+반환 mode가 `search`로 보이므로 `trace.mode`로 가른다. 채점 호출이 실패한 샘플은 NaN으로 두고
+평균에서 빼되, 보고서의 `n` 줄에 지표별 채점 성공 수를 함께 표시한다.
 
 - 채점관 LLM은 `OPENAI_MODEL`(기본 gpt-4.1-mini)을 재사용한다.
 - **OpenAI 채점 호출 비용이 발생**하므로 필요할 때 CLI로만 실행한다.
@@ -83,8 +86,8 @@ RAG_ENABLED=true OPENAI_API_KEY=... \
   판정을 붙이는 데 쓴다. `RAGAS_DUMP_PATH`로 경로를 강제하고(예: `before.json`/
   `after.json`), 빈 문자열이면 저장하지 않는다.
 - **요약 이력**: `tests/eval/eval_history.csv`. 실행 1회가 한 행이며 `run_ts`,
-  `judge_model`, `scored`, `skipped`, 지표별 평균, 상세 파일 경로를 담는다. git으로
-  추적해 변경 전후를 비교한다.
+  `judge_model`, `scored`, `skipped`, 지표별 평균과 채점 성공 수(`<지표>_n`), 상세 파일
+  경로를 담는다. git으로 추적해 변경 전후를 비교한다.
 
 ## 변경 전후 비교 (핵심 용도)
 

@@ -120,6 +120,8 @@ TRIAGE_PROMPT = "\n".join(
 # 발췌가 짧으면 모집·접수 공지의 신청 기간·방법이 앞부분에 안 들어와 rerank가
 # 관련성을 못 보고 떨어뜨린다. 신청 기간/방법까지 보이도록 넉넉히 둔다.
 RERANK_SNIPPET_CHARS = 700
+# 답변 LLM 컨텍스트에 공지 본문을 넣을 때 자르는 길이. RAGAS 러너도 같은 길이로 채점한다.
+CONTEXT_CONTENT_CHARS = 1400
 
 RERANK_PROMPT_TEMPLATE = "\n".join(
     [
@@ -189,7 +191,7 @@ def build_context(notices: list[Notice]) -> str:
                     f"sources: {', '.join(get_notice_source_names(notice)) or '출처 미상'}",
                     f"category: {notice.category or '분류 없음'}",
                     f"url: {notice.url or '링크 없음'}",
-                    f"content: {truncate(notice.content, 1400)}",
+                    f"content: {truncate(notice.content, CONTEXT_CONTENT_CHARS)}",
                 ]
             )
         )

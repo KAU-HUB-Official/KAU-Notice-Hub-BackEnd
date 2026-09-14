@@ -8,6 +8,7 @@
 from __future__ import annotations
 
 import csv
+from datetime import date
 from types import SimpleNamespace
 
 import pytest
@@ -86,6 +87,27 @@ async def test_collect_sample_truncates_context_like_answer_prompt(monkeypatch) 
     ]
 
 
+@pytest.mark.anyio
+async def test_collect_sample_pins_today_to_snapshot_reference_date(monkeypatch) -> None:
+    seen: dict[str, object] = {}
+
+    async def fake_retrieve(service, question, filters, *args, today=None, **kwargs):
+        seen["retrieve"] = today
+        return [make_notice("n1", "수강신청 안내")], [], "search", SimpleNamespace(mode="search")
+
+    async def fake_gen(question, filters, notices, *args, today=None, **kwargs):
+        seen["generate"] = today
+        return "답변", "gpt-4.1-mini"
+
+    monkeypatch.setattr(ragas_runner, "_retrieve_references", fake_retrieve)
+    monkeypatch.setattr(ragas_runner, "_generate_with_openai", fake_gen)
+
+    await ragas_runner._collect_sample(None, CASE, today=date(2026, 9, 14))
+
+    # 분기·rerank·답변 모두 실행 날짜가 아니라 스냅샷 기준일을 오늘로 봐야 한다.
+    assert seen == {"retrieve": date(2026, 9, 14), "generate": date(2026, 9, 14)}
+
+
 def _rows_with_failures() -> list[dict]:
     return [
         {"case_id": "c1", "faithfulness": 1.0, "context_precision_without_reference": 0.5},
@@ -130,11 +152,12 @@ def test_history_csv_records_valid_counts(tmp_path, monkeypatch) -> None:
         ["c4(검색 0건)"],
         run_ts="2026-09-14_000000",
         judge_model="gpt-4.1-mini",
+        snapshot="snapshot-test",
         dump=None,
     )
 
     with path.open(encoding="utf-8") as f:
         [row] = list(csv.DictReader(f))
-    assert (row["scored"], row["skipped"]) == ("3", "1")
+    assert (row["snapshot"], row["scored"], row["skipped"]) == ("snapshot-test", "3", "1")
     assert (row["faithfulness"], row["faithfulness_n"]) == ("0.7500", "2")
     assert row["context_precision_without_reference_n"] == "2"

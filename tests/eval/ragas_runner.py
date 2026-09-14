@@ -26,7 +26,8 @@ answer_relevancy는 측정하지 않는다. 답변에서 거꾸로 만든 질문
    RAG_ENABLED=true OPENAI_API_KEY=... .venv/bin/python -m tests.eval.ragas_runner
 
 평가 질문은 RAGAS 전용 셋 tests/eval/ragas_cases.yml 을 쓴다(question/filters만
-사용). 운영 데이터(data/kau_notice_hub.db)가 있어야 검색이 동작한다.
+사용). 검색은 평가용 고정 스냅샷(tests/eval/snapshot.py)의 DB와 기준일로 돈다. 스냅샷이
+없으면 운영 DB로 대신 돌리지 않고 멈춘다.
 """
 
 from __future__ import annotations
@@ -38,7 +39,7 @@ import logging
 import math
 import os
 import sys
-from datetime import datetime
+from datetime import date, datetime
 from pathlib import Path
 from typing import Any
 
@@ -63,9 +64,10 @@ from app.chat_service import (
     truncate,
 )
 from app.config import get_settings
-from app.dependencies import _build_repository
 from app.schemas import Notice
 from app.service import NoticeQuery, NoticeService
+from app.sqlite_repository import SqliteNoticeRepository
+from tests.eval.snapshot import EvalSnapshot, load_snapshot
 
 CASES_PATH = Path(__file__).parent / "ragas_cases.yml"
 
@@ -124,7 +126,7 @@ def _contexts_from_notices(notices: list[Notice]) -> list[str]:
 
 
 async def _collect_sample(
-    service: NoticeService, case: dict[str, Any]
+    service: NoticeService, case: dict[str, Any], *, today: date | None = None
 ) -> tuple[dict[str, Any] | None, str]:
     """케이스 하나를 실제 chat 파이프라인에 돌려 RAGAS 샘플 dict를 만든다.
 
@@ -138,7 +140,7 @@ async def _collect_sample(
     filters = _filters_from_case(case)
 
     notices, _references, _mode, trace = await _retrieve_references(
-        service, question, filters
+        service, question, filters, today=today
     )
     if trace.mode == "legacy":
         return None, "분기 실패(legacy)"
@@ -151,7 +153,7 @@ async def _collect_sample(
     if not contexts:
         return None, "context 없음"
 
-    result = await _generate_with_openai(question, filters, notices)
+    result = await _generate_with_openai(question, filters, notices, today=today)
     if result is None:
         return None, "답변 생성 실패"
     answer, _model = result
@@ -166,18 +168,24 @@ async def _collect_sample(
     return sample, ""
 
 
-async def collect_samples() -> tuple[list[dict[str, Any]], list[str]]:
-    """평가셋 전체를 파이프라인에 돌려 RAGAS 샘플 리스트와 스킵 사유를 모은다."""
-    service = NoticeService(_build_repository())
+async def collect_samples(
+    snapshot: EvalSnapshot,
+) -> tuple[list[dict[str, Any]], list[str]]:
+    """평가셋 전체를 스냅샷 DB 기준으로 파이프라인에 돌려 샘플과 스킵 사유를 모은다.
+
+    "오늘"은 스냅샷 기준일로 고정해 분기·rerank·답변 프롬프트에 넘긴다.
+    """
+    service = NoticeService(SqliteNoticeRepository(snapshot.db_path))
     cases = _load_cases()
     total = len(cases)
     samples: list[dict[str, Any]] = []
     skipped: list[str] = []
+    _progress(f"[스냅샷] {snapshot.name} (기준일 {snapshot.reference_date})")
     _progress(f"[1/2 수집] {total}개 질문을 chat 파이프라인에 돌립니다 (질문당 OpenAI 호출 다수)…")
     for index, case in enumerate(cases, start=1):
         case_id = str(case.get("id", case.get("question", "?")))
         _progress(f"  [{index}/{total}] {case_id} … triage→검색→rerank→답변 생성")
-        sample, reason = await _collect_sample(service, case)
+        sample, reason = await _collect_sample(service, case, today=snapshot.reference_date)
         if sample is None:
             skipped.append(f"{case_id}({reason})")
             _progress(f"  [{index}/{total}] {case_id} → 스킵: {reason}")
@@ -334,6 +342,8 @@ def write_run_artifact(
     rows: list[dict[str, Any]],
     skipped: list[str],
     path: Path,
+    *,
+    snapshot: EvalSnapshot,
 ) -> None:
     """샘플(질문·필터·context·답변)과 점수를 case_id로 합쳐 JSON으로 저장한다."""
     scores = {r["case_id"]: r for r in rows}
@@ -354,6 +364,7 @@ def write_run_artifact(
             }
         )
     payload = {
+        "snapshot": {"name": snapshot.name, "reference_date": snapshot.reference_date.isoformat()},
         "summary": summarize(rows),
         "valid_counts": valid_counts(rows),
         "scored": len(records),
@@ -372,17 +383,19 @@ def append_history(
     *,
     run_ts: str,
     judge_model: str,
+    snapshot: str,
     dump: Path | None,
 ) -> None:
     """실행 요약 한 행을 eval_history.csv에 append 한다(회귀 추적용, git 추적 대상).
 
     개별 케이스 점수가 아니라 지표 평균과 지표별 채점 성공 수(`<지표>_n`)만 남긴다(상세는
-    dump 아티팩트에 있음). 파일이 없으면 헤더를 먼저 쓴다. 어떤 채점관으로 낸 점수인지
-    함께 기록해, 채점 설정이 다른 실행끼리 잘못 비교하지 않도록 한다.
+    dump 아티팩트에 있음). 파일이 없으면 헤더를 먼저 쓴다. 어떤 채점관·스냅샷으로 낸
+    점수인지 함께 기록해, 채점 설정이 다른 실행끼리 잘못 비교하지 않도록 한다.
     """
     summary = summarize(rows)
     fields = [
         "run_ts",
+        "snapshot",
         "judge_model",
         "scored",
         "skipped",
@@ -392,6 +405,7 @@ def append_history(
     ]
     record = {
         "run_ts": run_ts,
+        "snapshot": snapshot,
         "judge_model": judge_model,
         "scored": len(rows),
         "skipped": len(skipped),
@@ -443,8 +457,9 @@ def format_report(rows: list[dict[str, Any]], skipped: list[str]) -> str:
 
 
 def main() -> None:
+    snapshot = load_snapshot()
     _require_openai()
-    samples, skipped = asyncio.run(collect_samples())
+    samples, skipped = asyncio.run(collect_samples(snapshot))
     if not samples:
         print("채점할 search 분기 샘플이 없습니다. 스킵:", ", ".join(skipped))
         return
@@ -456,7 +471,7 @@ def main() -> None:
 
     path = dump_path(run_ts)
     if path is not None:
-        write_run_artifact(samples, rows, skipped, path)
+        write_run_artifact(samples, rows, skipped, path, snapshot=snapshot)
         _progress(f"[저장] 질문·필터·context·답변·점수를 {path} 에 기록했습니다.")
 
     append_history(
@@ -464,6 +479,7 @@ def main() -> None:
         skipped,
         run_ts=run_ts,
         judge_model=settings.openai_model,
+        snapshot=snapshot.name,
         dump=path,
     )
     _progress(f"[이력] 요약 점수를 {HISTORY_CSV_PATH} 에 append 했습니다.")

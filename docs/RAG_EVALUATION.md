@@ -23,8 +23,37 @@
 > 품질을 반영하지 못했고, 분기 LLM과 rerank를 거치지 않아 운영 경로와도 달랐다. 더 정확한
 > 채점 지표로 대체한다.
 
-RAGAS 평가는 운영 데이터(`data/kau_notice_hub.db`)가 있어야 검색이 동작하고 OpenAI 비용이
-들므로, CI에서는 돌리지 않고 필요할 때 CLI로 실행한다.
+RAGAS 평가는 아래 평가 데이터 스냅샷이 있어야 검색이 동작하고 OpenAI 비용이 들므로, CI에서는
+돌리지 않고 필요할 때 CLI로 실행한다.
+
+## 평가 데이터 스냅샷
+
+평가는 운영 DB가 아니라 **고정 스냅샷**에서만 돈다. 운영 DB는 크롤링 주기마다 바뀌어, 같은 질문셋이라도
+실행 시점마다 검색 후보가 달라지고 전후 비교가 성립하지 않는다. 평가 러너는
+[tests/eval/snapshot.py](../tests/eval/snapshot.py)로 스냅샷을 열고, 없으면 운영 DB로 대신 돌리지 않고 멈춘다.
+
+- **위치**: `data/eval/<이름>/` (기본 `snapshot-2026-09-14`, `EVAL_SNAPSHOT_DIR`로 변경). 공지 원문에 학번·성명이
+  섞여 있어 git에 올리지 않는다(`.gitignore`).
+- **기준일**: 러너가 이 날짜를 "오늘"로 분기·rerank·답변 프롬프트에 넘긴다. "이번 주 마감" 같은 질문의 정답이
+  실행 날짜에 따라 바뀌지 않는다.
+- **범위**: 일반공지는 컷오프 날짜 이후(당일 포함) 게시분, 상시공지는 게시일과 무관하게 전부. 크롤러 보존
+  정책과 같은 판정을 기준일로 고정해 쓴다.
+- **비교 단위**: 실행별 상세 파일과 이력 CSV에 스냅샷 이름을 남긴다. 스냅샷이 다른 실행끼리는 점수를 비교하지
+  않는다.
+
+현재 스냅샷은 기준일 2026-09-14, 컷오프 2023-09-01이며 이미지 본문 보강 없이 수집했다. 만드는 방법:
+
+```bash
+# 1) 넓은 기간으로 수집. 게시 스크립트는 게시 전 정리를 365일로 하므로 쓰지 않는다.
+CONTENT_ENRICHMENT_ENABLED=false CRAWLER_RECENT_NOTICE_DAYS=1111 CRAWLER_REQUEST_DELAY_SECONDS=0.1,0.3 \
+  .venv/bin/python -m app.crawler.main --output data/eval/snapshot-2026-09-14/posts.json
+
+# 2) 기준일 컷오프로 정리하고 DB·manifest 생성 (네트워크·OpenAI 호출 없음)
+.venv/bin/python -m tests.eval.snapshot --reference-date 2026-09-14 --cutoff-date 2023-09-01
+```
+
+`manifest.json`에 수집·정리 건수, 일반공지 게시일 범위, 이미지 본문 보강 대상 수, 수집 조건
+(`crawl_meta.json`이 있으면)이 남는다.
 
 ## 답변 품질 (RAGAS, LLM-as-judge)
 
@@ -126,4 +155,5 @@ RAGAS 셋([ragas_cases.yml](../tests/eval/ragas_cases.yml))은 실사용 말투�
 | RAGAS 평가셋(자연어 질문) | `tests/eval/ragas_cases.yml` |
 | RAGAS 평가 runner | `tests/eval/ragas_runner.py` |
 | RAGAS 요약 이력 | `tests/eval/eval_history.csv` (실행 시 append) |
+| 평가 데이터 스냅샷 | `tests/eval/snapshot.py`, `data/eval/<이름>/` (git 제외) |
 | 평가 의존성 | `pyproject.toml`의 `eval` extra |

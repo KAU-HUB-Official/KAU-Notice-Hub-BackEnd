@@ -46,8 +46,13 @@ class KAULibraryParser(BaseParser):
             sb_no = match.group(1)
             params = urlencode({"sb_no": sb_no})
             classes = set(row.get("class") or [])
-            marker_text = self.normalize_whitespace(row.get_text(" ", strip=True))
-            is_permanent_notice = "info" in classes or "공지" in marker_text
+            # 상단 고정 공지는 tr.info 이고 번호 칸에 번호 대신 "공지" 표시가 들어간다. 일반 행의
+            # 카테고리 칸에도 "공지사항"·"학술DB공지"가 들어가므로 행 전체가 아니라 번호 칸만 본다.
+            number_cell = row.find(["th", "td"])
+            number_text = (
+                self.normalize_whitespace(number_cell.get_text(" ", strip=True)) if number_cell else ""
+            )
+            is_permanent_notice = "info" in classes or number_text == "공지"
 
             items.append(
                 {

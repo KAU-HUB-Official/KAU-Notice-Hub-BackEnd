@@ -42,11 +42,9 @@ exclude = ["data*", "docs*", "scripts*", "tests*"]
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 pythonpath = ["."]
-# 기본 실행은 eval/ragas 마크 제외. CI는 운영 데이터(data/*.db, data/*.json)가 없어
-# eval 테스트가 NoticeRepositoryError로 실패하고, ragas 테스트는 OpenAI 호출
-# 비용이 든다. 운영에서는 명시적으로 `pytest -m eval` / `pytest -m ragas`로 호출한다.
-addopts = "-m 'not eval and not ragas'"
+# 기본 실행은 ragas 마크 제외. ragas 테스트는 운영 데이터(data/*.db)가 필요하고 OpenAI
+# 호출 비용이 든다. 운영에서는 명시적으로 `pytest -m ragas`로 호출한다.
+addopts = "-m 'not ragas'"
 markers = [
-  "eval: 운영 데이터 기반 retrieval 품질 측정 (pytest -m eval 로만 실행)",
   "ragas: RAGAS LLM-as-judge 기반 RAG 품질 평가 (OpenAI 호출 비용 발생, pytest -m ragas 로만 실행)"
 ]

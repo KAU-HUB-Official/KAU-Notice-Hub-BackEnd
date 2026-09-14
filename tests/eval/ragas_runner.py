@@ -32,8 +32,7 @@ answer_relevancy는 측정하지 않는다. 답변에서 거꾸로 만든 질문
    RAG_ENABLED=true OPENAI_API_KEY=... .venv/bin/python -m pytest -m ragas
 
 평가 질문은 RAGAS 전용 셋 tests/eval/ragas_cases.yml 을 쓴다(question/filters만
-사용). 검색 회귀셋(retrieval_cases.yml)과 분리한 이유는 그 파일 헤더 참고. 운영 데이터
-(data/kau_notice_hub.db)가 있어야 검색이 동작한다.
+사용). 운영 데이터(data/kau_notice_hub.db)가 있어야 검색이 동작한다.
 """
 
 from __future__ import annotations

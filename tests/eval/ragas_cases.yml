@@ -1,11 +1,8 @@
 # RAGAS 답변 품질(LLM-as-judge) 평가용 입력 질문셋.
 #
-# 검색 회귀셋(retrieval_cases.yml)과 분리한다. 그쪽은 정답 공지 라벨
-# (must_include_titles)로 recall@k/MRR을 재는 키워드형 디버깅 케이스이고, RAGAS는
 # 라벨 없이 question/filters만 써서 실제 /api/chat 파이프라인을 돌린 뒤
-# faithfulness / context_precision을 채점한다. 라벨 없는 자연어
-# 질문을 retrieval_cases.yml에 섞으면 검색 지표(label 없으면 recall=1.0·MRR=0)가
-# 왜곡되므로 별도 파일로 둔다. tests/eval/ragas_runner.py가 이 파일을 읽는다.
+# faithfulness / context_precision을 채점한다. tests/eval/ragas_runner.py가 이 파일을
+# 읽는다.
 #
 # 형식
 # - id: 고유 식별자
@@ -25,8 +22,8 @@
 # / audience_group 2 / category 1)를 고루 섞는다.
 #
 # 운영 데이터가 갱신되어 특정 주제 공지가 prune되면 해당 질문의 grounding을
-# 재확인한다. 검증: tests/eval/runner.py와 같은 find_relevant_notices로 각 질문이
-# 검색 결과를 반환하는지 확인할 수 있다(OpenAI 불필요).
+# 재확인한다. 검증: find_relevant_notices로 각 질문이 검색 결과를 반환하는지 확인할 수
+# 있다(OpenAI 불필요).
 
 - id: rag-scholarship-deadline
   question: "국가근로장학금 신청 마감 언제야?"

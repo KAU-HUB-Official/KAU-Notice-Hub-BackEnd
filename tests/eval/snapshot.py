@@ -14,6 +14,13 @@ RAGAS 채점과 분기 검증은 운영 DB가 아니라 이 스냅샷만 읽는�
 
 만들기:
     .venv/bin/python -m tests.eval.snapshot --reference-date 2026-09-14 --cutoff-date 2023-09-01
+
+연구용 원본 수집(python -m app.crawler.main --research)에서 만들 때는 원본을 복사하지 않고 경로로
+넘기며, 컷오프를 수집 since와 같은 날짜로 준다:
+    .venv/bin/python -m tests.eval.snapshot --root data/eval/snapshot-<기준일> \\
+        --posts data/research/kau_notices_raw_<수집일>.json \\
+        --crawl-meta data/research/crawl_manifest_<수집일>.json \\
+        --reference-date <기준일> --cutoff-date <since>
 """
 
 from __future__ import annotations
@@ -70,8 +77,15 @@ def load_snapshot(root: Path | None = None) -> EvalSnapshot:
     )
 
 
-def build_snapshot(root: Path, *, reference_date: date, cutoff_date: date) -> dict[str, Any]:
-    """크롤러 원본(posts.json)을 기준일 컷오프로 정리해 DB와 manifest를 만든다.
+def build_snapshot(
+    root: Path,
+    *,
+    reference_date: date,
+    cutoff_date: date,
+    posts_path: Path | None = None,
+    crawl_meta_path: Path | None = None,
+) -> dict[str, Any]:
+    """크롤러 원본(기본 root/posts.json)을 기준일 컷오프로 정리해 DB와 manifest를 만든다.
 
     일반공지는 cutoff_date 이후(당일 포함) 게시분만 남기고, 상시공지는 게시일과 무관하게 남긴다.
     크롤러 보존 정책과 같은 판정(should_prune_stale_notice)을 쓰되 "오늘"을 기준일로 고정해,
@@ -86,7 +100,9 @@ def build_snapshot(root: Path, *, reference_date: date, cutoff_date: date) -> di
     if cutoff_date >= reference_date:
         raise ValueError("cutoff_date 는 reference_date 보다 이전이어야 합니다.")
 
-    posts = json.loads((root / POSTS_FILE).read_text(encoding="utf-8"))
+    posts_path = posts_path or root / POSTS_FILE
+    posts = json.loads(posts_path.read_text(encoding="utf-8"))
+    root.mkdir(parents=True, exist_ok=True)
     # should_prune_stale_notice 는 게시일 <= 기준일 - lookback 을 정리한다. cutoff_date 당일
     # 공지를 남기려면 경계를 하루 앞(cutoff_date - 1일)에 둔다.
     lookback_days = (reference_date - cutoff_date).days + 1
@@ -122,11 +138,12 @@ def build_snapshot(root: Path, *, reference_date: date, cutoff_date: date) -> di
         if (published := parse_published_date(post.get("published_at")))
     )
 
-    meta_path = root / CRAWL_META_FILE
+    meta_path = crawl_meta_path or root / CRAWL_META_FILE
     manifest = {
         "name": root.name,
         "reference_date": reference_date.isoformat(),
         "cutoff_date": cutoff_date.isoformat(),
+        "posts_source": str(posts_path),
         "posts_crawled": len(posts),
         "posts_pruned_before_cutoff": len(pruned),
         "posts_kept": len(kept),
@@ -163,6 +180,18 @@ def main(argv: list[str] | None = None) -> None:
     parser.add_argument(
         "--root", type=Path, default=None, help="스냅샷 디렉터리 (기본: EVAL_SNAPSHOT_DIR 또는 기본 경로)"
     )
+    parser.add_argument(
+        "--posts",
+        type=Path,
+        default=None,
+        help="크롤러 원본 JSON (기본: <root>/posts.json). 연구 수집 원본은 복사하지 않고 경로로 넘긴다",
+    )
+    parser.add_argument(
+        "--crawl-meta",
+        type=Path,
+        default=None,
+        help="수집 기록 JSON (기본: <root>/crawl_meta.json)",
+    )
     parser.add_argument("--reference-date", type=date.fromisoformat, required=True)
     parser.add_argument("--cutoff-date", type=date.fromisoformat, required=True)
     args = parser.parse_args(argv)
@@ -171,6 +200,8 @@ def main(argv: list[str] | None = None) -> None:
         args.root or snapshot_dir(),
         reference_date=args.reference_date,
         cutoff_date=args.cutoff_date,
+        posts_path=args.posts,
+        crawl_meta_path=args.crawl_meta,
     )
     summary = {key: value for key, value in manifest.items() if key != "crawl"}
     print(json.dumps(summary, ensure_ascii=False, indent=2))

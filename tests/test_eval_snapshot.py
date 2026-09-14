@@ -75,6 +75,28 @@ def test_build_counts_image_only_notices_as_enrichment_targets(tmp_path) -> None
     assert manifest["enrichment_target_assets"] == {"inline_image": 1}
 
 
+def test_build_reads_research_raw_without_copying_it(tmp_path) -> None:
+    research_dir = tmp_path / "research"
+    research_dir.mkdir()
+    raw = research_dir / "kau_notices_raw_2026-09-15.json"
+    raw.write_text(json.dumps([_post("recent", "2026-09-01")], ensure_ascii=False), encoding="utf-8")
+    crawl_manifest = research_dir / "crawl_manifest_2026-09-15.json"
+    crawl_manifest.write_text(json.dumps({"options": {"since": "2023-09-01"}}), encoding="utf-8")
+    root = tmp_path / "snapshot-test"
+
+    manifest = snap.build_snapshot(
+        root,
+        reference_date=REFERENCE,
+        cutoff_date=CUTOFF,
+        posts_path=raw,
+        crawl_meta_path=crawl_manifest,
+    )
+
+    assert (manifest["posts_source"], manifest["posts_kept"]) == (str(raw), 1)
+    assert manifest["crawl"] == {"options": {"since": "2023-09-01"}}
+    assert sorted(p.name for p in root.iterdir()) == [snap.DB_FILE, snap.MANIFEST_FILE]
+
+
 def test_build_rejects_cutoff_not_before_reference(tmp_path) -> None:
     root = tmp_path / "snapshot-test"
     _write_posts(root, [])

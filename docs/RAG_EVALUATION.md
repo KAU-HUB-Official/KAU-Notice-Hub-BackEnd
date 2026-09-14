@@ -12,7 +12,7 @@
 | 층위 | 무엇을 재나 | 지표 | 하네스 | OpenAI 비용 |
 | --- | --- | --- | --- | --- |
 | 검색(retrieval) | 정답 공지를 상위 k에 얼마나 잘 찾나 | recall@5, recall@10, MRR | `tests/eval/runner.py` | 없음 |
-| 답변 품질(RAGAS) | 환각·검색 노이즈·질문 적합성 | faithfulness, context precision, answer relevancy | `tests/eval/ragas_runner.py` | 발생 |
+| 답변 품질(RAGAS) | 환각·검색 노이즈 | faithfulness, context precision | `tests/eval/ragas_runner.py` | 발생 |
 
 두 층위는 입력 평가셋을 분리한다. 검색 평가는 라벨이 달린
 [tests/eval/retrieval_cases.yml](../tests/eval/retrieval_cases.yml)을 쓰고, 케이스는
@@ -55,25 +55,34 @@ recall@5 ≥ 0.70, recall@10 ≥ 0.85, MRR ≥ 0.55. baseline 측정 후 점진�
 ## 2. 답변 품질 (RAGAS, LLM-as-judge)
 
 답변·검색 품질을 LLM 채점관으로 정량화한다. 모범답안(ground truth) 라벨이 필요 없는
-3개 지표만 쓴다.
+2개 지표만 쓴다.
 
 - `faithfulness` — (답변 생성) 답변이 검색된 context에 충실한가. 환각 탐지.
 - `context_precision_without_reference` — (후보 검색·rerank) 검색된 context가
   질문에 관련 있나. 노이즈 비율.
-- `answer_relevancy` — (답변 생성) 답변이 질문에 실제로 답했나. 임베딩을 사용.
+
+답변이 질문에 실제로 답했는지는 RAGAS `answer_relevancy`로 재지 않고 **사람이 0/1로
+판정**한다. `answer_relevancy`는 답변에서 거꾸로 만든 질문과 원 질문의 임베딩 유사도로
+채점하는데, 이 서비스의 답변 방식과 맞지 않아 점수가 실제 품질보다 낮게 나왔다
+(2026-06-25 실행 13건 평균 0.36).
+
+- 공지에 없는 날짜를 추측하지 않고 "명시되어 있지 않다"고 답하면 얼버무린 답변으로
+  보고 0점을 준다. 같은 샘플의 faithfulness는 1.0이었다.
+- 기간·대상·방법을 목록으로 정리한 답변은 거꾸로 만든 질문이 원 질문과 달라져 점수가
+  낮아진다.
+
+사람 판정은 아래 실행별 상세 파일의 `user_input`과 `response`를 보고 한다. 답변은 실행마다
+새로 생성되므로 라벨은 그 실행 결과에만 해당한다.
 
 흐름: 평가셋의 각 질문을 실제 `/api/chat` 파이프라인에 돌려
 `(question, retrieved_contexts, response)`를 모은 뒤 ragas collections 메트릭의
-`ascore()`로 채점한다(native `llm_factory` + `OpenAIEmbeddings`, 비동기 클라이언트).
+`ascore()`로 채점한다(native `llm_factory`, 비동기 클라이언트).
 `retrieved_contexts`는 공지마다 `content`를 `build_context`와 같은 길이(1400자)로 잘라
 담는다 — 모델이 실제로 본 context를 채점하기 위함이다. 이미지뿐인 공지도 enrichment가
 `content`를 실제 텍스트로 채우므로(읽는 본문은 `content` 하나로 단일화) content만으로
 충분하다. `search` 분기가 아니거나(도메인외/history) 검색 0건인 케이스는 채점에서 스킵한다.
 
 - 채점관 LLM은 `OPENAI_MODEL`(기본 gpt-4.1-mini)을 재사용한다.
-- `answer_relevancy`는 임베딩이 필요해 `RAGAS_EMBEDDING_MODEL`(기본
-  `text-embedding-3-small`)을 추가로 호출한다. 이 임베딩은 채점기 내부 계산용이며
-  검색 파이프라인(키워드 검색)과는 무관하다.
 - **OpenAI 채점 호출 비용이 발생**하므로 기본 `pytest`에서 제외되고, `ragas` 마크로만
   실행한다([tests/test_chat_ragas.py](../tests/test_chat_ragas.py)).
 - 전제: `RAG_ENABLED=true` + `OPENAI_API_KEY`가 있어야 답변이 OpenAI로 생성된다.
@@ -97,11 +106,16 @@ RAG_ENABLED=true OPENAI_API_KEY=... \
   pytest -m ragas -s
 ```
 
-실행할 때마다 질문·필터·검색 context·생성 답변·점수·스킵 목록을 JSON 아티팩트
-`data/ragas_run.json`(`data/*.json`이라 gitignore됨)에 저장한다. 점수표만으론 0점·
-낮은 케이스의 원인을 못 보므로, 재실행 없이 실제 답변/context를 열어 진단하거나 변경
-전후를 비교하려는 용도다. `RAGAS_DUMP_PATH`로 경로를 바꾸고(예: `before.json`/
-`after.json`), 빈 문자열이면 저장하지 않는다. CLI와 `pytest -m ragas` 둘 다 남긴다.
+실행 결과는 두 곳에 남는다.
+
+- **실행별 상세**: `data/ragas_runs/<실행시각>.json`(예: `2026-09-14_153000.json`). 질문·필터·검색 context·생성 답변·
+  점수·스킵 목록을 담는다. `data/`는 gitignore 대상이라 로컬 전용이다. 점수표만으론
+  낮은 케이스의 원인을 못 보므로, 재실행 없이 실제 답변/context를 열어 진단하거나 사람
+  판정을 붙이는 데 쓴다. `RAGAS_DUMP_PATH`로 경로를 강제하고(예: `before.json`/
+  `after.json`), 빈 문자열이면 저장하지 않는다. CLI와 `pytest -m ragas` 둘 다 남긴다.
+- **요약 이력**: `tests/eval/eval_history.csv`. 실행 1회가 한 행이며 `run_ts`,
+  `judge_model`, `scored`, `skipped`, 지표별 평균, 상세 파일 경로를 담는다. git으로
+  추적해 변경 전후를 비교한다. CLI 실행에서만 기록한다.
 
 점수 하한 threshold는 baseline 측정 후 `tests/test_chat_ragas.py`에서 점진적으로
 올린다(현재는 지표가 정상 산출되는지와 `[0,1]` 범위만 검증).
@@ -120,7 +134,7 @@ RAG_ENABLED=true python -m tests.eval.ragas_runner | tee after.txt
 ```
 
 `AVG` 줄을 비교한다. 검색을 바꿨으면 recall/context precision을, 프롬프트를 바꿨으면
-faithfulness/answer relevancy를 본다.
+faithfulness와 사람 판정(질문에 답했나)을 본다.
 
 ## 평가셋 키우기
 
@@ -146,4 +160,5 @@ RAGAS 셋([ragas_cases.yml](../tests/eval/ragas_cases.yml))은 실사용 말투�
 | 검색 회귀 가드 | `tests/test_retrieval_quality.py` (`pytest -m eval`) |
 | RAGAS 평가 runner | `tests/eval/ragas_runner.py` |
 | RAGAS 회귀 가드 | `tests/test_chat_ragas.py` (`pytest -m ragas`) |
+| RAGAS 요약 이력 | `tests/eval/eval_history.csv` (CLI 실행 시 append) |
 | 평가 의존성 | `pyproject.toml`의 `eval` extra |

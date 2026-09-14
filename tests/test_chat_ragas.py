@@ -64,4 +64,3 @@ def test_ragas_scores_are_well_formed() -> None:
     #
     # assert summary["faithfulness"] >= 0.80, report
     # assert summary["context_precision_without_reference"] >= 0.70, report
-    # assert summary["answer_relevancy"] >= 0.70, report

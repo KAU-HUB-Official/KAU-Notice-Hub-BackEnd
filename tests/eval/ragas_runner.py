@@ -1,23 +1,25 @@
 """RAGAS 기반 RAG 품질 평가 runner (LLM-as-judge).
 
-라벨(모범답안)이 필요 없는 3개 지표만 측정한다 (ragas 0.4 collections API):
+라벨(모범답안)이 필요 없는 2개 지표만 측정한다 (ragas 0.4 collections API):
 
 - faithfulness                         : 답변이 검색된 context에 충실한가 (환각 여부)
 - context_precision_without_reference  : 검색된 context가 질문에 관련 있나 (노이즈)
-- answer_relevancy                     : 답변이 질문에 실제로 답했나 (임베딩 사용)
 
-채점관은 ragas native `llm_factory`(InstructorLLM) + native `OpenAIEmbeddings`를 쓰고,
-샘플마다 collections 메트릭의 `ascore()`로 채점한다. (구버전 LangchainLLMWrapper +
-evaluate() 경로는 answer_relevancy의 질문 생성이 n=3 요청에 1개만 반환돼 점수가
-왜곡되는 문제가 있어 native 경로로 교체했다.)
+answer_relevancy는 측정하지 않는다. 답변에서 거꾸로 만든 질문과 원 질문의 임베딩
+유사도로 채점하는데, 공지에 없는 날짜를 추측하지 않고 "명시되어 있지 않다"고 답하면
+얼버무린 답변으로 보고 0점을 주고, 기간·대상·방법을 목록으로 정리한 답변은 거꾸로
+만든 질문이 원 질문과 달라져 점수가 낮게 나온다. 질문에 답했는지는 사람이 0/1로
+판정한다.
+
+채점관은 ragas native `llm_factory`(InstructorLLM)를 쓰고, 샘플마다 collections
+메트릭의 `ascore()`로 채점한다.
 
 각 지표는 OpenAI를 채점관으로 호출하므로 **비용이 발생한다**. 그래서 평가셋의
 질문마다 실제 `/api/chat` 파이프라인(triage → 검색 → rerank → 답변 생성)을 한 번
 돌려 (question, retrieved_contexts, response)를 모은 뒤 RAGAS로 채점한다.
 
 전제: `RAG_ENABLED=true` 와 `OPENAI_API_KEY` 가 설정돼 있어야 한다. 채점관 LLM은
-`OPENAI_MODEL`(기본 gpt-4.1-mini)을 재사용하고, answer_relevancy용 임베딩 모델은
-`RAGAS_EMBEDDING_MODEL`(기본 text-embedding-3-small)을 쓴다.
+`OPENAI_MODEL`(기본 gpt-4.1-mini)을 재사용한다.
 
 두 가지 방식으로 호출:
 
@@ -75,7 +77,6 @@ CASES_PATH = Path(__file__).parent / "ragas_cases.yml"
 
 # build_context가 LLM에 넣는 본문 길이와 맞춰, 실제로 모델이 본 context를 채점한다.
 CONTEXT_CHARS = 1400
-DEFAULT_EMBEDDING_MODEL = "text-embedding-3-small"
 
 # 평가 1회의 (질문·필터·검색 context·생성 답변·점수)를 남기는 JSON 아티팩트.
 # 실행마다 data/ragas_runs/<run_ts>.json 으로 남겨 과거 실행을 덮어쓰지 않는다(회귀
@@ -92,12 +93,7 @@ HISTORY_CSV_PATH = Path(__file__).parent / "eval_history.csv"
 METRIC_NAMES = [
     "faithfulness",
     "context_precision_without_reference",
-    "answer_relevancy",
 ]
-
-
-def _embedding_model() -> str:
-    return os.environ.get("RAGAS_EMBEDDING_MODEL", DEFAULT_EMBEDDING_MODEL)
 
 
 def _load_cases() -> list[dict[str, Any]]:
@@ -228,10 +224,8 @@ async def _score_samples(samples: list[dict[str, Any]]) -> list[dict[str, Any]]:
     # collections 메트릭의 ascore()는 agenerate()를 호출하므로 async 클라이언트가 필요하다
     # (동기 OpenAI 클라이언트면 "Cannot use agenerate() with a synchronous client" 에러).
     from openai import AsyncOpenAI
-    from ragas.embeddings import OpenAIEmbeddings
     from ragas.llms import llm_factory
     from ragas.metrics.collections import (
-        AnswerRelevancy,
         ContextPrecisionWithoutReference,
         Faithfulness,
     )
@@ -241,14 +235,12 @@ async def _score_samples(samples: list[dict[str, Any]]) -> list[dict[str, Any]]:
     # 기본 max_tokens=1024는 우리 context(공지 본문 다수)·답변 길이에선 구조화 출력이
     # 잘려 IncompleteOutputException이 난다. ragas 권장대로 4096으로 올린다.
     llm = llm_factory(settings.openai_model, client=client, max_tokens=4096)
-    embeddings = OpenAIEmbeddings(client=client, model=_embedding_model())
 
     faith = Faithfulness(llm=llm)
     ctx_prec = ContextPrecisionWithoutReference(llm=llm)
-    relev = AnswerRelevancy(llm=llm, embeddings=embeddings, strictness=3)
 
     total = len(samples)
-    _progress(f"[2/2 채점] {total}개 샘플을 RAGAS 3개 지표로 채점합니다 (지표마다 OpenAI 호출)…")
+    _progress(f"[2/2 채점] {total}개 샘플을 RAGAS 2개 지표로 채점합니다 (지표마다 OpenAI 호출)…")
     rows: list[dict[str, Any]] = []
     for index, sample in enumerate(samples, start=1):
         ui = sample["user_input"]
@@ -256,24 +248,22 @@ async def _score_samples(samples: list[dict[str, Any]]) -> list[dict[str, Any]]:
         ctxs = sample["retrieved_contexts"]
         case_id = sample["case_id"]
         _progress(f"  [{index}/{total}] {case_id} … 채점 중")
-        # 샘플당 3개 지표를 동시에(과한 burst 없이) 채점한다.
-        faith_score, ctx_score, ans_score = await asyncio.gather(
+        # 샘플당 2개 지표를 동시에(과한 burst 없이) 채점한다.
+        faith_score, ctx_score = await asyncio.gather(
             _safe_score(faith.ascore(user_input=ui, response=resp, retrieved_contexts=ctxs)),
             _safe_score(
                 ctx_prec.ascore(user_input=ui, response=resp, retrieved_contexts=ctxs)
             ),
-            _safe_score(relev.ascore(user_input=ui, response=resp)),
         )
         _progress(
             f"  [{index}/{total}] {case_id} → "
-            f"faith={faith_score:.3f} ctx_prec={ctx_score:.3f} ans_rel={ans_score:.3f}"
+            f"faith={faith_score:.3f} ctx_prec={ctx_score:.3f}"
         )
         rows.append(
             {
                 "case_id": case_id,
                 "faithfulness": faith_score,
                 "context_precision_without_reference": ctx_score,
-                "answer_relevancy": ans_score,
             }
         )
     _progress("[2/2 채점] 완료. 아래에 최종 보고서를 출력합니다.")
@@ -345,7 +335,6 @@ def write_run_artifact(
                 "context_precision_without_reference": _clean_score(
                     row.get("context_precision_without_reference")
                 ),
-                "answer_relevancy": _clean_score(row.get("answer_relevancy")),
                 "retrieved_contexts": sample["retrieved_contexts"],
             }
         )
@@ -367,20 +356,18 @@ def append_history(
     *,
     run_ts: str,
     judge_model: str,
-    embedding_model: str,
     dump: Path | None,
 ) -> None:
     """실행 요약 한 행을 eval_history.csv에 append 한다(회귀 추적용, git 추적 대상).
 
     개별 케이스 점수가 아니라 지표 평균만 남긴다(상세는 dump 아티팩트에 있음). 파일이
-    없으면 헤더를 먼저 쓴다. 어떤 채점관·임베딩으로 낸 점수인지 함께 기록해, 채점 설정이
+    없으면 헤더를 먼저 쓴다. 어떤 채점관으로 낸 점수인지 함께 기록해, 채점 설정이
     다른 실행끼리 잘못 비교하지 않도록 한다.
     """
     summary = summarize(rows)
     fields = [
         "run_ts",
         "judge_model",
-        "embedding_model",
         "scored",
         "skipped",
         *METRIC_NAMES,
@@ -389,7 +376,6 @@ def append_history(
     record = {
         "run_ts": run_ts,
         "judge_model": judge_model,
-        "embedding_model": embedding_model,
         "scored": len(rows),
         "skipped": len(skipped),
         "dump": str(dump) if dump is not None else "",
@@ -410,7 +396,6 @@ def format_report(rows: list[dict[str, Any]], skipped: list[str]) -> str:
     short = {
         "faithfulness": "faith",
         "context_precision_without_reference": "ctx_prec",
-        "answer_relevancy": "ans_rel",
     }
     header = f"{'case':10s} " + " ".join(f"{short[c]:>9s}" for c in METRIC_NAMES)
     lines = [header, "-" * len(header)]
@@ -451,7 +436,6 @@ def main() -> None:
         skipped,
         run_ts=run_ts,
         judge_model=settings.openai_model,
-        embedding_model=_embedding_model(),
         dump=path,
     )
     _progress(f"[이력] 요약 점수를 {HISTORY_CSV_PATH} 에 append 했습니다.")

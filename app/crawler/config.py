@@ -1,3 +1,4 @@
+import os
 from pathlib import Path
 
 BASE_URL = "https://kau.ac.kr"
@@ -98,12 +99,41 @@ USER_AGENT = (
     "Mozilla/5.0 (compatible; KAU-Notice-Crawler/1.0; +https://kau.ac.kr)"
 )
 REQUEST_TIMEOUT_SECONDS = 15
-REQUEST_DELAY_SECONDS = (0.5, 1.2)
 VERIFY_SSL = True
 
 DEFAULT_MAX_PAGES = 0
 DEFAULT_POSTS_PER_BOARD = 20
-RECENT_NOTICE_DAYS = 365
+
+
+def _positive_int_from_env(name: str, default: int) -> int:
+    raw = os.environ.get(name, "").strip()
+    if not raw:
+        return default
+    value = int(raw)
+    if value <= 0:
+        raise ValueError(f"{name}는 양의 정수여야 합니다: {raw!r}")
+    return value
+
+
+def _delay_range_from_env(name: str, default: tuple[float, float]) -> tuple[float, float]:
+    raw = os.environ.get(name, "").strip()
+    if not raw:
+        return default
+    parts = [part.strip() for part in raw.split(",")]
+    if len(parts) != 2:
+        raise ValueError(f"{name}는 '최소,최대' 형식이어야 합니다: {raw!r}")
+    low, high = float(parts[0]), float(parts[1])
+    if low < 0 or high < low:
+        raise ValueError(f"{name}는 0 이상이고 최소 <= 최대여야 합니다: {raw!r}")
+    return low, high
+
+
+# 기본값이 운영 수집 정책이다. 평가용 고정 스냅샷처럼 넓은 기간을 한 번에 모을 때만
+# 환경변수로 바꾼다. scripts/run_incremental_crawl_publish.sh 는 게시 전 정리를 365일로
+# 따로 수행하므로, 기간을 바꾼 수집은 게시 스크립트가 아니라 app.crawler.main 을 직접
+# 실행해 별도 경로에 저장한다.
+REQUEST_DELAY_SECONDS = _delay_range_from_env("CRAWLER_REQUEST_DELAY_SECONDS", (0.5, 1.2))
+RECENT_NOTICE_DAYS = _positive_int_from_env("CRAWLER_RECENT_NOTICE_DAYS", 365)
 
 
 def _source_name(label: str) -> str:

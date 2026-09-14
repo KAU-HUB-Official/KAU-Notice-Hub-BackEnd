@@ -44,6 +44,11 @@
 
 즉, 컷오프 날짜와 같은 날짜는 최근으로 보지 않습니다.
 
+기간은 `CRAWLER_RECENT_NOTICE_DAYS` 환경변수로 바꿀 수 있습니다(기본 365). 요청 간격은
+`CRAWLER_REQUEST_DELAY_SECONDS`(기본 `0.5,1.2`초)로 바꿉니다. 평가용 고정 스냅샷처럼 넓은 기간을
+한 번에 모을 때만 쓰고, 게시 스크립트(`run_incremental_crawl_publish.sh`)는 게시 전 정리를
+365일로 따로 하므로 `python -m app.crawler.main --output <별도 경로>`로 직접 실행합니다.
+
 세부 동작:
 
 - 상시공지

@@ -21,15 +21,9 @@ answer_relevancy는 측정하지 않는다. 답변에서 거꾸로 만든 질문
 전제: `RAG_ENABLED=true` 와 `OPENAI_API_KEY` 가 설정돼 있어야 한다. 채점관 LLM은
 `OPENAI_MODEL`(기본 gpt-4.1-mini)을 재사용한다.
 
-두 가지 방식으로 호출:
-
-1. CLI 보고서:
+실행:
 
    RAG_ENABLED=true OPENAI_API_KEY=... .venv/bin/python -m tests.eval.ragas_runner
-
-2. pytest 회귀 가드(비용 발생, ragas 마크로만):
-
-   RAG_ENABLED=true OPENAI_API_KEY=... .venv/bin/python -m pytest -m ragas
 
 평가 질문은 RAGAS 전용 셋 tests/eval/ragas_cases.yml 을 쓴다(question/filters만
 사용). 운영 데이터(data/kau_notice_hub.db)가 있어야 검색이 동작한다.

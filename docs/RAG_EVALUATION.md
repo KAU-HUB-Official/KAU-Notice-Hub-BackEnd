@@ -24,7 +24,7 @@
 > 채점 지표로 대체한다.
 
 RAGAS 평가는 운영 데이터(`data/kau_notice_hub.db`)가 있어야 검색이 동작하고 OpenAI 비용이
-들므로, 기본 `pytest`에서 제외하고 전용 마크로만 실행한다.
+들므로, CI에서는 돌리지 않고 필요할 때 CLI로 실행한다.
 
 ## 답변 품질 (RAGAS, LLM-as-judge)
 
@@ -57,8 +57,7 @@ RAGAS 평가는 운영 데이터(`data/kau_notice_hub.db`)가 있어야 검색�
 충분하다. `search` 분기가 아니거나(도메인외/history) 검색 0건인 케이스는 채점에서 스킵한다.
 
 - 채점관 LLM은 `OPENAI_MODEL`(기본 gpt-4.1-mini)을 재사용한다.
-- **OpenAI 채점 호출 비용이 발생**하므로 기본 `pytest`에서 제외되고, `ragas` 마크로만
-  실행한다([tests/test_chat_ragas.py](../tests/test_chat_ragas.py)).
+- **OpenAI 채점 호출 비용이 발생**하므로 필요할 때 CLI로만 실행한다.
 - 전제: `RAG_ENABLED=true` + `OPENAI_API_KEY`가 있어야 답변이 OpenAI로 생성된다.
   비활성 상태면 답변이 local fallback이라 채점 대상이 아니다.
 
@@ -74,10 +73,6 @@ python3 -m pip install -e '.[eval]'
 # CLI 보고서 (지표별 평균 표). OPENAI_API_KEY는 .env에서 읽는다.
 RAG_ENABLED=true OPENAI_API_KEY=... \
   python -m tests.eval.ragas_runner
-
-# pytest 회귀 가드 (비용 발생). -s 로 점수표를 콘솔에 출력.
-RAG_ENABLED=true OPENAI_API_KEY=... \
-  pytest -m ragas -s
 ```
 
 실행 결과는 두 곳에 남는다.
@@ -86,13 +81,10 @@ RAG_ENABLED=true OPENAI_API_KEY=... \
   점수·스킵 목록을 담는다. `data/`는 gitignore 대상이라 로컬 전용이다. 점수표만으론
   낮은 케이스의 원인을 못 보므로, 재실행 없이 실제 답변/context를 열어 진단하거나 사람
   판정을 붙이는 데 쓴다. `RAGAS_DUMP_PATH`로 경로를 강제하고(예: `before.json`/
-  `after.json`), 빈 문자열이면 저장하지 않는다. CLI와 `pytest -m ragas` 둘 다 남긴다.
+  `after.json`), 빈 문자열이면 저장하지 않는다.
 - **요약 이력**: `tests/eval/eval_history.csv`. 실행 1회가 한 행이며 `run_ts`,
   `judge_model`, `scored`, `skipped`, 지표별 평균, 상세 파일 경로를 담는다. git으로
-  추적해 변경 전후를 비교한다. CLI 실행에서만 기록한다.
-
-점수 하한 threshold는 baseline 측정 후 `tests/test_chat_ragas.py`에서 점진적으로
-올린다(현재는 지표가 정상 산출되는지와 `[0,1]` 범위만 검증).
+  추적해 변경 전후를 비교한다.
 
 ## 변경 전후 비교 (핵심 용도)
 
@@ -130,6 +122,5 @@ RAGAS 셋([ragas_cases.yml](../tests/eval/ragas_cases.yml))은 실사용 말투�
 | --- | --- |
 | RAGAS 평가셋(자연어 질문) | `tests/eval/ragas_cases.yml` |
 | RAGAS 평가 runner | `tests/eval/ragas_runner.py` |
-| RAGAS 회귀 가드 | `tests/test_chat_ragas.py` (`pytest -m ragas`) |
-| RAGAS 요약 이력 | `tests/eval/eval_history.csv` (CLI 실행 시 append) |
+| RAGAS 요약 이력 | `tests/eval/eval_history.csv` (실행 시 append) |
 | 평가 의존성 | `pyproject.toml`의 `eval` extra |

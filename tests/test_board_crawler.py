@@ -1,12 +1,15 @@
 from __future__ import annotations
 
+import json
 from dataclasses import replace
 from datetime import date
+from urllib.parse import parse_qs, urlparse
 
 import pytest
 
 from app.crawler.models.post import Post
 from app.crawler.parsers.base_parser import BaseParser
+from app.crawler.parsers.kau_college_parser import KAUCollegeParser
 from app.crawler.services.board_crawler import (
     STOP_EMPTY_LIST,
     STOP_REPEATED_LIST,
@@ -275,6 +278,43 @@ def test_crawl_board_keeps_title_only_notice_only_in_research_mode() -> None:
     posts, failed_items = run(True)
     assert [(post["content"], post["content_empty"]) for post in posts] == [("", True)]
     assert failed_items == []
+
+
+def test_college_body_images_ignore_previous_and_next_articles() -> None:
+    """college 상세 API는 이전·다음 글 본문도 함께 주므로 그 글의 이미지가 이 공지에 붙으면 안 된다."""
+    other = {"nttCn": '<p><img src="/web/cmm/imageSrc.do?path=next-article-poster"></p>'}
+    details = {
+        "1": {"nttSj": "수강신청 안내", "frstRegisterPnttm": "2026-07-23", "nttCn": '<p>안내</p><img src="/web/cmm/imageSrc.do?path=own">'},
+        "2": {"nttSj": "첨부만 있는 공지", "frstRegisterPnttm": "2026-07-23", "nttCn": ""},
+    }
+    parser = KAUCollegeParser(
+        notice_page_url="http://college.kau.ac.kr/web/pages/gc1986b.do", site_flag="am_www", mnu_id="gc1986b", bbs_id="0024"
+    )
+
+    def fetch_detail(board: dict, detail_url: str) -> DetailFetchResult:
+        ntt_id = parse_qs(urlparse(detail_url).query)["nttId"][0]
+        return DetailFetchResult(
+            html=json.dumps({"result": details[ntt_id], "resultPre": other, "resultPost": other, "resultFile": []})
+        )
+
+    adapter = BoardAdapter(
+        parser_factory=lambda board: parser,
+        build_list_page_url=lambda board, page: board["key"],
+        fetch_list_html=lambda board, page: json.dumps({"resultList": [{"nttId": "1"}, {"nttId": "2"}]}) if page == 1 else None,
+        fetch_detail=fetch_detail,
+    )
+
+    posts, failed_items, _report = crawl_board(
+        BOARD, max_pages=0, adapter=adapter, known_urls=set(), since=SINCE, keep_empty_content=True
+    )
+
+    assert failed_items == []
+    by_title = {post["title"]: post for post in posts}
+    assert [a["url"] for a in by_title["수강신청 안내"]["content_assets"]] == [
+        "http://college.kau.ac.kr/web/cmm/imageSrc.do?path=own"
+    ]
+    assert not by_title["첨부만 있는 공지"].get("content_assets")
+    assert by_title["첨부만 있는 공지"]["content_empty"] is True
 
 
 def test_retry_failed_details_recovers_transient_detail_failure() -> None:

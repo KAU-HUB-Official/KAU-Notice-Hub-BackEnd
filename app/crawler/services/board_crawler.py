@@ -322,8 +322,9 @@ def _parse_detail_item(
     try:
         post = parser.parse_post(fetch_result.html, detail_url)
         post.original_url = canonicalize_original_url(post.original_url)
-        inline_assets = extract_inline_image_assets(fetch_result.html, detail_url)
-        inline_embeds = extract_inline_embed_assets(fetch_result.html, detail_url)
+        body_html = parser.body_html(fetch_result.html)
+        inline_assets = extract_inline_image_assets(body_html, detail_url)
+        inline_embeds = extract_inline_embed_assets(body_html, detail_url)
         _fill_missing_content_from_body_assets(
             post,
             inline_images=inline_assets,

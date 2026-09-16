@@ -112,7 +112,6 @@ def crawl_all_notices(
     research=True는 연구용 원본 수집이다. 운영 기본 동작과 달리
     - 제목이 같아도 합치지 않고 URL 기준 중복 제거만 한다(해마다 같은 제목으로 올라오는 회차 보존).
     - 오래된 공지 삭제와 본문 보강을 하지 않는다.
-    - 본문이 빈 공지도 content_empty로 표시해 남긴다.
     - 실패한 상세 공지를 수집 끝에 한 번 더 시도하고, 게시판별 수집 기록(manifest)을 남긴다.
     원본을 덮어쓰지 않도록 output_path가 이미 있거나, 수집 조건을 커밋 하나로 남길 수 없도록
     미커밋 파일이 있으면 시작하지 않는다.
@@ -186,7 +185,6 @@ def crawl_all_notices(
                 known_urls=known_urls,
                 known_posts_by_url=known_posts_by_url,
                 since=since,
-                keep_empty_content=research,
             )
             all_new_posts.extend(posts)
             all_failed_items.extend(failed_items)
@@ -207,7 +205,6 @@ def crawl_all_notices(
                     known_urls=known_urls,
                     known_posts_by_url=known_posts_by_url,
                     since=since,
-                    keep_empty_content=True,
                 )
                 posts.extend(result.recovered)
                 all_new_posts.extend(result.recovered)
@@ -314,9 +311,6 @@ def crawl_all_notices(
                         "url_dedup_removed": merge_result.url_dedup_removed,
                         "title_dedup_removed": merge_result.title_dedup_removed,
                         "stale_pruned": prune_result.stale_pruned,
-                        "content_empty_posts": sum(
-                            1 for post in prune_result.posts if post.get("content_empty")
-                        ),
                         "failed_items": len(all_failed_items),
                     },
                     "retry": retry_record,

@@ -1,9 +1,11 @@
 """본문을 되살릴 수 없는 공지를 연구 데이터에서 뺀다. 입력 파일은 덮어쓰지 않고 걸러낸 사본을 쓴다.
 
-제외 대상: 보강 캐시를 적용한 뒤에도 여전히 보강 대상인 공지. 본문에 텍스트가 없이 이미지뿐인데
-그 이미지에서 텍스트를 뽑지 못한 공지(이미지 주소가 사라졌거나 파일을 받을 수 없음)라서 내용을 알 수 없다.
-남기는 공지: 이미지 일부가 깨졌어도 본문 텍스트가 있거나 보강에 성공한 공지, 사이트 원문 자체가 제목만 있는
-공지(content_empty, 보강 대상 아님).
+제외 대상
+- 본문 없음: 본문·이미지·첨부가 모두 없어 읽을 내용이 없는 공지(사이트에 빈 글로 올라온 경우).
+  크롤러도 이런 공지를 더는 수집하지 않는다(2026-09-16). 옛 수집본을 정리할 때 쓴다.
+- 보강 실패: 보강 캐시를 적용한 뒤에도 여전히 보강 대상인 공지. 본문 텍스트가 없이 이미지뿐인데
+  그 이미지에서 텍스트를 뽑지 못해(주소가 사라졌거나 파일을 받을 수 없어) 내용을 알 수 없다.
+남기는 공지: 이미지 일부가 깨졌어도 본문 텍스트가 있거나 보강에 성공한 공지.
 제외 뒤 구성원이 1건만 남은 교차 게시 그룹은 crosspost_group_id를 비운다.
 
 예 (네트워크·OpenAI 호출 없음):
@@ -38,7 +40,8 @@ def split_unrecoverable(
     kept: list[dict[str, Any]] = []
     removed: list[dict[str, Any]] = []
     for post in posts:
-        if not service.should_enrich(post):
+        empty = not str(post.get("content") or "").strip()
+        if not empty and not service.should_enrich(post):
             kept.append(dict(post))
             continue
         assets = []
@@ -54,6 +57,7 @@ def split_unrecoverable(
             )
         removed.append(
             {
+                "reason": "본문 없음" if empty else "보강 실패",
                 "original_url": post.get("original_url"),
                 "title": post.get("title"),
                 "published_at": post.get("published_at"),
@@ -90,6 +94,7 @@ def main(argv: list[str] | None = None) -> None:
         "input": str(args.input),
         "posts": len(posts),
         "removed": len(removed),
+        "removed_by_reason": dict(Counter(r["reason"] for r in removed)),
         "kept": len(kept),
         "cleared_crosspost_groups": cleared,
         "removed_by_year": dict(sorted(Counter(str(r["published_at"])[:4] for r in removed).items())),
@@ -105,7 +110,7 @@ def main(argv: list[str] | None = None) -> None:
     args.removed.write_text(
         json.dumps(
             {
-                "rule": "보강 캐시를 적용한 뒤에도 본문 텍스트가 없고 이미지에서 텍스트를 뽑지 못한 공지를 제외",
+                "rule": "본문·이미지·첨부가 모두 없는 공지와, 보강 캐시를 적용한 뒤에도 이미지에서 텍스트를 뽑지 못한 공지를 제외",
                 "summary": summary,
                 "removed": removed,
             },

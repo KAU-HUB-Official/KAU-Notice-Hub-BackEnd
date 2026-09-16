@@ -250,34 +250,23 @@ def test_crawl_board_reports_non_date_stop_reason(second_page, reason) -> None:
     )
 
 
-def test_crawl_board_keeps_title_only_notice_only_in_research_mode() -> None:
+def test_crawl_board_drops_notice_with_no_title_or_content() -> None:
+    """본문·이미지·첨부가 모두 없는 공지는 읽을 내용이 없어 연구 수집에서도 남기지 않는다."""
     url = "https://example.com/title-only"
+    title_only = replace(make_post(url, title="학점교류 수강안내"), content="")
+    adapter = make_adapter(
+        items_by_page={1: [{"url": url, "is_permanent_notice": False}]},
+        posts_by_url={url: title_only},
+        fetched_pages=[],
+        fetched_details=[],
+    )
 
-    def run(keep_empty_content: bool) -> tuple[list[dict], list[dict]]:
-        title_only = replace(make_post(url, title="학점교류 수강안내"), content="")
-        adapter = make_adapter(
-            items_by_page={1: [{"url": url, "is_permanent_notice": False}]},
-            posts_by_url={url: title_only},
-            fetched_pages=[],
-            fetched_details=[],
-        )
-        posts, failed_items, _report = crawl_board(
-            BOARD,
-            max_pages=0,
-            adapter=adapter,
-            known_urls=set(),
-            since=SINCE,
-            keep_empty_content=keep_empty_content,
-        )
-        return posts, failed_items
+    posts, failed_items, _report = crawl_board(
+        BOARD, max_pages=0, adapter=adapter, known_urls=set(), since=SINCE
+    )
 
-    posts, failed_items = run(False)
     assert posts == []
     assert [item["reason"] for item in failed_items] == ["required_field_empty:content"]
-
-    posts, failed_items = run(True)
-    assert [(post["content"], post["content_empty"]) for post in posts] == [("", True)]
-    assert failed_items == []
 
 
 def test_college_body_images_ignore_previous_and_next_articles() -> None:
@@ -285,7 +274,7 @@ def test_college_body_images_ignore_previous_and_next_articles() -> None:
     other = {"nttCn": '<p><img src="/web/cmm/imageSrc.do?path=next-article-poster"></p>'}
     details = {
         "1": {"nttSj": "수강신청 안내", "frstRegisterPnttm": "2026-07-23", "nttCn": '<p>안내</p><img src="/web/cmm/imageSrc.do?path=own">'},
-        "2": {"nttSj": "첨부만 있는 공지", "frstRegisterPnttm": "2026-07-23", "nttCn": ""},
+        "2": {"nttSj": "본문이 빈 공지", "frstRegisterPnttm": "2026-07-23", "nttCn": ""},
     }
     parser = KAUCollegeParser(
         notice_page_url="http://college.kau.ac.kr/web/pages/gc1986b.do", site_flag="am_www", mnu_id="gc1986b", bbs_id="0024"
@@ -305,16 +294,15 @@ def test_college_body_images_ignore_previous_and_next_articles() -> None:
     )
 
     posts, failed_items, _report = crawl_board(
-        BOARD, max_pages=0, adapter=adapter, known_urls=set(), since=SINCE, keep_empty_content=True
+        BOARD, max_pages=0, adapter=adapter, known_urls=set(), since=SINCE
     )
 
-    assert failed_items == []
-    by_title = {post["title"]: post for post in posts}
-    assert [a["url"] for a in by_title["수강신청 안내"]["content_assets"]] == [
+    # 이웃 글 이미지를 가져오지 않으므로, 본문이 빈 공지는 이미지가 붙지 않아 그대로 버려진다.
+    assert [post["title"] for post in posts] == ["수강신청 안내"]
+    assert [a["url"] for a in posts[0]["content_assets"]] == [
         "http://college.kau.ac.kr/web/cmm/imageSrc.do?path=own"
     ]
-    assert not by_title["첨부만 있는 공지"].get("content_assets")
-    assert by_title["첨부만 있는 공지"]["content_empty"] is True
+    assert [item["reason"] for item in failed_items] == ["required_field_empty:content"]
 
 
 def test_retry_failed_details_recovers_transient_detail_failure() -> None:

@@ -284,7 +284,6 @@ def _parse_detail_item(
     known_posts_by_url: dict[str, dict],
     failed_items: list[dict],
     since: date | None = None,
-    keep_empty_content: bool = False,
 ) -> tuple[dict | None, bool]:
     board_label = _board_label(board)
     detail_url = str(detail_item["url"])
@@ -331,10 +330,9 @@ def _parse_detail_item(
             inline_embeds=inline_embeds,
         )
         _fill_missing_content_from_attachments(post)
+        # 본문·이미지·첨부가 모두 없는 공지는 읽을 내용이 없어 연구 수집에서도 남기지 않는다.
         missing_fields = _missing_required_fields(post)
-        # 연구 수집은 제목만 있고 본문·이미지·첨부가 모두 없는 공지도 남긴다(사이트 원문이 빈 경우).
-        content_empty = keep_empty_content and missing_fields == ["content"]
-        if missing_fields and not content_empty:
+        if missing_fields:
             failed_items.append(
                 {
                     "board": board["name"],
@@ -366,9 +364,6 @@ def _parse_detail_item(
         post_dict["board_key"] = board.get("key")
         if inline_assets:
             post_dict["content_assets"] = inline_assets
-        if content_empty:
-            post_dict["content"] = ""
-            post_dict["content_empty"] = True
         post_dict["is_permanent_notice"] = is_permanent_notice
         known_urls.add(post.original_url)
         known_posts_by_url[post.original_url] = post_dict
@@ -393,7 +388,6 @@ def crawl_board(
     known_urls: set[str],
     known_posts_by_url: dict[str, dict] | None = None,
     since: date | None = None,
-    keep_empty_content: bool = False,
 ) -> tuple[list[dict], list[dict], BoardCrawlReport]:
     parser = adapter.parser_factory(board)
     board_label = _board_label(board)
@@ -526,7 +520,6 @@ def crawl_board(
                 known_posts_by_url=known_posts,
                 failed_items=failed_items,
                 since=since,
-                keep_empty_content=keep_empty_content,
             )
             if len(failed_items) > failed_before:
                 report.failed_details.append({**detail_item, "reason": failed_items[-1]["reason"]})
@@ -569,7 +562,6 @@ def retry_failed_details(
     known_urls: set[str],
     known_posts_by_url: dict[str, dict],
     since: date | None = None,
-    keep_empty_content: bool = False,
 ) -> DetailRetryResult:
     """수집 중 실패한 상세 공지를 한 번 더 시도한다.
 
@@ -595,7 +587,6 @@ def retry_failed_details(
             known_posts_by_url=known_posts_by_url,
             failed_items=still_failed,
             since=since,
-            keep_empty_content=keep_empty_content,
         )
         if post:
             recovered.append(post)

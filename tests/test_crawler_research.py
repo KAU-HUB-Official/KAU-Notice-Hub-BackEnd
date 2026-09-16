@@ -136,25 +136,28 @@ def test_research_crawl_keeps_repeats_and_writes_manifest(research_env) -> None:
         post["published_at"] for post in saved if post["title"] == "유고결석 신청 관련 공지"
     ) == ["2025-04-01", "2026-03-31"]
     # 두 게시판에 같은 URL로 올라온 공지는 1건이고, 먼저 수집한 게시판으로 남는다.
-    assert sorted(by_url) == sorted([URL_2026, URL_2025, URL_FLAKY, URL_TITLE_ONLY])
+    # 본문·이미지·첨부가 모두 없는 공지는 연구 수집에서도 남기지 않는다.
+    assert sorted(by_url) == sorted([URL_2026, URL_2025, URL_FLAKY])
     assert by_url[URL_2026]["board_key"] == "board_a"
     assert all(
         isinstance(post["source_name"], str) and isinstance(post["category_raw"], str)
         for post in saved
     )
-    assert (by_url[URL_TITLE_ONLY]["content"], by_url[URL_TITLE_ONLY]["content_empty"]) == ("", True)
 
     # 실패 목록은 원본 옆에 두고, 운영 실패 파일은 건드리지 않는다.
     failed_path = out.with_name("kau_notices_raw_2026-09-15.failed.json")
-    assert json.loads(failed_path.read_text(encoding="utf-8")) == []
+    assert [(item["url"], item["reason"]) for item in json.loads(failed_path.read_text(encoding="utf-8"))] == [
+        (URL_TITLE_ONLY, "required_field_empty:content")
+    ]
     assert not (research_env / "production_failed.json").exists()
 
     manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
     assert manifest["git"] == {"commit": "abc123", "uncommitted_files": 0}
     assert manifest["command"] == "python -m app.crawler.main --research"
     assert manifest["options"]["since"] == "2023-01-01"
-    assert (manifest["totals"]["title_dedup_removed"], manifest["totals"]["content_empty_posts"]) == (0, 1)
-    assert manifest["retry"] == {"attempted": 1, "recovered": [URL_FLAKY], "still_failed": []}
+    assert manifest["totals"]["title_dedup_removed"] == 0
+    assert manifest["retry"]["recovered"] == [URL_FLAKY]
+    assert [item["url"] for item in manifest["retry"]["still_failed"]] == [URL_TITLE_ONLY]
 
     boards = {board["board_key"]: board for board in manifest["boards"]}
     assert (
@@ -167,7 +170,7 @@ def test_research_crawl_keeps_repeats_and_writes_manifest(research_env) -> None:
         boards["board_b"]["posts"],
         boards["board_b"]["failed_items"],
         boards["board_b"]["oldest_published_at"],
-    ) == ("empty_list", 2, 0, "2026-04-01")
+    ) == ("empty_list", 1, 1, "2026-05-01")
     # B학과는 빈 목록으로 멈췄고 가장 오래된 공지가 since보다 90일 넘게 늦어 확인 대상이다.
     assert [board["board_key"] for board in manifest["review_boards"]] == ["board_b"]
 

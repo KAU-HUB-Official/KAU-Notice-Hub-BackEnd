@@ -25,7 +25,7 @@ from app.crawler.config import NOTICE_BOARDS
 from app.crawler.services.board_crawler import _parse_detail_item
 from app.crawler.services.board_registry import build_board_adapters, build_clients
 
-COMPARED_FIELDS = ("title", "content", "content_assets", "attachments", "published_at", "content_empty")
+COMPARED_FIELDS = ("title", "content", "content_assets", "attachments", "published_at")
 
 
 def _image_urls(post: dict[str, Any]) -> list[str]:
@@ -72,7 +72,6 @@ def main(argv: list[str] | None = None) -> None:
                     known_posts_by_url={},
                     failed_items=failed,
                     since=args.since,
-                    keep_empty_content=True,
                 )
                 if new is not None or attempt:
                     break

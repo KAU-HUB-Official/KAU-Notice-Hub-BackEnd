@@ -49,16 +49,17 @@ def test_drops_only_image_only_notices_whose_text_could_not_be_extracted(tmp_pat
         _post("partner", TEXT, image=False, group="xp-00001"),  # 같은 그룹의 텍스트 공지 → 남고 그룹은 비움
         _post("broken-but-text", TEXT + "\n![포스터](https://kau.ac.kr/broken-but-text.png)"),  # 이미지 깨져도 텍스트 있음
         _post("enriched", "## 보강된 본문\n\n" + TEXT, content_original=""),  # 보강 성공
-        _post("title-only", "", image=False, content_empty=True),  # 사이트 원문이 제목뿐, 보강 대상 아님
+        _post("title-only", "", image=False),  # 본문·이미지·첨부가 모두 없음 → 제외
     ]
 
     kept, removed, cleared = drop.split_unrecoverable(posts, service, cache)
 
-    assert [r["original_url"].rsplit("/", 1)[-1] for r in removed] == ["dead"]
+    assert [r["original_url"].rsplit("/", 1)[-1] for r in removed] == ["dead", "title-only"]
+    assert [r["reason"] for r in removed] == ["보강 실패", "본문 없음"]
     assert removed[0]["assets"] == [
         {"type": "inline_image", "url": "https://kau.ac.kr/dead.png", "extracted": False, "cached_error": "image_text_too_short"}
     ]
-    assert [p["original_url"].rsplit("/", 1)[-1] for p in kept] == ["partner", "broken-but-text", "enriched", "title-only"]
+    assert [p["original_url"].rsplit("/", 1)[-1] for p in kept] == ["partner", "broken-but-text", "enriched"]
     assert cleared == 1
     assert kept[0]["crosspost_group_id"] is None
     assert posts[1]["crosspost_group_id"] == "xp-00001"  # 입력은 바꾸지 않는다

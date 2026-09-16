@@ -145,6 +145,7 @@
 - `request_failed`
 - `parse_error:<Exception>`
 - `required_field_empty:<fields>` (`title` 누락 또는 본문 이미지/동영상/첨부파일 fallback도 불가능한 `content` 누락. `missing_fields` 배열도 함께 기록)
+  - 본문·본문 이미지·첨부가 모두 없는 공지는 읽을 내용이 없어 저장하지 않습니다. 연구 수집(`--research`)도 같습니다(2026-09-16 통일).
 - `robots_disallowed`
 - `missing_ntt_id` (`kau_college`)
 

@@ -28,6 +28,10 @@ class BaseParser(ABC):
     def parse_post(self, html: str, detail_url: str) -> Post:
         raise NotImplementedError
 
+    def body_html(self, html: str) -> str:
+        """본문 이미지·동영상을 찾을 HTML. 상세 응답에 다른 글 본문이 섞이는 게시판은 이 공지 본문만 돌려준다."""
+        return html
+
     @staticmethod
     def normalize_whitespace(text: str) -> str:
         return re.sub(r"[ \t]+", " ", text).strip()

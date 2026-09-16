@@ -216,7 +216,7 @@ curl -sS -X POST http://localhost:8000/api/chat \
 
 ## 품질 평가
 
-검색 품질(recall@k/MRR)과 답변 품질(RAGAS LLM-as-judge)을 수치로 측정하는 평가
+답변 품질(RAGAS LLM-as-judge)을 수치로 측정하는 평가
 하네스는 [RAG_EVALUATION.md](RAG_EVALUATION.md)에 별도로 정리한다. RAG 흐름이나
 prompt를 바꾼 뒤 전후 점수를 비교하는 용도다.
 

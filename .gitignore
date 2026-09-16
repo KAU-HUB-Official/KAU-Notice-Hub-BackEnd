@@ -61,6 +61,12 @@ data/*.tmp
 data/*.tmp.*
 # 실행별 RAGAS 상세 dump는 로컬 전용(요약 이력은 tests/eval/eval_history.csv로 커밋).
 data/ragas_runs/
+# 분기 검증 실행 결과도 로컬 전용.
+data/branch_runs/
+# 평가용 고정 공지 스냅샷. 학번 명단 등 개인정보가 담긴 원문이라 커밋하지 않는다.
+data/eval/
+# 연구용 원본 수집. 공지 원문에 학번·성명이 섞여 있어 커밋하지 않는다.
+data/research/
 !data/.gitkeep
 
 # Local databases

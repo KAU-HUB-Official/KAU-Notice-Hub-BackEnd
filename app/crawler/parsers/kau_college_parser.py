@@ -146,6 +146,12 @@ class KAUCollegeParser(BaseParser):
             crawled_at=datetime.now(timezone.utc).isoformat(),
         )
 
+    def body_html(self, html: str) -> str:
+        # 상세 API는 이전·다음 글(resultPre/resultPost)의 본문 HTML도 함께 주므로 이 글의 nttCn만 쓴다.
+        data = self._load_json(html) or {}
+        result = data.get("result") if isinstance(data.get("result"), dict) else {}
+        return str(result.get("nttCn") or "")
+
     def _load_json(self, payload: str) -> dict | None:
         try:
             data = json.loads(payload)

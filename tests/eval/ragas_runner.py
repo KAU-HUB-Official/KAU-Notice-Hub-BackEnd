@@ -1,37 +1,33 @@
 """RAGAS 기반 RAG 품질 평가 runner (LLM-as-judge).
 
-라벨(모범답안)이 필요 없는 3개 지표만 측정한다 (ragas 0.4 collections API):
+라벨(모범답안)이 필요 없는 2개 지표만 측정한다 (ragas 0.4 collections API):
 
 - faithfulness                         : 답변이 검색된 context에 충실한가 (환각 여부)
 - context_precision_without_reference  : 검색된 context가 질문에 관련 있나 (노이즈)
-- answer_relevancy                     : 답변이 질문에 실제로 답했나 (임베딩 사용)
 
-채점관은 ragas native `llm_factory`(InstructorLLM) + native `OpenAIEmbeddings`를 쓰고,
-샘플마다 collections 메트릭의 `ascore()`로 채점한다. (구버전 LangchainLLMWrapper +
-evaluate() 경로는 answer_relevancy의 질문 생성이 n=3 요청에 1개만 반환돼 점수가
-왜곡되는 문제가 있어 native 경로로 교체했다.)
+answer_relevancy는 측정하지 않는다. 답변에서 거꾸로 만든 질문과 원 질문의 임베딩
+유사도로 채점하는데, 공지에 없는 날짜를 추측하지 않고 "명시되어 있지 않다"고 답하면
+얼버무린 답변으로 보고 0점을 주고, 기간·대상·방법을 목록으로 정리한 답변은 거꾸로
+만든 질문이 원 질문과 달라져 점수가 낮게 나온다. 질문에 답했는지는 사람이 0/1로
+판정한다.
+
+채점관은 ragas native `llm_factory`(InstructorLLM)를 쓰고, 샘플마다 collections
+메트릭의 `ascore()`로 채점한다.
 
 각 지표는 OpenAI를 채점관으로 호출하므로 **비용이 발생한다**. 그래서 평가셋의
 질문마다 실제 `/api/chat` 파이프라인(triage → 검색 → rerank → 답변 생성)을 한 번
 돌려 (question, retrieved_contexts, response)를 모은 뒤 RAGAS로 채점한다.
 
 전제: `RAG_ENABLED=true` 와 `OPENAI_API_KEY` 가 설정돼 있어야 한다. 채점관 LLM은
-`OPENAI_MODEL`(기본 gpt-4.1-mini)을 재사용하고, answer_relevancy용 임베딩 모델은
-`RAGAS_EMBEDDING_MODEL`(기본 text-embedding-3-small)을 쓴다.
+`OPENAI_MODEL`(기본 gpt-4.1-mini)을 재사용한다.
 
-두 가지 방식으로 호출:
-
-1. CLI 보고서:
+실행:
 
    RAG_ENABLED=true OPENAI_API_KEY=... .venv/bin/python -m tests.eval.ragas_runner
 
-2. pytest 회귀 가드(비용 발생, ragas 마크로만):
-
-   RAG_ENABLED=true OPENAI_API_KEY=... .venv/bin/python -m pytest -m ragas
-
 평가 질문은 RAGAS 전용 셋 tests/eval/ragas_cases.yml 을 쓴다(question/filters만
-사용). 검색 회귀셋(retrieval_cases.yml)과 분리한 이유는 그 파일 헤더 참고. 운영 데이터
-(data/kau_notice_hub.db)가 있어야 검색이 동작한다.
+사용). 검색은 평가용 고정 스냅샷(tests/eval/snapshot.py)의 DB와 기준일로 돈다. 스냅샷이
+없으면 운영 DB로 대신 돌리지 않고 멈춘다.
 """
 
 from __future__ import annotations
@@ -43,7 +39,7 @@ import logging
 import math
 import os
 import sys
-from datetime import datetime
+from datetime import date, datetime
 from pathlib import Path
 from typing import Any
 
@@ -62,20 +58,18 @@ def _progress(message: str) -> None:
     print(message, file=sys.stderr, flush=True)
 
 from app.chat_service import (
+    CONTEXT_CONTENT_CHARS,
     _generate_with_openai,
     _retrieve_references,
     truncate,
 )
 from app.config import get_settings
-from app.dependencies import _build_repository
 from app.schemas import Notice
 from app.service import NoticeQuery, NoticeService
+from app.sqlite_repository import SqliteNoticeRepository
+from tests.eval.snapshot import EvalSnapshot, load_snapshot
 
 CASES_PATH = Path(__file__).parent / "ragas_cases.yml"
-
-# build_context가 LLM에 넣는 본문 길이와 맞춰, 실제로 모델이 본 context를 채점한다.
-CONTEXT_CHARS = 1400
-DEFAULT_EMBEDDING_MODEL = "text-embedding-3-small"
 
 # 평가 1회의 (질문·필터·검색 context·생성 답변·점수)를 남기는 JSON 아티팩트.
 # 실행마다 data/ragas_runs/<run_ts>.json 으로 남겨 과거 실행을 덮어쓰지 않는다(회귀
@@ -92,12 +86,7 @@ HISTORY_CSV_PATH = Path(__file__).parent / "eval_history.csv"
 METRIC_NAMES = [
     "faithfulness",
     "context_precision_without_reference",
-    "answer_relevancy",
 ]
-
-
-def _embedding_model() -> str:
-    return os.environ.get("RAGAS_EMBEDDING_MODEL", DEFAULT_EMBEDDING_MODEL)
 
 
 def _load_cases() -> list[dict[str, Any]]:
@@ -122,7 +111,7 @@ def _filters_from_case(case: dict[str, Any]) -> NoticeQuery:
 def _contexts_from_notices(notices: list[Notice]) -> list[str]:
     """검색된 공지를 RAGAS retrieved_contexts(문자열 리스트)로 변환.
 
-    한 공지 = 한 context chunk. content를 build_context와 같은 길이(CONTEXT_CHARS)로
+    한 공지 = 한 context chunk. content를 build_context와 같은 길이(CONTEXT_CONTENT_CHARS)로
     자른다. content가 비면 제목으로 폴백하고, 그래도 비면 제외한다. 이미지뿐인 공지는
     enrichment가 content를 실제 텍스트로 채우므로 content 하나면 충분하다(summary 필드
     제거 후 읽는 본문은 content로 단일화됨).
@@ -130,62 +119,76 @@ def _contexts_from_notices(notices: list[Notice]) -> list[str]:
     contexts: list[str] = []
     for notice in notices:
         text = (notice.content or "").strip()
-        text = truncate(text, CONTEXT_CHARS) if text else (notice.title or "").strip()
+        text = truncate(text, CONTEXT_CONTENT_CHARS) if text else (notice.title or "").strip()
         if text:
             contexts.append(text)
     return contexts
 
 
 async def _collect_sample(
-    service: NoticeService, case: dict[str, Any]
-) -> dict[str, Any] | None:
+    service: NoticeService, case: dict[str, Any], *, today: date | None = None
+) -> tuple[dict[str, Any] | None, str]:
     """케이스 하나를 실제 chat 파이프라인에 돌려 RAGAS 샘플 dict를 만든다.
 
-    검색 분기(search)가 아니거나, 검색 0건이거나, 답변 생성이 실패하면 None을
-    반환한다(채점 불가 케이스). 호출자가 사유를 로깅한다.
+    채점할 수 없으면 (None, 스킵 사유)를 반환한다.
+
+    분기는 반환 mode가 아니라 trace.mode로 판정한다. 분기 LLM이 실패한 legacy 경로도
+    반환 mode는 "search"이고, 질문 원문 검색에 최신 공지 폴백까지 붙어 결과가 채워지므로
+    반환 mode만 보면 운영 경로 샘플과 구분되지 않는다.
     """
     question = case["question"]
     filters = _filters_from_case(case)
 
-    notices, _references, mode, _trace = await _retrieve_references(
-        service, question, filters
+    notices, _references, _mode, trace = await _retrieve_references(
+        service, question, filters, today=today
     )
-    if mode != "search" or not notices:
-        return None
+    if trace.mode == "legacy":
+        return None, "분기 실패(legacy)"
+    if trace.mode != "search":
+        return None, f"분기 {trace.mode}"
+    if not notices:
+        return None, "검색 0건"
 
     contexts = _contexts_from_notices(notices)
     if not contexts:
-        return None
+        return None, "context 없음"
 
-    result = await _generate_with_openai(question, filters, notices)
+    result = await _generate_with_openai(question, filters, notices, today=today)
     if result is None:
-        return None
+        return None, "답변 생성 실패"
     answer, _model = result
 
-    return {
+    sample = {
         "case_id": case.get("id", question[:20]),
         "user_input": question,
         "filters": case.get("filters") or {},
         "retrieved_contexts": contexts,
         "response": answer,
     }
+    return sample, ""
 
 
-async def collect_samples() -> tuple[list[dict[str, Any]], list[str]]:
-    """평가셋 전체를 파이프라인에 돌려 RAGAS 샘플 리스트와 스킵 사유를 모은다."""
-    service = NoticeService(_build_repository())
+async def collect_samples(
+    snapshot: EvalSnapshot,
+) -> tuple[list[dict[str, Any]], list[str]]:
+    """평가셋 전체를 스냅샷 DB 기준으로 파이프라인에 돌려 샘플과 스킵 사유를 모은다.
+
+    "오늘"은 스냅샷 기준일로 고정해 분기·rerank·답변 프롬프트에 넘긴다.
+    """
+    service = NoticeService(SqliteNoticeRepository(snapshot.db_path))
     cases = _load_cases()
     total = len(cases)
     samples: list[dict[str, Any]] = []
     skipped: list[str] = []
+    _progress(f"[스냅샷] {snapshot.name} (기준일 {snapshot.reference_date})")
     _progress(f"[1/2 수집] {total}개 질문을 chat 파이프라인에 돌립니다 (질문당 OpenAI 호출 다수)…")
     for index, case in enumerate(cases, start=1):
         case_id = str(case.get("id", case.get("question", "?")))
         _progress(f"  [{index}/{total}] {case_id} … triage→검색→rerank→답변 생성")
-        sample = await _collect_sample(service, case)
+        sample, reason = await _collect_sample(service, case, today=snapshot.reference_date)
         if sample is None:
-            skipped.append(case_id)
-            _progress(f"  [{index}/{total}] {case_id} → 스킵(검색 0건·도메인외·생성실패)")
+            skipped.append(f"{case_id}({reason})")
+            _progress(f"  [{index}/{total}] {case_id} → 스킵: {reason}")
         else:
             samples.append(sample)
             _progress(
@@ -228,10 +231,8 @@ async def _score_samples(samples: list[dict[str, Any]]) -> list[dict[str, Any]]:
     # collections 메트릭의 ascore()는 agenerate()를 호출하므로 async 클라이언트가 필요하다
     # (동기 OpenAI 클라이언트면 "Cannot use agenerate() with a synchronous client" 에러).
     from openai import AsyncOpenAI
-    from ragas.embeddings import OpenAIEmbeddings
     from ragas.llms import llm_factory
     from ragas.metrics.collections import (
-        AnswerRelevancy,
         ContextPrecisionWithoutReference,
         Faithfulness,
     )
@@ -241,14 +242,12 @@ async def _score_samples(samples: list[dict[str, Any]]) -> list[dict[str, Any]]:
     # 기본 max_tokens=1024는 우리 context(공지 본문 다수)·답변 길이에선 구조화 출력이
     # 잘려 IncompleteOutputException이 난다. ragas 권장대로 4096으로 올린다.
     llm = llm_factory(settings.openai_model, client=client, max_tokens=4096)
-    embeddings = OpenAIEmbeddings(client=client, model=_embedding_model())
 
     faith = Faithfulness(llm=llm)
     ctx_prec = ContextPrecisionWithoutReference(llm=llm)
-    relev = AnswerRelevancy(llm=llm, embeddings=embeddings, strictness=3)
 
     total = len(samples)
-    _progress(f"[2/2 채점] {total}개 샘플을 RAGAS 3개 지표로 채점합니다 (지표마다 OpenAI 호출)…")
+    _progress(f"[2/2 채점] {total}개 샘플을 RAGAS 2개 지표로 채점합니다 (지표마다 OpenAI 호출)…")
     rows: list[dict[str, Any]] = []
     for index, sample in enumerate(samples, start=1):
         ui = sample["user_input"]
@@ -256,24 +255,22 @@ async def _score_samples(samples: list[dict[str, Any]]) -> list[dict[str, Any]]:
         ctxs = sample["retrieved_contexts"]
         case_id = sample["case_id"]
         _progress(f"  [{index}/{total}] {case_id} … 채점 중")
-        # 샘플당 3개 지표를 동시에(과한 burst 없이) 채점한다.
-        faith_score, ctx_score, ans_score = await asyncio.gather(
+        # 샘플당 2개 지표를 동시에(과한 burst 없이) 채점한다.
+        faith_score, ctx_score = await asyncio.gather(
             _safe_score(faith.ascore(user_input=ui, response=resp, retrieved_contexts=ctxs)),
             _safe_score(
                 ctx_prec.ascore(user_input=ui, response=resp, retrieved_contexts=ctxs)
             ),
-            _safe_score(relev.ascore(user_input=ui, response=resp)),
         )
         _progress(
             f"  [{index}/{total}] {case_id} → "
-            f"faith={faith_score:.3f} ctx_prec={ctx_score:.3f} ans_rel={ans_score:.3f}"
+            f"faith={faith_score:.3f} ctx_prec={ctx_score:.3f}"
         )
         rows.append(
             {
                 "case_id": case_id,
                 "faithfulness": faith_score,
                 "context_precision_without_reference": ctx_score,
-                "answer_relevancy": ans_score,
             }
         )
     _progress("[2/2 채점] 완료. 아래에 최종 보고서를 출력합니다.")
@@ -297,6 +294,22 @@ def summarize(rows: list[dict[str, Any]]) -> dict[str, float]:
         if values:
             summary[name] = sum(values) / len(values)
     return summary
+
+
+def valid_counts(rows: list[dict[str, Any]]) -> dict[str, int]:
+    """지표별로 실제 채점에 성공한(NaN이 아닌) 샘플 수.
+
+    summarize()의 평균은 채점 실패(NaN)를 뺀 값이라, 이 수를 함께 보지 않으면 일부
+    샘플만으로 낸 평균이 전체 평균처럼 보인다.
+    """
+    return {
+        name: sum(
+            1
+            for r in rows
+            if isinstance(r.get(name), float) and not math.isnan(r[name])
+        )
+        for name in METRIC_NAMES
+    }
 
 
 def _clean_score(value: Any) -> float | None:
@@ -329,6 +342,8 @@ def write_run_artifact(
     rows: list[dict[str, Any]],
     skipped: list[str],
     path: Path,
+    *,
+    snapshot: EvalSnapshot,
 ) -> None:
     """샘플(질문·필터·context·답변)과 점수를 case_id로 합쳐 JSON으로 저장한다."""
     scores = {r["case_id"]: r for r in rows}
@@ -345,12 +360,13 @@ def write_run_artifact(
                 "context_precision_without_reference": _clean_score(
                     row.get("context_precision_without_reference")
                 ),
-                "answer_relevancy": _clean_score(row.get("answer_relevancy")),
                 "retrieved_contexts": sample["retrieved_contexts"],
             }
         )
     payload = {
+        "snapshot": {"name": snapshot.name, "reference_date": snapshot.reference_date.isoformat()},
         "summary": summarize(rows),
+        "valid_counts": valid_counts(rows),
         "scored": len(records),
         "skipped": skipped,
         "samples": records,
@@ -367,35 +383,38 @@ def append_history(
     *,
     run_ts: str,
     judge_model: str,
-    embedding_model: str,
+    snapshot: str,
     dump: Path | None,
 ) -> None:
     """실행 요약 한 행을 eval_history.csv에 append 한다(회귀 추적용, git 추적 대상).
 
-    개별 케이스 점수가 아니라 지표 평균만 남긴다(상세는 dump 아티팩트에 있음). 파일이
-    없으면 헤더를 먼저 쓴다. 어떤 채점관·임베딩으로 낸 점수인지 함께 기록해, 채점 설정이
-    다른 실행끼리 잘못 비교하지 않도록 한다.
+    개별 케이스 점수가 아니라 지표 평균과 지표별 채점 성공 수(`<지표>_n`)만 남긴다(상세는
+    dump 아티팩트에 있음). 파일이 없으면 헤더를 먼저 쓴다. 어떤 채점관·스냅샷으로 낸
+    점수인지 함께 기록해, 채점 설정이 다른 실행끼리 잘못 비교하지 않도록 한다.
     """
     summary = summarize(rows)
     fields = [
         "run_ts",
+        "snapshot",
         "judge_model",
-        "embedding_model",
         "scored",
         "skipped",
         *METRIC_NAMES,
+        *(f"{name}_n" for name in METRIC_NAMES),
         "dump",
     ]
     record = {
         "run_ts": run_ts,
+        "snapshot": snapshot,
         "judge_model": judge_model,
-        "embedding_model": embedding_model,
         "scored": len(rows),
         "skipped": len(skipped),
         "dump": str(dump) if dump is not None else "",
     }
+    counts = valid_counts(rows)
     for name in METRIC_NAMES:
         record[name] = f"{summary[name]:.4f}" if name in summary else ""
+        record[f"{name}_n"] = counts[name]
 
     is_new = not HISTORY_CSV_PATH.exists()
     HISTORY_CSV_PATH.parent.mkdir(parents=True, exist_ok=True)
@@ -410,7 +429,6 @@ def format_report(rows: list[dict[str, Any]], skipped: list[str]) -> str:
     short = {
         "faithfulness": "faith",
         "context_precision_without_reference": "ctx_prec",
-        "answer_relevancy": "ans_rel",
     }
     header = f"{'case':10s} " + " ".join(f"{short[c]:>9s}" for c in METRIC_NAMES)
     lines = [header, "-" * len(header)]
@@ -422,16 +440,26 @@ def format_report(rows: list[dict[str, Any]], skipped: list[str]) -> str:
     lines.append("-" * len(header))
     avg_cells = " ".join(f"{summary.get(c, float('nan')):9.3f}" for c in METRIC_NAMES)
     lines.append(f"{'AVG':10s} {avg_cells}")
+    counts = valid_counts(rows)
+    n_cells = " ".join(f"{counts[c]:>9d}" for c in METRIC_NAMES)
+    lines.append(f"{'n':10s} {n_cells}")
     lines.append("")
     lines.append(f"채점 샘플 {len(rows)}건 / 스킵 {len(skipped)}건")
+    partial = [c for c in METRIC_NAMES if counts[c] < len(rows)]
+    if partial:
+        lines.append(
+            "주의: 채점 실패(NaN)가 있어 평균은 성공한 샘플로만 계산됨 — "
+            + ", ".join(f"{c} {counts[c]}/{len(rows)}" for c in partial)
+        )
     if skipped:
-        lines.append(f"스킵(검색 0건·도메인외·생성실패): {', '.join(skipped)}")
+        lines.append(f"스킵: {', '.join(skipped)}")
     return "\n".join(lines)
 
 
 def main() -> None:
+    snapshot = load_snapshot()
     _require_openai()
-    samples, skipped = asyncio.run(collect_samples())
+    samples, skipped = asyncio.run(collect_samples(snapshot))
     if not samples:
         print("채점할 search 분기 샘플이 없습니다. 스킵:", ", ".join(skipped))
         return
@@ -443,7 +471,7 @@ def main() -> None:
 
     path = dump_path(run_ts)
     if path is not None:
-        write_run_artifact(samples, rows, skipped, path)
+        write_run_artifact(samples, rows, skipped, path, snapshot=snapshot)
         _progress(f"[저장] 질문·필터·context·답변·점수를 {path} 에 기록했습니다.")
 
     append_history(
@@ -451,7 +479,7 @@ def main() -> None:
         skipped,
         run_ts=run_ts,
         judge_model=settings.openai_model,
-        embedding_model=_embedding_model(),
+        snapshot=snapshot.name,
         dump=path,
     )
     _progress(f"[이력] 요약 점수를 {HISTORY_CSV_PATH} 에 append 했습니다.")

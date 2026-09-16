@@ -1,3 +1,4 @@
+import os
 from pathlib import Path
 
 BASE_URL = "https://kau.ac.kr"
@@ -24,8 +25,10 @@ FSC_BASE_URL = "http://fsc.kau.ac.kr"
 FSC_NOTICE_LIST_URL = "http://fsc.kau.ac.kr/info/info_01.php"
 GRAD_BASE_URL = "https://grad.kau.ac.kr"
 GRAD_NOTICE_LIST_URL = "https://grad.kau.ac.kr/community/notice_02.php"
-GRADBUS_BASE_URL = "http://gradbus.kau.ac.kr"
-GRADBUS_NOTICE_LIST_URL = "http://gradbus.kau.ac.kr/community/notice_01.php"
+# http 요청은 Cloudflare가 도메인과 경로 사이 "/"가 빠진 주소(https://gradbus.kau.ac.krcommunity/...)로
+# 리다이렉트해 이름 해석에 실패한다. https로 바로 요청한다.
+GRADBUS_BASE_URL = "https://gradbus.kau.ac.kr"
+GRADBUS_NOTICE_LIST_URL = "https://gradbus.kau.ac.kr/community/notice_01.php"
 AISW_BASE_URL = "http://aisw.kau.ac.kr"
 AISW_NOTICE_LIST_URL = "http://aisw.kau.ac.kr/pages/notice.php"
 LMS_BASE_URL = "https://lms.kau.ac.kr"
@@ -96,12 +99,41 @@ USER_AGENT = (
     "Mozilla/5.0 (compatible; KAU-Notice-Crawler/1.0; +https://kau.ac.kr)"
 )
 REQUEST_TIMEOUT_SECONDS = 15
-REQUEST_DELAY_SECONDS = (0.5, 1.2)
 VERIFY_SSL = True
 
 DEFAULT_MAX_PAGES = 0
 DEFAULT_POSTS_PER_BOARD = 20
-RECENT_NOTICE_DAYS = 365
+
+
+def _positive_int_from_env(name: str, default: int) -> int:
+    raw = os.environ.get(name, "").strip()
+    if not raw:
+        return default
+    value = int(raw)
+    if value <= 0:
+        raise ValueError(f"{name}는 양의 정수여야 합니다: {raw!r}")
+    return value
+
+
+def _delay_range_from_env(name: str, default: tuple[float, float]) -> tuple[float, float]:
+    raw = os.environ.get(name, "").strip()
+    if not raw:
+        return default
+    parts = [part.strip() for part in raw.split(",")]
+    if len(parts) != 2:
+        raise ValueError(f"{name}는 '최소,최대' 형식이어야 합니다: {raw!r}")
+    low, high = float(parts[0]), float(parts[1])
+    if low < 0 or high < low:
+        raise ValueError(f"{name}는 0 이상이고 최소 <= 최대여야 합니다: {raw!r}")
+    return low, high
+
+
+# 기본값이 운영 수집 정책이다. 평가용 고정 스냅샷처럼 넓은 기간을 한 번에 모을 때만
+# 환경변수로 바꾼다. scripts/run_incremental_crawl_publish.sh 는 게시 전 정리를 365일로
+# 따로 수행하므로, 기간을 바꾼 수집은 게시 스크립트가 아니라 app.crawler.main 을 직접
+# 실행해 별도 경로에 저장한다.
+REQUEST_DELAY_SECONDS = _delay_range_from_env("CRAWLER_REQUEST_DELAY_SECONDS", (0.5, 1.2))
+RECENT_NOTICE_DAYS = _positive_int_from_env("CRAWLER_RECENT_NOTICE_DAYS", 365)
 
 
 def _source_name(label: str) -> str:
@@ -408,11 +440,13 @@ NOTICE_BOARDS = [
         bbs_id="0101",
         mnu_id="gc13106b",
     ),
+    # AI융합대학 전공 게시판은 ai.kau.ac.kr:8100~8140 포트 주소에서 전공별 도메인으로 옮겨졌다(2026-09 확인).
+    # 도메인이 Cloudflare 뒤로 가면서 81xx 포트는 중계되지 않아 옛 주소로는 연결 시간 초과가 난다.
     _card_notice_board(
         key="ai_major_notice",
         label="인공지능전공",
-        list_url="http://ai.kau.ac.kr:8100/pages/notice.php",
-        base_url="http://ai.kau.ac.kr:8100",
+        list_url="https://ai.kau.ac.kr/pages/notice.php",
+        base_url="https://ai.kau.ac.kr",
         code="s1401",
     ),
     _college_notice_board(
@@ -426,29 +460,29 @@ NOTICE_BOARDS = [
     _card_notice_board(
         key="semiconductor_system_major_notice",
         label="반도체시스템전공",
-        list_url="http://ai.kau.ac.kr:8130/pages/notice.php",
-        base_url="http://ai.kau.ac.kr:8130",
+        list_url="https://sse.kau.ac.kr/pages/notice.php",
+        base_url="https://sse.kau.ac.kr",
         code="s1401",
     ),
     _card_notice_board(
         key="computer_engineering_major_notice",
         label="컴퓨터공학전공",
-        list_url="http://ai.kau.ac.kr:8110/pages/notice.php",
-        base_url="http://ai.kau.ac.kr:8110",
+        list_url="https://com.kau.ac.kr/pages/notice.php",
+        base_url="https://com.kau.ac.kr",
         code="s1401",
     ),
     _card_notice_board(
         key="electronics_aerospace_electronics_major_notice",
         label="전자및항공전자전공",
-        list_url="http://ai.kau.ac.kr:8120/pages/notice.php",
-        base_url="http://ai.kau.ac.kr:8120",
+        list_url="https://eae.kau.ac.kr/pages/notice.php",
+        base_url="https://eae.kau.ac.kr",
         code="s1401",
     ),
     _card_notice_board(
         key="ai_convergence_ict_major_notice",
         label="AI융합ICT전공",
-        list_url="http://ai.kau.ac.kr:8140/pages/notice.php",
-        base_url="http://ai.kau.ac.kr:8140",
+        list_url="https://ict.kau.ac.kr/pages/notice.php",
+        base_url="https://ict.kau.ac.kr",
         code="s1401",
     ),
     _college_notice_board(

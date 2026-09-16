@@ -44,6 +44,11 @@
 
 즉, 컷오프 날짜와 같은 날짜는 최근으로 보지 않습니다.
 
+기간은 `CRAWLER_RECENT_NOTICE_DAYS` 환경변수로 바꿀 수 있습니다(기본 365). 요청 간격은
+`CRAWLER_REQUEST_DELAY_SECONDS`(기본 `0.5,1.2`초)로 바꿉니다. 평가용 고정 스냅샷처럼 넓은 기간을
+한 번에 모을 때만 쓰고, 게시 스크립트(`run_incremental_crawl_publish.sh`)는 게시 전 정리를
+365일로 따로 하므로 `python -m app.crawler.main --output <별도 경로>`로 직접 실행합니다.
+
 세부 동작:
 
 - 상시공지
@@ -140,6 +145,7 @@
 - `request_failed`
 - `parse_error:<Exception>`
 - `required_field_empty:<fields>` (`title` 누락 또는 본문 이미지/동영상/첨부파일 fallback도 불가능한 `content` 누락. `missing_fields` 배열도 함께 기록)
+  - 본문·본문 이미지·첨부가 모두 없는 공지는 읽을 내용이 없어 저장하지 않습니다. 연구 수집(`--research`)도 같습니다(2026-09-16 통일).
 - `robots_disallowed`
 - `missing_ntt_id` (`kau_college`)
 
@@ -160,5 +166,6 @@ content 보강 실패는 위 실패 기록 파일에 쓰지 않고 각 post의 `
 ## 10) 카드형 학과/대학 게시판
 
 - `kau_card_notice`는 `notice.php?code=...&page=...` 구조를 쓰는 학과/대학 홈페이지에 사용합니다.
-- 현재 대상은 `aisw.kau.ac.kr`, `ai.kau.ac.kr:8100/8110/8120/8130/8140`, `sw.kau.ac.kr`, `ave.kau.ac.kr`입니다.
+- 현재 대상은 `aisw.kau.ac.kr`, `ai.kau.ac.kr`, `com.kau.ac.kr`, `eae.kau.ac.kr`, `sse.kau.ac.kr`, `ict.kau.ac.kr`, `sw.kau.ac.kr`, `ave.kau.ac.kr`입니다.
+- AI융합대학 전공 5곳은 `ai.kau.ac.kr:8100~8140` 포트 주소에서 전공별 도메인으로 옮겨졌습니다(2026-09 확인). 도메인이 Cloudflare 뒤로 가면서 81xx 포트는 중계되지 않아 옛 주소로는 접속되지 않습니다.
 - 상세 URL은 `code`, `mode`, `seq`만 남기도록 canonical 정규화합니다.

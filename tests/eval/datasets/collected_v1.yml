@@ -1,0 +1,412 @@
+# 팀 수집 자연어 질문셋 (미정제 draft) — RAGAS 평가용. 팀원 수집분 원본을 분류만 한 상태.
+# 1차 수집분에 2차 수집분(2026-09-14)을 더했다. 2차 항목은 각 그룹의 '2차 수집' 구역에 있다.
+#
+# RAGAS 러너는 이 파일을 직접 읽지 않는다. 정제를 마친 뒤 tests/eval/ragas_cases.yml 형식으로
+# 옮겨 RAGAS(LLM-as-judge)로 채점한다. 분기 검증기(branch_runner)는 기본 입력으로 바로 읽는다.
+# 두 그룹 모두 RAGAS 채점 대상이다.
+#   rag_quality  -> 정상 표현 질문
+#   robustness   -> 같은 의도의 오타·자판오류·축약·구어체 변형
+#
+# 러너는 triage 가 search 로 안 보내거나 검색 0건이면 샘플을 버린다(스킵). 따라서 모든
+# 항목은 검색에 도달해야 점수가 나온다. robustness 항목이 스킵되면 그 자체가 "입력 정규화
+# 실패" 신호다. 스킵 목록은 러너 리포트와 dump 아티팩트에, 건수는 eval_history.csv 에 남는다.
+#
+# 필드
+# - id: 고유 식별자
+# - question: 사용자 발화
+# - tags: [intent, style]
+# - decoded: 오타·자판오류 원문의 해독 결과(정제 시 question 을 이걸로 바꿀지 결정)
+# - filters: 백엔드 NoticeQuery 필터 (선택)
+# - notes: 케이스 의도·주의점
+# - todo: 정제 단계에서 사람이 판단해야 하는 항목(모호·미확인)
+#
+# 정제 전 필수 작업은 파일 하단 REFINEMENT NOTES 참고.
+
+# =============================================================================
+# S1. rag_quality — 검색 성공이 기대되는 정상 질문. RAGAS 채점 대상 후보.
+# =============================================================================
+rag_quality:
+  # --- 시간/일정 ---
+  - id: rq-contest-week
+    question: "이번주 끝나는 공모전 알려줘"
+    tags: [contest, temporal]
+  - id: rq-scholarship-week
+    question: "이번주 장학금 공지 있어?"
+    tags: [scholarship, temporal]
+  - id: rq-leave-period
+    question: "휴학 신청 기간이 언제야?"
+    tags: [leave, detail-followup]
+  - id: rq-grade-correction
+    question: "성적 정정 기간 알려줘"
+    tags: [grades, detail-followup]
+  - id: rq-tuition-deadline
+    question: "등록금 납부 마감일이 언제지?"
+    tags: [tuition, detail-followup]
+  - id: rq-today-all
+    question: "오늘 올라온 공지 다 보여줘"
+    tags: [broad, temporal]
+    todo: "정답 범위가 날짜 의존이라 스냅샷 DB에서 결과가 비거나 과다할 수 있음. 유지 여부 판단."
+  - id: rq-seasonal-term
+    question: "계절학기 신청 언제부터야"
+    tags: [enrollment, detail-followup]
+  - id: rq-midterm-period
+    question: "중간고사 기간이 언제야?"
+    tags: [exam, detail-followup]
+  - id: rq-course-drop
+    question: "드랍 언제까지 가능해"
+    tags: [enrollment, colloquial]
+    decoded: "원문 말미의 오타 '/' 제거함. '드랍'=수강철회 구어체."
+
+  # --- 장학 ---
+  - id: rq-merit-scholarship-cond
+    question: "성적장학금 조건이 뭐야?"
+    tags: [scholarship, detail-followup]
+  - id: rq-work-study-recruit
+    question: "근로장학생 모집 공지 공고"
+    tags: [scholarship, keyword-style]
+    todo: "문장이 아니라 키워드 나열. 자연어로 다듬을지, 키워드형 입력 테스트로 남길지 결정."
+  - id: rq-internal-scholarship-types
+    question: "교내장학금 종류 뭐뭐 있어?"
+    tags: [scholarship, broad]
+  - id: rq-national-scholarship-howto
+    question: "국가장학금 신청 방법이랑 마감일 같이 알려줘"
+    tags: [scholarship, multi-intent]
+  - id: rq-grad-scholarship-filtered
+    question: "최근 공지 중 대학원생 대상 장학금만 찾아줘"
+    tags: [scholarship, filtered]
+    filters: {audience_group: "대학원생"}
+    todo: "audience_group 값은 docs/CLASSIFICATION.md 의 정확한 문자열로 확인 필요."
+  - id: rq-scholarship-open-only
+    question: "장학금 공지 중에서 아직 신청 기간 안 끝난 것만 알려줘"
+    tags: [scholarship, temporal-filter]
+  - id: rq-scholarship-next-week
+    question: "다음 주에 신청 시작하는 장학금 있어?"
+    tags: [scholarship, temporal]
+
+  # --- 졸업/학사 ---
+  - id: rq-graduation-req
+    question: "졸업 요건 관련 공지 찾아줘"
+    tags: [graduation, broad]
+    todo: "'졸업요건 알려줘'(B-30)와 근사 중복. 하나만 남길 것."
+  - id: rq-graduation-req-dept
+    question: "졸업 요건에 관한 소프트웨어학과 공지 찾아줘"
+    tags: [graduation, filtered]
+  - id: rq-enrollment-change
+    question: "이번 학기 수강신청 변경 기간이 언제야?"
+    tags: [enrollment, temporal]
+  - id: rq-academic-week
+    question: "이번 주에 신청할 수 있는 학사 일정 있어?"
+    tags: [academic, temporal]
+    decoded: "원문 '신청할수있는' 띄어쓰기 교정. 원문 그대로는 robustness 스위트로."
+
+  # --- 취업/진로 ---
+  - id: rq-internship
+    question: "인턴십 프로그램 모집 공지 찾아줘"
+    tags: [career, broad]
+  - id: rq-career-counsel
+    question: "진로상담 신청 어떻게 해?"
+    tags: [career, detail-followup]
+  - id: rq-job-today
+    question: "오늘 올라온 취업 관련 공지 찾아줘"
+    tags: [career, temporal]
+  - id: rq-job-support-open
+    question: "취업 지원 프로그램 중 지금 모집 중인 거 있어?"
+    tags: [career, temporal-filter]
+  - id: rq-field-training
+    question: "최근 현장실습 프로그램 찾아줘"
+    tags: [career, temporal]
+  - id: rq-jobseeker-broad
+    question: "취준생한테 도움될 만한 공지 찾아줘"
+    tags: [career, intent-inference]
+
+  # --- 생활/시설/행정 ---
+  - id: rq-library
+    question: "도서관 운영관련 공지 있어?"
+    tags: [facility, broad]
+  - id: rq-certificate
+    question: "증명서 발급 관련 찾아줘"
+    tags: [admin, broad]
+  - id: rq-student-id
+    question: "학생증 재발급 방법 알려줘"
+    tags: [admin, detail-followup]
+  - id: rq-festival
+    question: "축제 일정 공지 있어?"
+    tags: [event, broad]
+  - id: rq-dorm-week
+    question: "최근 일주일 동안 올라온 기숙사 공지 보여줘"
+    tags: [dorm, temporal]
+  - id: rq-campus-event-month
+    question: "이번 달에 열리는 교내 행사 알려줘"
+    tags: [event, temporal]
+
+  # --- 학과/부서 ---
+  - id: rq-dept-aerospace
+    question: "우주공학과 공지 있어?"
+    tags: [department, broad]
+  - id: rq-dept-software-recent
+    question: "소프트웨어학과에서 최근에 올라온 공지 보여줘"
+    tags: [department, temporal]
+
+  # --- 기타 시간표현 ---
+  - id: rq-contest-month
+    question: "이번 달 마감하는 공모전 알려줘"
+    tags: [contest, temporal]
+  - id: rq-extracurricular-week
+    question: "이번 주 안에 마감하는 비교과 프로그램 알려줘"
+    tags: [extracurricular, temporal]
+  - id: rq-exchange-open
+    question: "현재 신청 가능한 교환학생 프로그램 있어?"
+    tags: [exchange, temporal-filter]
+  - id: rq-tuition-latest
+    question: "등록금 관련해서 가장 최근에 올라온 공지 알려줘"
+    tags: [tuition, temporal]
+  - id: rq-deadline-friday
+    question: "이번 주 금요일까지 신청할 수 있는 프로그램 찾아줘"
+    tags: [broad, temporal]
+  - id: rq-deadline-soon
+    question: "신청 기간이 얼마 안 남은 공지 알려줘"
+    tags: [broad, temporal]
+  - id: rq-closing-this-week
+    question: "이번주에 신청 끝나는 거 뭐 있어?"
+    tags: [broad, temporal, colloquial]
+
+  # --- 확인 필요 (grounding 미검증) ---
+  - id: rq-dept-korean-lit
+    question: "국문과 학술제 공지 찾아줘"
+    tags: [department, event]
+    todo: "한국항공대에 국문과가 있는지 확인. 없으면 검색 0건으로 RAGAS에서 스킵되므로 삭제."
+  - id: rq-hanwoogi-contest
+    question: "항우기에서 올린 공모전 관련 공지 있어?"
+    tags: [contest, abbrev]
+    todo: "'항우기' 실제 부서명 확인 필요(항공우주기계공학부?). 정확 명칭으로 교정 또는 abbrev 테스트로 이동."
+
+  # === 2차 수집 (2026-09-14) ===
+  # --- 학사 제도·규정 ---
+  - id: rq-double-major-cond
+    question: "복수전공 신청 조건 뭐야?"
+    tags: [major, detail-followup]
+  - id: rq-minor-period
+    question: "부전공 신청은 언제 할 수 있어?"
+    tags: [major, detail-followup]
+  - id: rq-retake-grade
+    question: "재수강하면 성적 어떻게 돼?"
+    tags: [grades, regulation]
+    todo: "학칙·규정 영역이라 공지 근거가 없을 수 있음. 검색 0건이면 RAGAS에서 스킵되므로 grounding 확인 후 유지 여부 결정."
+  - id: rq-grade-forfeit
+    question: "학점포기제도 있나?"
+    tags: [grades, regulation]
+    todo: "학칙·규정 영역. grounding 확인 후 유지 여부 결정."
+  - id: rq-early-graduation
+    question: "조기졸업하려면 조건이 어떻게 돼?"
+    tags: [graduation, regulation]
+    todo: "학칙·규정 영역. grounding 확인 후 유지 여부 결정."
+  - id: rq-general-required
+    question: "교양필수 과목 뭐 들어야 돼?"
+    tags: [curriculum, detail-followup]
+    todo: "교육과정 영역이라 공지 근거가 없을 수 있음. grounding 확인 후 유지 여부 결정."
+  - id: rq-academic-warning
+    question: "이번 학기 학사경고 기준"
+    tags: [academic, temporal, keyword-style]
+    notes: "rb-kbd-academic-warning 의 정상 표현 짝."
+  - id: rq-academic-calendar
+    question: "이번 학기 학사일정"
+    tags: [academic, temporal, keyword-style]
+  - id: rq-credit-limit
+    question: "수강신청 최대 몇학점까지 가능해?"
+    tags: [enrollment, detail-followup]
+    notes: "실사용 로그에서 '최대학점' 검색 실패가 나왔던 주제."
+  - id: rq-enrollment-quota-increase
+    question: "수강신청 망했는데 증원 공지 올라온거 있어?"
+    tags: [enrollment, colloquial]
+
+  # --- 장학·등록금 ---
+  - id: rq-tuition-installment
+    question: "이번 학기 등록금 분할납부 신청할 수 있어?"
+    tags: [tuition, temporal]
+
+  # --- 프로그램·활동 ---
+  - id: rq-language-program-month
+    question: "이번달에 신청 가능한 어학 프로그램 있어?"
+    tags: [extracurricular, temporal-filter]
+  - id: rq-volunteer-recent
+    question: "최근에 올라온 봉사활동 모집 공지 좀"
+    tags: [volunteer, temporal, colloquial]
+  - id: rq-overseas-training-open
+    question: "해외연수 관련해서 모집중인거 있어?"
+    tags: [exchange, temporal-filter]
+  - id: rq-exchange-toeic
+    question: "교환학생 가려면 토익 몇점 필요함?"
+    tags: [exchange, detail-followup, colloquial]
+  - id: rq-free-education
+    question: "학생 대상으로 무료 교육 모집하는 거 있어?"
+    tags: [extracurricular, intent-inference]
+    notes: "공지 제목에 '무료 교육'이라는 표현이 잘 쓰이지 않아 표현 불일치 성격."
+  - id: rq-special-lecture-recent
+    question: "최근 올라온 특강 공지 보여줘"
+    tags: [event, temporal]
+
+  # --- 졸업작품·캡스톤 ---
+  - id: rq-graduation-project-recent
+    question: "졸업작품 관련 최근 공지 있나"
+    tags: [graduation, temporal]
+    notes: "공지에서는 '캡스톤디자인'으로 쓰이는 경우가 많아 표현 불일치 성격. rq-capstone-grant 와 짝."
+  - id: rq-capstone-grant
+    question: "캡스톤디자인 지원금 신청할수있어?"
+    tags: [graduation, detail-followup, spacing]
+    notes: "띄어쓰기 오류가 있지만 핵심 명사는 온전해 정상 질문으로 분류."
+
+  # --- 학과·기타 ---
+  - id: rq-dept-software-event-month
+    question: "이번달 소프트웨어학과 행사 머있어?"
+    tags: [department, event, temporal, colloquial]
+  - id: rq-reserve-forces-recent
+    question: "예비군 관련 최근 공지 찾아줘"
+    tags: [military, temporal]
+
+  # --- 시설·IT 안내 ---
+  - id: rq-campus-printing
+    question: "교내에서 프린트 어디서 할 수 있어?"
+    tags: [facility, detail-followup]
+    todo: "시설 이용 안내라 공지가 없을 수 있음. 학교 시설 질문이라 분기 정답은 search. grounding 확인 후 유지 여부 결정."
+  - id: rq-campus-wifi
+    question: "학교 와이파이 연결 어케함?"
+    tags: [facility, colloquial]
+    todo: "rq-campus-printing 과 동일."
+
+# =============================================================================
+# S2. robustness — 오타/자판오류/축약/구어체 변형. RAGAS 채점 대상.
+#     정상 표현(rag_quality) 대비 답변 품질이 유지되는지 본다. 검색에 도달하지 못해
+#     스킵되면 입력 정규화 실패로 해석한다.
+# =============================================================================
+robustness:
+  - id: rb-kbd-workstudy
+    question: "rmsfhwkdgkdtod djswp ahwlqgo?"
+    decoded: "근로장학생 언제 모집해?"
+    tags: [typo, keyboard-layout]
+  - id: rb-kbd-semester-end
+    question: "whdrkd djswpgo"
+    decoded: "종강 언제해"
+    tags: [typo, keyboard-layout]
+  - id: rb-kbd-enrollment
+    question: "tnrkdtlscjd기간알려줘"
+    decoded: "수강신청 기간 알려줘"
+    tags: [typo, keyboard-layout, spacing]
+  - id: rb-jamo-scholarship
+    question: "장학ㄱㅡㅁ 신청 언제까지야?"
+    decoded: "장학금 신청 언제까지야?"
+    tags: [typo, jamo]
+  - id: rb-typo-graduation-ceremony
+    question: "쥴업식언제야?"
+    decoded: "졸업식 언제야?"
+    tags: [typo, spacing]
+  - id: rb-abbrev-dorm
+    question: "긱사 추가모집 해?"
+    decoded: "기숙사 추가모집 해?"
+    tags: [colloquial, abbrev]
+  - id: rb-abbrev-software-dept
+    question: "소웨과 최근 공지 보여줘"
+    decoded: "소프트웨어학과 최근 공지 보여줘"
+    tags: [abbrev, department]
+  - id: rb-loanword-kmooc
+    question: "케이묵 어캐 들어?"
+    decoded: "K-MOOC 어떻게 들어?"
+    tags: [colloquial, loanword]
+  - id: rb-spacing-academic
+    question: "이번 주에 신청할수있는 학사 일정 있어?"
+    decoded: "이번 주에 신청할 수 있는 학사 일정 있어?"
+    tags: [spacing]
+  - id: rb-romanized-mixed
+    question: "sugangsincheong 기간 알려줘 한국항공대 undergraduate"
+    decoded: "수강신청 기간 알려줘 (학부)"
+    tags: [romanized, code-switching]
+  - id: rb-codeswitch-glued
+    question: "수강신청registration신청기간course공지언제야"
+    decoded: "수강신청 기간 공지 언제야"
+    tags: [code-switching, spacing]
+  - id: rb-consonant-abbrev
+    question: "ㅅㄱㅅㅊ 기간 ㅇㅈ? 알려줘"
+    decoded: "수강신청 기간 언제? 알려줘"
+    tags: [jamo, abbrev, colloquial]
+  - id: rb-heavy-typo-urgent
+    question: "수강싡청 긱간 언재임???? 학부생꺼 ㅃㄹ"
+    decoded: "수강신청 기간 언제임? 학부생 거 빨리"
+    tags: [typo, colloquial]
+  - id: rb-repeat-keyword
+    question: "수강신청 수강신청 수강신청 수강신청 수강신청 수강신청 수강신청 수강신청 기간 알려줘"
+    decoded: "수강신청 기간 알려줘"
+    tags: [repetition, noise]
+    notes: "키워드 반복이 검색 가중치를 왜곡하지 않는지 확인."
+  - id: rb-many-intents
+    question: "장학금 기숙사 수강신청 졸업 교환학생 등록금 휴학 복학 인턴 취업 공모전 관련 공지 전부 찾아줘"
+    tags: [multi-intent, overload]
+    notes: "의도가 11개. 한 답변에 다 담으려다 근거 없는 뭉뚱그림이 나오는지(faithfulness) 확인."
+  - id: rb-ambiguous-sohak-contest
+    question: "소학 관련 공모전 있어?"
+    tags: [ambiguous, abbrev]
+    todo: "'소학'이 소프트웨어학과 축약인지 확인 필요. 확정 후 decoded 채우고 rag_quality 로 이동 가능."
+  - id: rb-ambiguous-sohak-major
+    question: "소학 졸업 몇전공 들어야해?"
+    tags: [ambiguous, abbrev, graduation]
+    todo: "위와 동일. '몇 전공'=복수전공 이수 요건 의미로 보임."
+  - id: rb-fragment-hakyeonsaeng
+    question: "학연생"
+    tags: [fragment, ambiguous]
+    todo: "'학연생'(학연산업체 연계과정?) 의미 확정 필요. 단어 하나짜리 입력 처리 테스트로 쓸지 결정."
+  - id: rb-ambiguous-amount
+    question: "장학금 얼마 나와"
+    tags: [ambiguous, scholarship]
+    notes: "어느 장학금인지 미지정. 되묻기(clarify)를 기대할지, 대표 답변을 기대할지 정책 결정 필요."
+  - id: rb-garbled-unknown
+    question: "기수교ㅏ ㄱㅎㅇ지 찾아줘"
+    tags: [typo, garbled]
+    todo: "해독 불가. '기숙사 공지'/'교과 공지' 등 후보 중 작성자 의도 확인 필요. 불명이면 폐기."
+
+  # === 2차 수집 (2026-09-14) ===
+  - id: rb-kbd-academic-warning
+    question: "gkrwja rudrh djswpdi?"
+    decoded: "학점 경고 언제야?"
+    tags: [typo, keyboard-layout]
+    notes: "원문을 한글 자판으로 옮기면 '학점 경고 언제여?'. 학사경고를 뜻하는 것으로 보임(rq-academic-warning 과 짝)."
+  - id: rb-jamo-startup
+    question: "창업 관련 지원 프로그램 지금 신청 ㄱㄴ?"
+    decoded: "창업 관련 지원 프로그램 지금 신청 가능?"
+    tags: [jamo, abbrev, colloquial]
+  - id: rb-abbrev-double-major
+    question: "복전 신청기간 언제임??"
+    decoded: "복수전공 신청 기간 언제야?"
+    tags: [abbrev, colloquial, spacing]
+    notes: "rq-double-major-cond 와 같은 주제의 축약 변형."
+
+# =============================================================================
+# REFINEMENT NOTES — 정제 단계에서 처리할 것
+# =============================================================================
+# 1) grounding 검증 (필수)
+#    ragas_cases.yml 헤더 기준: 각 질문이 (a) triage 에서 search 로 가고 (b) 실 DB 검색 시
+#    결과가 충분히 나와야 채점된다. OpenAI 없이 find_relevant_notices 로 돌려 확인한다.
+#    - rag_quality: question 자체로 검색 0건이면 제외(안 그러면 매번 스킵되어 점수에 안 잡힘).
+#    - robustness: decoded 로 검색해 본다. decoded 가 결과를 내면 원문이 스킵돼도 유효한
+#      케이스다(그게 측정하려는 정규화 격차). decoded 로도 0건이면 제외.
+#
+# 2) 근사 중복 / 주제 쏠림
+#    - rq-graduation-req ("졸업 요건 관련 공지 찾아줘") vs 원본 B-30 ("졸업요건 알려줘")
+#    - 수강신청 클러스터: rq-enrollment-change / rb-kbd-enrollment / rb-romanized-mixed /
+#      rb-codeswitch-glued / rb-consonant-abbrev / rb-heavy-typo-urgent / rb-repeat-keyword
+#      — 같은 의도의 표현 변형이 7개(전체 89개 중 약 8%). RAGAS 평균이 수강신청 한 주제의 성능에
+#      쏠리므로, 변형 개수를 줄이거나 리포트에서 태그별로 따로 볼 것.
+#    - 2차 추가분 rq-credit-limit(최대학점) / rq-enrollment-quota-increase(증원)도 수강신청 주제라,
+#      의도는 달라도 주제 기준으로는 수강신청 쏠림이 9개(약 10%)다.
+#    - 공모전: rq-contest-week / rq-contest-month 는 시간창만 다름. 둘 다 유지 가능.
+#
+# 3) 날짜 의존 케이스
+#    "오늘/이번주/이번 달/이번 학기/최근/지금" 기준 질문은 스냅샷 DB(약 2026-05 기준)에서 결과가 비거나
+#    시간이 지나면 답이 바뀐다. 고정 회귀셋에 넣으려면 (a) 기준일을 고정하거나
+#    (b) 상대 시간 표현을 절대 날짜로 바꾸거나 (c) 고정셋에서 제외할지 정해야 한다.
+#
+# 4) filters 문자열 검증
+#    rq-grad-scholarship-filtered 등 filters 를 쓰는 케이스는 docs/CLASSIFICATION.md 의
+#    정확한 문자열이어야 한다. 틀리면 검색 0건 → 스킵.
+#
+# 5) todo 항목 해소
+#    소학 / 항우기 / 학연생 / 기수교ㅏ / 국문과 — 의미·존재 확인 후 교정 또는 삭제.
+#    2차: 학칙·교육과정 영역(재수강·학점포기·조기졸업·교양필수), 시설·IT 안내(프린트·와이파이)
+#    — 공지 근거가 있는지 grounding 확인 후 유지 여부 결정.

@@ -121,6 +121,12 @@ def canonicalize_original_url(url: str) -> str:
         "ai.kau.ac.kr:8120",
         "ai.kau.ac.kr:8130",
         "ai.kau.ac.kr:8140",
+        # 전공별 도메인 이전(2026-09) 후 주소. 옛 포트 주소는 기존 데이터 정규화를 위해 남긴다.
+        "ai.kau.ac.kr",
+        "com.kau.ac.kr",
+        "eae.kau.ac.kr",
+        "sse.kau.ac.kr",
+        "ict.kau.ac.kr",
         "sw.kau.ac.kr",
         "ave.kau.ac.kr",
     } and path.endswith(".php"):

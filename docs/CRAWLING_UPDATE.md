@@ -206,6 +206,8 @@ uvicorn app.main:app --reload --port 8000
 | `CRAWLER_MIN_RECORDS` | `1` | 게시 허용 최소 레코드 수 |
 | `CRAWLER_MIN_RETAIN_RATIO` | `0.5` | 기존 개수 대비 급감 방어 비율 |
 | `CRAWLER_LOCK_PATH` | 없음 | 지정하지 않으면 JSON 디렉터리의 `.crawler.lock` 사용 |
+| `CRAWLER_RECENT_NOTICE_DAYS` | `365` | 일반공지 수집·정리 기간(일). 넓은 기간을 한 번 모을 때만 바꾸고 `app.crawler.main`을 직접 실행한다. 게시 스크립트의 게시 전 정리는 365일 고정 |
+| `CRAWLER_REQUEST_DELAY_SECONDS` | `0.5,1.2` | 요청 사이 대기 시간 범위(초, `최소,최대`) |
 | `CONTENT_ENRICHMENT_ENABLED` | `false` | 이미지/HWP 기반 content 보강 활성화 |
 | `CONTENT_ENRICHMENT_MAX_CALLS_PER_RUN` | `50` | crawl 1회당 보강 API 호출 상한 |
 | `OPENAI_API_KEY` | 없음 | OpenAI provider 사용 시 필요 |

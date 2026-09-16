@@ -98,25 +98,35 @@ def evaluate_recent_policy(
     source_page: int,
     is_permanent_notice: bool,
     published_at: str | None,
+    since: date | None = None,
 ) -> RecentPolicyDecision:
     """
     Returns:
       - include_post: 결과 저장 여부
       - stop_crawling: 현재 게시판 상세 수집 루프 중단 여부
+
+    since가 있으면 그 날짜보다 먼저(당일 제외) 게시된 일반공지에서, 없으면 오늘 기준
+    RECENT_NOTICE_DAYS를 넘긴 일반공지에서 게시판 수집을 멈춘다.
     """
     if is_permanent_notice:
         # 상시 공지는 작성일과 무관하게 모두 수집한다.
         return RecentPolicyDecision(include_post=True, stop_crawling=False)
 
-    # 일반 공지는 게시일이 1년을 초과한 경우에만 수집을 중단한다.
     published_date = parse_published_date(published_at)
-    cutoff_date = _cutoff_date(lookback_days=RECENT_NOTICE_DAYS)
+    if published_date is None:
+        return RecentPolicyDecision(include_post=True, stop_crawling=False)
 
-    if published_date and published_date <= cutoff_date:
-        # 일반 공지에서 1년 전 이상을 만나면 해당 보드 상세 수집을 종료한다.
+    if since is not None:
+        stale = published_date < since
+    else:
+        stale = published_date <= _cutoff_date(lookback_days=RECENT_NOTICE_DAYS)
+
+    if stale:
+        # 일반 공지에서 기간 경계를 넘으면 해당 보드 상세 수집을 종료한다.
         logger.debug(
-            "수집 종료 후보 | 게시판=%s | 사유=일반공지 1년 초과 | 게시일=%s | 페이지=%s | url=%s",
+            "수집 종료 후보 | 게시판=%s | 사유=%s | 게시일=%s | 페이지=%s | url=%s",
             board_name,
+            recent_stop_reason(since),
             published_at,
             source_page,
             detail_url,
@@ -124,3 +134,10 @@ def evaluate_recent_policy(
         return RecentPolicyDecision(include_post=False, stop_crawling=True)
 
     return RecentPolicyDecision(include_post=True, stop_crawling=False)
+
+
+def recent_stop_reason(since: date | None) -> str:
+    """게시판 수집 중단 로그에 남기는 기간 경계 문구."""
+    if since is not None:
+        return f"since 이전 도달(since={since.isoformat()})"
+    return "일반공지 1년 초과"

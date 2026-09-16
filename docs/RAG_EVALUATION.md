@@ -32,7 +32,7 @@ RAGAS 평가는 아래 평가 데이터 스냅샷이 있어야 검색이 동작�
 실행 시점마다 검색 후보가 달라지고 전후 비교가 성립하지 않는다. 평가 러너는
 [tests/eval/snapshot.py](../tests/eval/snapshot.py)로 스냅샷을 열고, 없으면 운영 DB로 대신 돌리지 않고 멈춘다.
 
-- **위치**: `data/eval/<이름>/` (기본 `snapshot-2026-09-14`, `EVAL_SNAPSHOT_DIR`로 변경). 공지 원문에 학번·성명이
+- **위치**: `data/eval/<이름>/` (기본 `snapshot-2026-09-15`, `EVAL_SNAPSHOT_DIR`로 변경). 공지 원문에 학번·성명이
   섞여 있어 git에 올리지 않는다(`.gitignore`).
 - **기준일**: 러너가 이 날짜를 "오늘"로 분기·rerank·답변 프롬프트에 넘긴다. "이번 주 마감" 같은 질문의 정답이
   실행 날짜에 따라 바뀌지 않는다.
@@ -41,15 +41,20 @@ RAGAS 평가는 아래 평가 데이터 스냅샷이 있어야 검색이 동작�
 - **비교 단위**: 실행별 상세 파일과 이력 CSV에 스냅샷 이름을 남긴다. 스냅샷이 다른 실행끼리는 점수를 비교하지
   않는다.
 
-현재 스냅샷은 기준일 2026-09-14, 컷오프 2023-09-01이며 이미지 본문 보강 없이 수집했다. 만드는 방법:
+현재 스냅샷은 기준일 2026-09-15, 컷오프 2023-01-01이며 연구 수집본(이미지·HWP 본문 보강 적용, 본문 복구 불가 공지 제외)에서 만들었다.
+기준일 2026-09-14 스냅샷은 2026-09-16에 지웠다. 새로 만드는 방법:
 
 ```bash
-# 1) 넓은 기간으로 수집. 게시 스크립트는 게시 전 정리를 365일로 하므로 쓰지 않는다.
-CONTENT_ENRICHMENT_ENABLED=false CRAWLER_RECENT_NOTICE_DAYS=1111 CRAWLER_REQUEST_DELAY_SECONDS=0.1,0.3 \
-  .venv/bin/python -m app.crawler.main --output data/eval/snapshot-2026-09-14/posts.json
+# 이번 스냅샷 방식: 연구 수집본(보강 적용·복구 불가 공지 제외)에서 만든다. 네트워크·OpenAI 호출 없음
+.venv/bin/python -m tests.eval.snapshot --root data/eval/snapshot-2026-09-15 \
+  --posts data/research/kau_notices_clean_2026-09-15.json \
+  --crawl-meta data/research/crawl_manifest_2026-09-15.json \
+  --reference-date 2026-09-15 --cutoff-date 2023-01-01
 
-# 2) 기준일 컷오프로 정리하고 DB·manifest 생성 (네트워크·OpenAI 호출 없음)
-.venv/bin/python -m tests.eval.snapshot --reference-date 2026-09-14 --cutoff-date 2023-09-01
+# 새 기준일로 처음부터 만들 때: 넓은 기간으로 수집한 뒤 같은 명령으로 정리한다.
+# 게시 스크립트는 게시 전 정리를 365일로 하므로 쓰지 않는다.
+CONTENT_ENRICHMENT_ENABLED=false CRAWLER_RECENT_NOTICE_DAYS=1111 CRAWLER_REQUEST_DELAY_SECONDS=0.1,0.3 \
+  .venv/bin/python -m app.crawler.main --output data/eval/snapshot-<기준일>/posts.json
 ```
 
 `manifest.json`에 수집·정리 건수, 일반공지 게시일 범위, 이미지 본문 보강 대상 수, 수집 조건

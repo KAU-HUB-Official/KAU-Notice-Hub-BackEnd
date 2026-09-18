@@ -7,6 +7,7 @@ from scripts.research.crosspost_rules import (
     body_for_similarity,
     body_image_urls,
     body_similarity,
+    different_attachment_files,
     loose_title,
     same_attachment_set,
     same_body_image_set,
@@ -42,6 +43,31 @@ def test_generic_url_endings_and_empty_lists_do_not_apply() -> None:
     assert attachment_name_list(_post("imageSrc.do", "첨부파일")) == []
     assert not same_attachment_set(_post("imageSrc.do"), _post("imagesrc.do"))
     assert not same_attachment_set({"attachments": []}, {"attachments": []})
+
+
+def test_number_prefix_extension_and_final_mark_are_the_same_file() -> None:
+    a = _post("붙임2.중간강의평가응답방법(학생).pdf", "첨부1.공적조서양식.hwp")
+    b = _post("중간강의평가응답방법(학생).pdf", "[첨부2]공적조서양식(최종).hwp")
+
+    assert same_attachment_set(a, b)
+    assert not different_attachment_files(a, b)
+    assert same_attachment_set(_post("2026_boeing_day_참가팀_지원서.hwp"), _post("2026boeingday참가팀지원서.hwp"))
+
+
+def test_same_document_in_two_formats_counts_once() -> None:
+    both_formats = _post("모집공고.hwpx", "모집공고_.pdf")
+
+    assert same_attachment_set(both_formats, _post("모집공고.pdf"))
+
+
+def test_different_files_mean_different_notices_only_when_both_have_attachments() -> None:
+    older = _post("강의시간표(20260306).pdf")
+    newer = _post("(최종)강의시간표(20260414).xlsx")
+
+    assert different_attachment_files(older, newer)  # 날짜가 다른 판은 다른 파일
+    assert different_attachment_files(_post("서약서.hwp"), _post("서약서.hwp", "가이드라인.pdf"))  # 한쪽에 파일이 더 있음
+    assert not different_attachment_files(_post("서약서.hwp"), {"attachments": []})  # 한쪽만 첨부
+    assert not different_attachment_files(_post("imageSrc.do"), _post("신청서.hwp"))  # 파일명이 아닌 값은 비교하지 않음
 
 
 def _images(*urls: str) -> dict:

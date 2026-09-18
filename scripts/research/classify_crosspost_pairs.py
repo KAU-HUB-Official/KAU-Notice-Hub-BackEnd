@@ -4,7 +4,8 @@
 
 순서 (규칙 정의는 crosspost_rules.py)
 1. 후보: 게시판이 다르고 게시일 차이 7일 이내, 제목이 같거나 비슷함(2-gram 0.8 이상).
-2. 첨부파일 규칙: 첨부파일 이름·개수가 전부 같으면 합침.
+2. 첨부파일 규칙: 첨부파일이 전부 같고 개수도 같으면 합침. 두 공지 모두 첨부가 있는데 파일이 다르면
+   다른 공지(둘 다 남김). 같은 시리즈라도 첨부가 다르면 주로 제공하는 정보가 다르다(2026-09-19 결정).
 3. 본문 유사도 0.9 이상이면 합침. 한쪽 본문이 50자 미만이면 비교 불가로 다음 단계로 넘긴다.
 4. 본문 이미지 규칙: 본문 이미지 파일(해시)·개수가 전부 같으면 합침.
    해시는 3단계까지 정하지 못한 쌍의 이미지만 구한다. 보강 캐시에 있으면 쓰고, 없으면 학교 서버에서 내려받는다.
@@ -41,6 +42,7 @@ from scripts.research.crosspost_rules import (
     body_for_similarity,
     body_image_urls,
     body_similarity,
+    different_attachment_files,
     loose_title,
     same_attachment_set,
     same_body_image_set,
@@ -48,6 +50,7 @@ from scripts.research.crosspost_rules import (
 )
 
 ATTACHMENT_RULE = "첨부파일 일치"
+ATTACHMENT_DIFFERENT = "첨부파일 다름"
 BODY_RULE = "본문 90% 이상"
 IMAGE_RULE = "본문 이미지 일치"
 NEEDS_JUDGMENT = "판정 필요"
@@ -132,6 +135,8 @@ def main(argv: list[str] | None = None) -> None:
         sim = body_similarity(bodies[i], bodies[j])
         if same_attachment_set(a, b):
             step = ATTACHMENT_RULE
+        elif different_attachment_files(a, b):
+            step = ATTACHMENT_DIFFERENT
         elif sim is not None and sim >= BODY_AUTO_MERGE:
             step = BODY_RULE
         else:
@@ -158,7 +163,7 @@ def main(argv: list[str] | None = None) -> None:
     summary = {
         "posts": len(posts),
         "candidate_pairs": len(rows),
-        "steps": {s: counts[s] for s in (ATTACHMENT_RULE, BODY_RULE, IMAGE_RULE, NEEDS_JUDGMENT)},
+        "steps": {s: counts[s] for s in (ATTACHMENT_RULE, ATTACHMENT_DIFFERENT, BODY_RULE, IMAGE_RULE, NEEDS_JUDGMENT)},
         "needs_judgment_by_body_similarity": dict(sorted(judgment_bins.items())),
         "image_rule": {
             "pairs_checked": len(both_have_images),

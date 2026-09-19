@@ -13,8 +13,9 @@ import logging
 import time
 
 import jwt
-from fastapi import Request
+from fastapi import Depends, Request
 from fastapi.responses import JSONResponse
+from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 
 from app import user_store
 from app.config import Settings, get_settings
@@ -64,20 +65,18 @@ def decode_user_id(token: str, *, secret: str) -> str | None:
     return subject if isinstance(subject, str) and subject else None
 
 
-def _bearer_token(request: Request) -> str | None:
-    header = request.headers.get("authorization")
-    if not header:
-        return None
-    scheme, _, token = header.partition(" ")
-    if scheme.lower() != "bearer" or not token.strip():
-        return None
-    return token.strip()
+# OpenAPI에 Bearer 인증을 선언해 /docs에 Authorize 버튼이 생기게 한다.
+# auto_error=False: 토큰이 없을 때 FastAPI 기본 응답({"detail": ...}) 대신
+# 아래 get_current_user가 기존 ErrorResponse 형식의 401을 돌려주게 한다.
+bearer_scheme = HTTPBearer(auto_error=False)
 
 
-async def get_current_user(request: Request) -> UserRecord:
+async def get_current_user(
+    credentials: HTTPAuthorizationCredentials | None = Depends(bearer_scheme),
+) -> UserRecord:
     """로그인이 필요한 엔드포인트의 의존성. 실패하면 AuthenticationRequired를 던진다."""
     settings = get_settings()
-    token = _bearer_token(request)
+    token = credentials.credentials.strip() if credentials else None
     secret = jwt_secret(settings)
     if not token or not secret:
         raise AuthenticationRequired()

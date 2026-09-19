@@ -177,6 +177,24 @@ def test_me_requires_bearer_token(login_env) -> None:
         assert res.headers["www-authenticate"] == "Bearer"
 
 
+def test_openapi_declares_bearer_auth_for_protected_endpoints() -> None:
+    # /docs에 Authorize 버튼이 생기고, 로그인 필요한 API에 자물쇠가 표시되는지 확인한다.
+    with TestClient(app) as client:
+        spec = client.get("/openapi.json").json()
+
+    schemes = spec["components"]["securitySchemes"]
+    assert schemes["HTTPBearer"] == {"type": "http", "scheme": "bearer"}
+    for path, method in [
+        ("/api/me", "get"),
+        ("/api/me", "delete"),
+        ("/api/bookmarks", "get"),
+        ("/api/bookmarks/{notice_id}", "put"),
+    ]:
+        assert spec["paths"][path][method]["security"] == [{"HTTPBearer": []}]
+    assert "security" not in spec["paths"]["/api/auth/kakao"]["post"]
+    assert "security" not in spec["paths"]["/api/notices"]["get"]
+
+
 def test_me_rejects_expired_and_foreign_tokens(login_env, kakao_calls) -> None:
     with TestClient(app) as client:
         user_id = _login(client).json()["user"]["id"]

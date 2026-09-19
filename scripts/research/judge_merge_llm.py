@@ -17,6 +17,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import random
 import re
 import time
 from collections import Counter
@@ -105,6 +106,7 @@ def main(argv: list[str] | None = None) -> None:
     parser.add_argument("--posts", type=Path, required=True)
     parser.add_argument("--model", default="gpt-4.1-mini")
     parser.add_argument("--limit", type=int, required=True, help="호출할 쌍 수. OpenAI 비용이 든다")
+    parser.add_argument("--seed", type=int, default=None, help="쌍을 무작위로 고를 때 시드(없으면 표본 순서대로)")
     parser.add_argument("--output", type=Path, required=True)
     args = parser.parse_args(argv)
 
@@ -119,6 +121,8 @@ def main(argv: list[str] | None = None) -> None:
     labeled = json.loads(args.labels.read_text(encoding="utf-8"))["pairs"]
     targets = [r for r in labeled if r["label"] and steps.get(frozenset((r["a_url"], r["b_url"]))) == "판정 필요"]
     print(f"라벨 {len(labeled)}쌍 중 판정 필요로 남은 쌍 {len(targets)}")
+    if args.seed is not None:
+        random.Random(args.seed).shuffle(targets)
     rows = targets[: args.limit]
     records = []
     tokens = Counter()

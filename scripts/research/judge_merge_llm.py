@@ -7,6 +7,8 @@
 애매하면 나눈다(2026-09-19 결정). 둘 다 남기는 것도 정답이므로, 잘못 합친 경우(라벨 keep_both → merge)만 위험한 오류로 본다.
 
 - 입력은 본문만 넘긴다. 게시판·게시일·제목·첨부 이름은 넘기지 않는다(2026-09-15 결정).
+- 한쪽에만 첨부가 있으면 기준 본문을 첨부 있는 쪽으로 고정한다. 내용이 같으면 첨부 있는 쪽만 남고, 다르면 둘 다
+  남는다(2026-09-20 결정). LLM에는 "기준 본문: A"만 알려주고, 응답에서 다른 본문을 고를 수 없게 막는다.
 - 대상: 최종 라벨이 있는 표본 쌍 중 지금 규칙으로 정해지지 않는 쌍(classify_crosspost_pairs.py 의 "판정 필요").
 - OpenAI 비용이 든다. --limit 으로 판정할 쌍 수를 반드시 정한다.
 
@@ -32,8 +34,9 @@ from pathlib import Path
 import requests
 
 from app.config import get_settings
+from scripts.research.crosspost_rules import attachment_files
 
-PIPELINE_VERSION = "2026-09-19"  # 이 날짜로 고정한 판정 파이프라인. 지시문·합치기·검사를 바꾸면 날짜를 올린다.
+PIPELINE_VERSION = "2026-09-20"  # 이 날짜로 고정한 판정 파이프라인. 지시문·합치기·검사를 바꾸면 날짜를 올린다.
 BODY_CHARS = 6000
 JUDGMENTS = ("merge", "keep_both")
 ADDITION_HEADER = "[추가 안내]"
@@ -51,8 +54,8 @@ keep_both: 일정·장소·자격·조건·절차·금액·과목·선발 인원
 
 애매하면 keep_both로 한다. merge는 합쳐도 지장이 없다고 확신할 때만 고른다.
 
-merge이면 기준 본문(A 또는 B)과 덧붙일 정보를 적는다. 덧붙일 정보는 다른 공지의 문장을 그대로 옮기고,
-요약하거나 새 문장을 쓰지 않는다. 본문에 없는 내용은 만들지 않는다."""
+merge이면 기준 본문(A 또는 B)과 덧붙일 정보를 적는다. 입력에 기준 본문이 정해져 있으면 그 본문을 기준으로 한다.
+덧붙일 정보는 다른 공지의 문장을 그대로 옮기고, 요약하거나 새 문장을 쓰지 않는다. 본문에 없는 내용은 만들지 않는다."""
 
 SCHEMA = {
     "type": "json_schema",
@@ -100,6 +103,28 @@ def body_text(post: dict) -> str:
     c = re.sub(r"\\([\\`*_{}\[\]()#+\-.!|~<> ])", r"\1", c)
     c = re.sub(r"\n{3,}", "\n\n", c).strip() or "(본문 없음)"
     return c[:BODY_CHARS] + ("\n…(이하 생략)" if len(c) > BODY_CHARS else "")
+
+
+def fixed_base(a: dict, b: dict) -> str | None:
+    """한쪽에만 첨부가 있으면 그쪽("A"/"B")을 기준 본문으로 고정한다. 둘 다 있거나 둘 다 없으면 None."""
+    has_a, has_b = bool(attachment_files(a)), bool(attachment_files(b))
+    if has_a == has_b:
+        return None
+    return "A" if has_a else "B"
+
+
+def judge_schema(base: str | None) -> dict:
+    """기준 본문이 고정되면 응답의 base 를 그 본문과 none 으로만 제한한다."""
+    if base is None:
+        return SCHEMA
+    schema = json.loads(json.dumps(SCHEMA))
+    schema["schema"]["properties"]["base"]["enum"] = [base, "none"]
+    return schema
+
+
+def judge_input(text_a: str, text_b: str, base: str | None) -> str:
+    head = f"기준 본문: {base}\n\n" if base else ""
+    return f"{head}[공지 A 본문]\n{text_a}\n\n[공지 B 본문]\n{text_b}"
 
 
 def merged_body(base_text: str, additions: list[str]) -> str:
@@ -182,8 +207,9 @@ def main(argv: list[str] | None = None) -> None:
     records, tokens, calls = [], Counter(), Counter()
     for n, r in enumerate(rows, 1):
         texts = {"A": body_text(posts[r["a_url"]]), "B": body_text(posts[r["b_url"]])}
+        forced = fixed_base(posts[r["a_url"]], posts[r["b_url"]])
         judged, usage, error = call_llm(
-            key, args.model, INSTRUCTIONS, SCHEMA, f"[공지 A 본문]\n{texts['A']}\n\n[공지 B 본문]\n{texts['B']}"
+            key, args.model, INSTRUCTIONS, judge_schema(forced), judge_input(texts["A"], texts["B"], forced)
         )
         calls["judge"] += 1
         tokens["input"] += int(usage.get("input_tokens") or 0)
@@ -193,6 +219,7 @@ def main(argv: list[str] | None = None) -> None:
             **{k: r[k] for k in ("no", "a_url", "b_url", "title_a", "title_b", "body_similarity", "bin")},
             "label": r["label"],
             "label_source": "Claude" if r["label_source"] == "Claude" else "사람",
+            "fixed_base": forced,
             "llm_judgment": judged.get("judgment"),
             "llm_reason": judged.get("reason", ""),
             "base": judged.get("base"),
@@ -202,7 +229,7 @@ def main(argv: list[str] | None = None) -> None:
             "final_judgment": judged.get("judgment"),
             "error": error,
         }
-        if judged.get("judgment") == "merge" and judged.get("base") in ("A", "B"):
+        if judged.get("judgment") == "merge" and judged.get("base") in ("A", "B") and judged.get("base") == (forced or judged.get("base")):
             base = judged["base"]
             dropped = "B" if base == "A" else "A"
             merged = merged_body(texts[base], record["additions"])

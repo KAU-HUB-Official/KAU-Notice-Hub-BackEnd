@@ -45,6 +45,7 @@ services:
       JWT_EXPIRE_SECONDS: ${JWT_EXPIRE_SECONDS:-1209600}
       # 사용자·북마크 DB. 반드시 볼륨(/data) 아래에 둔다. 컨테이너 재생성 시 회원 데이터 유실 방지.
       USER_DB_PATH: ${USER_DB_PATH:-/data/users.db}
+      BOOKMARK_MAX_PER_USER: ${BOOKMARK_MAX_PER_USER:-500}
       RATE_LIMIT_AUTH: ${RATE_LIMIT_AUTH:-10/minute}
       RATE_LIMIT_BOOKMARKS: ${RATE_LIMIT_BOOKMARKS:-120/minute}
     volumes:

@@ -11,7 +11,7 @@
 | 경로 | 역할 |
 | --- | --- |
 | `app/` | FastAPI 앱, API router, service/repository 계층, SQLite ingest, 검색/분류 로직 |
-| `app/api/` | `/health`, `/api/notices`, `/api/chat`, `/api/auth/kakao`·`/api/me` router |
+| `app/api/` | `/health`, `/api/notices`, `/api/chat`, `/api/auth/kakao`·`/api/me`, `/api/bookmarks` router |
 | `app/crawler/` | KAU 공지 크롤러 본체. client, parser, service, policy로 분리 |
 | `scripts/` | 수동 운영 스크립트. 현재 `run_incremental_crawl_publish.sh`가 JSON 스냅샷을 atomic 게시 |
 | `tests/` | pytest 테스트와 retrieval eval case |
@@ -63,7 +63,7 @@ FastAPI lifespan
 | `app/chat_service.py` | `/api/chat` RAG 파이프라인, OpenAI 호출, SSE 단계 이벤트 |
 | `app/kakao.py` | 카카오 인가 code → 토큰 교환, 사용자 정보 조회 |
 | `app/auth.py` | 자체 JWT 발급·검증, 로그인 필수 의존성(`get_current_user`), 401 응답 |
-| `app/user_store.py` | 사용자 SQLite(`USER_DB_PATH`) 저장소. 공지 DB와 분리 |
+| `app/user_store.py` | 사용자·북마크 SQLite(`USER_DB_PATH`) 저장소. 공지 DB와 분리 |
 | `app/classification.py` | audience/source group/category/source 필터 분류 규칙 |
 | `app/search.py` | 검색어 정규화, 토큰 확장, ranking |
 | `app/crawler_scheduler.py` | 서버 내장 주기 크롤링, lock, JSON publish, SQLite ingest |
@@ -89,7 +89,7 @@ FastAPI lifespan
 | `docs/CLASSIFICATION.md` | audience/source group/source/category 분류 기준 |
 | `docs/CRAWLING_UPDATE.md` | 크롤러 publish, stale 삭제, SQLite ingest 정책 |
 | `docs/RAG_PLAN.md` | `/api/chat` RAG 동작 기준 |
-| `docs/AUTH_BOOKMARK_API.md` | 카카오 로그인 흐름, 북마크 API 설계, 공지 ID 변경 기록 |
+| `docs/AUTH_BOOKMARK_API.md` | 카카오 로그인·북마크 설계 배경, 공지 ID 변경 기록, 프론트 연동 메모 |
 | `docs/GPT_API_PROMPTS.md` | GPT API 프롬프트 원문과 payload 구조 |
 | `docs/DEPLOYMENT.md` | 로컬 실행, Docker Compose, Lightsail 배포 |
 | `docs/ERD.md` | SQLite 실제 스키마와 JSON 원천 모델 |

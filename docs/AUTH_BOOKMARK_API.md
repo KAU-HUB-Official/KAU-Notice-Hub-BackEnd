@@ -1,4 +1,4 @@
-# 카카오 로그인·북마크 API 명세
+# 카카오 로그인·북마크 설계
 
 ## 상태
 
@@ -6,9 +6,9 @@
 | --- | --- |
 | [공지 ID 변경](#공지-id-변경) | 구현 완료, 배포 전 |
 | 카카오 로그인 (`POST /api/auth/kakao`, `GET/DELETE /api/me`) | 구현 완료, 배포 전. 확정된 계약은 [API_SPEC.md](API_SPEC.md)로 옮겼다 |
-| 북마크 | 초안. 아직 구현하지 않았다. 구현을 마치면 [API_SPEC.md](API_SPEC.md)에 합친다 |
+| 북마크 (`/api/bookmarks`) | 구현 완료, 배포 전. 확정된 계약은 [API_SPEC.md](API_SPEC.md)로 옮겼다 |
 
-기존 API 공통 규칙(camelCase 필드, `ErrorResponse` 형식, 페이지네이션 보정, 레이트리밋)은 [API_SPEC.md](API_SPEC.md)를 그대로 따른다.
+이 문서는 설계 배경과 결정 기록, 프론트 연동 흐름을 남긴다. 요청·응답·오류 계약은 [API_SPEC.md](API_SPEC.md)가 기준이다.
 
 ### 결정 사항
 
@@ -44,203 +44,24 @@
 - 카카오 access token은 사용자 정보를 조회하는 데만 쓰고 저장하지 않는다.
 - CSRF 방지용 `state`는 인가 요청을 시작하고 콜백을 받는 프론트가 만들고 검증한다.
 
-## 인증과 공통 규칙
+## API 요약
 
-인증 헤더, 액세스 토큰, `401` 응답 형식은 [API_SPEC.md](API_SPEC.md#인증)를 따른다. 북마크 API는 모두 로그인이 필요하다.
-
-### 시각 형식
-
-북마크의 시각 필드는 UTC ISO 8601 문자열이다. 공지 `date`(`YYYY-MM-DD`)와는 다르다.
-
-```json
-{ "bookmarkedAt": "2026-09-19T06:30:00Z" }
-```
-
-### 레이트리밋
-
-북마크 API는 `/api/me`와 같은 버킷(`RATE_LIMIT_BOOKMARKS`, 기본 IP당 120회/분)을 공유한다.
-
-## 응답 모델
-
-### `Bookmark`
-
-```ts
-interface Bookmark {
-  noticeId: string;
-  bookmarkedAt: string; // UTC ISO 8601
-  notice: Notice | null; // 현재 공지 스냅샷에 있으면 전체 공지, 없으면 null
-  saved: NoticeReference; // 북마크한 시점에 저장한 사본. 항상 있다
-}
-```
-
-- `Notice`, `NoticeReference`는 [API_SPEC.md](API_SPEC.md)의 모델과 같다.
-- 공지는 1년이 지나면 스냅샷에서 빠질 수 있다. 이때 `notice`는 `null`이 되지만 북마크는 지우지 않는다. 프론트는 `saved.title`과 원문 링크 `saved.url`로 "삭제된 공지" 카드를 보여준다.
-- `notice`가 있으면 기존 `NoticeCard`를 그대로 쓸 수 있다.
-
-### `BookmarkListResult`
-
-```ts
-interface BookmarkListResult {
-  items: Bookmark[];
-  total: number;
-  page: number;
-  pageSize: number;
-  totalPages: number;
-}
-```
-
-`page`, `pageSize` 보정 규칙은 `GET /api/notices`와 같다(기본 20, 최대 100).
-
-## 엔드포인트
-
-| 메서드 | 경로 | 인증 | 설명 | 상태 |
-| --- | --- | --- | --- | --- |
-| `POST` | `/api/auth/kakao` | 불필요 | 카카오 인가 code로 로그인 | 구현 |
-| `GET` | `/api/me` | 필요 | 내 정보 | 구현 |
-| `DELETE` | `/api/me` | 필요 | 회원 탈퇴 | 구현 |
-| `GET` | `/api/bookmarks` | 필요 | 북마크 목록 | 초안 |
-| `GET` | `/api/bookmarks/ids` | 필요 | 북마크한 공지 ID 전체 | 초안 |
-| `PUT` | `/api/bookmarks/{noticeId}` | 필요 | 북마크 추가 | 초안 |
-| `DELETE` | `/api/bookmarks/{noticeId}` | 필요 | 북마크 삭제 | 초안 |
-
-### 로그인 API (구현 완료)
-
-`POST /api/auth/kakao`, `GET /api/me`, `DELETE /api/me`의 요청·응답·오류 계약은 [API_SPEC.md](API_SPEC.md)에 있다. 북마크를 구현하면 `DELETE /api/me`가 사용자의 북마크도 함께 삭제한다.
-
-### `GET /api/bookmarks`
-
-내 북마크 목록을 최근에 북마크한 순서로 반환한다.
-
-#### 쿼리 파라미터
-
-| 이름 | 타입 | 필수 | 설명 |
+| 메서드 | 경로 | 인증 | 설명 |
 | --- | --- | --- | --- |
-| `page` | string/integer | 아니오 | 페이지 번호. 잘못된 값은 `1`로 보정 |
-| `pageSize` | string/integer | 아니오 | 페이지 크기. 잘못된 값은 `20`으로 보정, 최대 `100` |
+| `POST` | `/api/auth/kakao` | 불필요 | 카카오 인가 code로 로그인 |
+| `GET` | `/api/me` | 필요 | 내 정보 |
+| `DELETE` | `/api/me` | 필요 | 회원 탈퇴. 북마크도 함께 삭제 |
+| `GET` | `/api/bookmarks` | 필요 | 북마크 목록(최근순, 페이지네이션) |
+| `GET` | `/api/bookmarks/ids` | 필요 | 북마크한 공지 ID 전체 |
+| `PUT` | `/api/bookmarks/{noticeId}` | 필요 | 북마크 추가(멱등, 새로 만들면 `201`) |
+| `DELETE` | `/api/bookmarks/{noticeId}` | 필요 | 북마크 삭제(멱등) |
 
-#### 응답 `200`
+### 북마크 설계 결정
 
-```json
-{
-  "items": [
-    {
-      "noticeId": "a3f9c2e81b7d4056",
-      "bookmarkedAt": "2026-09-19T06:30:00Z",
-      "notice": {
-        "id": "a3f9c2e81b7d4056",
-        "title": "2026학년도 2학기 수강신청 안내",
-        "content": "수강신청 기간은 ...",
-        "url": "https://kau.ac.kr/...",
-        "source": "한국항공대학교 공식 홈페이지",
-        "sources": ["한국항공대학교 공식 홈페이지"],
-        "audienceGroup": "전 구성원 공통",
-        "sourceGroup": "학사",
-        "sourceGroups": ["학사"],
-        "category": "학사",
-        "date": "2026-08-20",
-        "tags": ["학사"],
-        "attachments": []
-      },
-      "saved": {
-        "id": "a3f9c2e81b7d4056",
-        "title": "2026학년도 2학기 수강신청 안내",
-        "url": "https://kau.ac.kr/...",
-        "source": "한국항공대학교 공식 홈페이지",
-        "date": "2026-08-20"
-      }
-    },
-    {
-      "noticeId": "5d10be7f02c94a8e",
-      "bookmarkedAt": "2025-09-02T01:12:00Z",
-      "notice": null,
-      "saved": {
-        "id": "5d10be7f02c94a8e",
-        "title": "2025학년도 국가장학금 2차 신청 안내",
-        "url": "https://kau.ac.kr/...",
-        "source": "한국항공대학교 공식 홈페이지",
-        "date": "2025-08-28"
-      }
-    }
-  ],
-  "total": 2,
-  "page": 1,
-  "pageSize": 20,
-  "totalPages": 1
-}
-```
-
-#### 오류 응답
-
-| 상태 | `error` |
-| --- | --- |
-| `401` | `로그인이 필요합니다.` |
-| `429` | `요청이 너무 많습니다. 잠시 후 다시 시도해주세요.` |
-| `500` | `북마크 목록을 불러오지 못했습니다.` |
-
-### `GET /api/bookmarks/ids`
-
-내가 북마크한 공지 ID 전체를 반환한다. 공지 목록·상세 화면에서 북마크 아이콘을 채울지 판단하는 데 쓴다.
-
-기존 `GET /api/notices` 응답에 북마크 여부를 섞지 않기 위해 따로 둔다. 사용자당 북마크 수에 상한(`BOOKMARK_MAX_PER_USER`)이 있어 응답 크기가 제한된다.
-
-#### 응답 `200`
-
-```json
-{
-  "noticeIds": ["a3f9c2e81b7d4056", "5d10be7f02c94a8e"]
-}
-```
-
-#### 오류 응답
-
-`401`, `429`, `500`
-
-### `PUT /api/bookmarks/{noticeId}`
-
-공지를 북마크한다. 이미 북마크한 공지면 아무것도 바꾸지 않고 기존 북마크를 반환한다(멱등).
-
-#### 경로 파라미터
-
-| 이름 | 타입 | 필수 | 설명 |
-| --- | --- | --- | --- |
-| `noticeId` | string | 예 | 공지 ID |
-
-#### 요청 본문
-
-없음.
-
-#### 응답
-
-| 상태 | 의미 | 본문 |
-| --- | --- | --- |
-| `201` | 새로 북마크함 | `Bookmark` |
-| `200` | 이미 북마크돼 있음 | `Bookmark` (기존 `bookmarkedAt` 유지) |
-
-#### 오류 응답
-
-| 상태 | `error` | 원인 |
-| --- | --- | --- |
-| `401` | `로그인이 필요합니다.` | 인증 실패 |
-| `404` | `공지 항목을 찾을 수 없습니다.` | 현재 공지 스냅샷에 없는 ID. 새 북마크만 해당하고, 이미 북마크한 공지는 스냅샷에서 빠졌어도 `200` |
-| `409` | `북마크는 최대 500개까지 저장할 수 있습니다.` | 상한 초과. 숫자는 `BOOKMARK_MAX_PER_USER` |
-| `429` | `요청이 너무 많습니다. 잠시 후 다시 시도해주세요.` | 레이트리밋 |
-| `500` | `북마크를 저장하지 못했습니다.` | 저장 실패 |
-
-### `DELETE /api/bookmarks/{noticeId}`
-
-북마크를 삭제한다. 북마크하지 않은 공지여도 성공으로 처리한다(멱등).
-
-#### 응답 `204`
-
-본문 없음.
-
-#### 오류 응답
-
-| 상태 | `error` |
-| --- | --- |
-| `401` | `로그인이 필요합니다.` |
-| `429` | `요청이 너무 많습니다. 잠시 후 다시 시도해주세요.` |
-| `500` | `북마크를 삭제하지 못했습니다.` |
+- 북마크는 공지 ID와 함께 북마크 시점의 제목·URL·출처·날짜 사본(`saved`)을 저장한다. 공지가 1년이 지나 스냅샷에서 빠져도 목록에 제목과 원문 링크를 보여주기 위해서다.
+- 기존 `GET /api/notices` 응답에 북마크 여부를 섞지 않고 `GET /api/bookmarks/ids`를 따로 둔다. 공지 목록 API는 로그인과 무관하게 그대로 유지한다.
+- 추가·삭제는 멱등이다. 프론트가 버튼 상태와 요청 순서를 엄격히 맞추지 않아도 된다.
+- 사용자당 상한(`BOOKMARK_MAX_PER_USER`, 기본 500)은 `GET /api/bookmarks/ids` 응답 크기를 제한하기 위한 것이다.
 
 ## 공지 ID 변경
 
@@ -288,15 +109,11 @@ interface BookmarkListResult {
 
 ## 저장소
 
-사용자와 북마크는 공지 DB와 분리한 SQLite 파일(`USER_DB_PATH`, 기본 `./data/users.db`)에 저장한다. 공지 DB(`NOTICE_DB_PATH`)는 크롤링 때마다 통째로 교체되기 때문이다. `users` 테이블은 구현했고([ERD.md](ERD.md#사용자-db-usersdb)), 북마크 테이블은 같은 파일에 `users(id)` 외래키(`ON DELETE CASCADE`)로 추가한다. 그러면 회원 탈퇴 시 북마크도 함께 지워진다.
+사용자와 북마크는 공지 DB와 분리한 SQLite 파일(`USER_DB_PATH`, 기본 `./data/users.db`)에 저장한다. 공지 DB(`NOTICE_DB_PATH`)는 크롤링 때마다 통째로 교체되기 때문이다. `users`, `bookmarks` 테이블은 [ERD.md](ERD.md#사용자-db-usersdb)에 있다. `bookmarks`는 `users(id)` 외래키(`ON DELETE CASCADE`)라 회원 탈퇴 시 북마크도 함께 지워진다.
 
 ## 환경변수
 
-로그인 관련 환경변수(`KAKAO_*`, `JWT_*`, `USER_DB_PATH`, `RATE_LIMIT_AUTH`, `RATE_LIMIT_BOOKMARKS`)는 [API_SPEC.md](API_SPEC.md#환경변수)에 있다. 북마크에서 새로 추가할 값은 아래와 같다.
-
-| 이름 | 필수 | 기본값 | 설명 |
-| --- | --- | --- | --- |
-| `BOOKMARK_MAX_PER_USER` | 아니오 | `500` | 사용자당 북마크 상한 |
+로그인·북마크 환경변수(`KAKAO_*`, `JWT_*`, `USER_DB_PATH`, `BOOKMARK_MAX_PER_USER`, `RATE_LIMIT_AUTH`, `RATE_LIMIT_BOOKMARKS`)는 [API_SPEC.md](API_SPEC.md#환경변수)와 [DEPLOYMENT.md](DEPLOYMENT.md#환경변수)에 있다.
 
 ## 프론트엔드 연동 메모
 

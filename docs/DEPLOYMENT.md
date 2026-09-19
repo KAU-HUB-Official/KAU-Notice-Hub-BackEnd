@@ -149,6 +149,7 @@ http://localhost:8000/openapi.json
 | `JWT_SECRET` | `openssl rand -hex 32` 결과 | 액세스 토큰 서명 키. 32자 미만이면 미설정으로 보고 로그인 API가 `503`. 바꾸면 기존 로그인이 모두 풀린다 |
 | `JWT_EXPIRE_SECONDS` | `1209600` | 액세스 토큰 유효 시간. 기본 14일 |
 | `USER_DB_PATH` | `/data/users.db` | 사용자·북마크 SQLite 파일. 반드시 `/data` 볼륨 아래에 둔다 |
+| `BOOKMARK_MAX_PER_USER` | `500` | 사용자당 북마크 상한 |
 | `RATE_LIMIT_AUTH` | `10/minute` | `POST /api/auth/kakao` IP당 한도 |
 | `RATE_LIMIT_BOOKMARKS` | `120/minute` | `/api/me`, `/api/bookmarks` IP당 한도(로그인 요청 기준) |
 

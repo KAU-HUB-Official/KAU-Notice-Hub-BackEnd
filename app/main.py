@@ -7,6 +7,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from slowapi.errors import RateLimitExceeded
 
 from app.api.auth import router as auth_router
+from app.api.bookmarks import router as bookmarks_router
 from app.api.chat import router as chat_router
 from app.api.health import router as health_router
 from app.api.notices import router as notices_router
@@ -71,6 +72,7 @@ def create_app() -> FastAPI:
     app.include_router(notices_router)
     app.include_router(chat_router)
     app.include_router(auth_router)
+    app.include_router(bookmarks_router)
     return app
 
 

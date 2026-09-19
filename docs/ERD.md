@@ -257,7 +257,24 @@ notice 스키마와 독립적이며 `SCHEMA_VERSION` 버전 관리·재ingest �
 | `last_login_at` | `text` | 예 | UTC ISO8601 마지막 로그인 시각 |
 
 회원 탈퇴(`DELETE /api/me`)는 행을 삭제한다. 같은 카카오 계정으로 다시 로그인하면 새 `id`로 만든다.
-북마크 테이블은 북마크 구현 때 이 파일에 `users(id)` 외래키(`ON DELETE CASCADE`)로 추가한다.
+
+### `bookmarks`
+
+사용자가 북마크한 공지. 기본키는 `(user_id, notice_id)`라 같은 공지를 두 번 북마크할 수 없다.
+
+| 컬럼 | 타입 | 필수 | 설명 |
+| --- | --- | --- | --- |
+| `user_id` | `text` | 예 | `users.id` 외래키. `ON DELETE CASCADE`라 회원 탈퇴 시 함께 삭제 |
+| `notice_id` | `text` | 예 | 공지 ID(`notices.id`). 공지 DB와는 다른 파일이라 외래키가 없다 |
+| `created_at` | `text` | 예 | UTC ISO8601 북마크 시각. API의 `bookmarkedAt` |
+| `title` | `text` | 예 | 북마크 시점 공지 제목 사본 |
+| `url` | `text` | 아니오 | 북마크 시점 원문 URL 사본 |
+| `source` | `text` | 아니오 | 북마크 시점 대표 출처 사본 |
+| `date` | `text` | 아니오 | 북마크 시점 공지 게시일(`YYYY-MM-DD`) 사본 |
+
+사본 컬럼은 공지가 1년이 지나 공지 DB에서 빠져도 북마크 목록에 제목과 원문 링크를 보여주기 위해 둔다(API의 `saved`).
+인덱스 `idx_bookmarks_user_created (user_id, created_at DESC)`로 사용자별 최근순 조회를 받친다.
+`created_at`은 초 단위라 같은 초에 추가한 북마크는 `rowid`(삽입 순서)로 정렬한다.
 
 ## API 논리 모델
 

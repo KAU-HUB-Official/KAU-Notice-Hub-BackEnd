@@ -97,6 +97,27 @@ class AuthResult(BaseModel):
     user: User
 
 
+class Bookmark(BaseModel):
+    noticeId: str
+    bookmarkedAt: str
+    # 현재 공지 스냅샷에 있으면 전체 공지, 1년이 지나 빠졌으면 None.
+    notice: Notice | None
+    # 북마크한 시점에 저장한 사본. 공지가 사라져도 제목·원문 링크를 보여줄 수 있다.
+    saved: NoticeReference
+
+
+class BookmarkListResult(BaseModel):
+    items: list[Bookmark]
+    total: int
+    page: int
+    pageSize: int
+    totalPages: int
+
+
+class BookmarkIdsResult(BaseModel):
+    noticeIds: list[str]
+
+
 class ErrorResponse(BaseModel):
     error: str
     detail: str | None = None

@@ -58,6 +58,8 @@ class Settings(BaseSettings):
     jwt_expire_seconds: int = 14 * 24 * 60 * 60
     # 사용자·북마크 DB. 공지 DB는 크롤링마다 통째로 교체되므로 별도 파일에 둔다.
     user_db_path: Path = Path("./data/users.db")
+    # 사용자당 북마크 상한. GET /api/bookmarks/ids 응답 크기도 이 값으로 제한된다.
+    bookmark_max_per_user: int = 500
     rate_limit_auth: str = "10/minute"
     rate_limit_bookmarks: str = "120/minute"
 

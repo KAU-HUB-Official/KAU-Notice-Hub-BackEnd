@@ -11,11 +11,11 @@
 - JSON 전체 스냅샷(`NOTICE_JSON_PATH`) 안전망과 부트스트랩 원천
 - 기존 Next.js MVP API와 호환되는 응답 shape
 - Swagger UI 기반 API 명세 확인
-- 카카오 로그인과 자체 JWT 액세스 토큰. 사용자 데이터는 별도 SQLite 파일(`USER_DB_PATH`)
+- 카카오 로그인과 자체 JWT 액세스 토큰, 공지 북마크. 사용자·북마크 데이터는 별도 SQLite 파일(`USER_DB_PATH`)
 
 현재 범위에서는 API 버전 관리, 관리자 API, 큐, 별도 검색엔진을 추가하지 않는다.
 
-북마크 API는 설계 단계다. 계획과 로그인 흐름 배경은 [AUTH_BOOKMARK_API.md](AUTH_BOOKMARK_API.md)를 참고한다.
+로그인·북마크의 설계 배경과 프론트 연동 흐름은 [AUTH_BOOKMARK_API.md](AUTH_BOOKMARK_API.md)를 참고한다.
 
 크롤러 주기 실행, JSON 게시, SQLite ingest 방식은 [CRAWLING_UPDATE.md](CRAWLING_UPDATE.md)를 따른다.
 
@@ -116,7 +116,7 @@ Content-Type: application/json
 - `POST /api/chat`, `POST /api/chat/stream`: IP당 15회/분 (`RATE_LIMIT_CHAT`)
 - `GET /api/notices`, `GET /api/notices/{id}`: IP당 120회/분 (`RATE_LIMIT_NOTICES`)
 - `POST /api/auth/kakao`: IP당 10회/분 (`RATE_LIMIT_AUTH`)
-- `GET /api/me`, `DELETE /api/me`: IP당 120회/분 (`RATE_LIMIT_BOOKMARKS`, 이후 북마크 API와 공유). 토큰 검증을 통과한 요청만 센다. 토큰이 없거나 틀린 요청은 DB 조회 없이 바로 `401`로 끝난다.
+- `GET /api/me`, `DELETE /api/me`, `/api/bookmarks` 전체: 합쳐서 IP당 120회/분 (`RATE_LIMIT_BOOKMARKS`). 토큰 검증을 통과한 요청만 센다. 토큰이 없거나 틀린 요청은 DB 조회 없이 바로 `401`로 끝난다.
 
 한도 초과 시 `429`로 응답한다.
 
@@ -147,7 +147,7 @@ Content-Type: application/json
 
 ### 인증
 
-로그인이 필요한 엔드포인트(`/api/me`)는 `POST /api/auth/kakao`가 발급한 액세스 토큰을 요구한다.
+로그인이 필요한 엔드포인트(`/api/me`, `/api/bookmarks`)는 `POST /api/auth/kakao`가 발급한 액세스 토큰을 요구한다.
 
 ```http
 Authorization: Bearer <accessToken>
@@ -287,6 +287,34 @@ interface AuthResult {
   tokenType: "Bearer";
   expiresIn: number; // 초 단위
   user: User;
+}
+```
+
+### `Bookmark`
+
+```ts
+interface Bookmark {
+  noticeId: string;
+  bookmarkedAt: string; // UTC ISO 8601. 예: "2026-09-19T06:30:00Z"
+  notice: Notice | null; // 현재 공지 스냅샷에 있으면 전체 공지, 없으면 null
+  saved: NoticeReference; // 북마크한 시점에 저장한 사본. 항상 있다
+}
+```
+
+- 공지는 1년이 지나면 스냅샷에서 빠질 수 있다. 이때 `notice`는 `null`이 되지만 북마크는 지우지 않는다. 프론트는 `saved.title`과 원문 링크 `saved.url`로 "삭제된 공지" 카드를 보여준다.
+- `notice`가 있으면 공지 목록과 같은 카드 컴포넌트를 그대로 쓸 수 있다.
+- `saved`는 북마크한 시점의 값이다. 이후 공지 제목이 바뀌어도 갱신하지 않는다.
+- `bookmarkedAt`은 공지 `date`(`YYYY-MM-DD`)와 달리 시각까지 포함한다.
+
+### `BookmarkListResult`
+
+```ts
+interface BookmarkListResult {
+  items: Bookmark[];
+  total: number;
+  page: number;
+  pageSize: number;
+  totalPages: number;
 }
 ```
 
@@ -710,7 +738,7 @@ Content-Type: application/json
 
 ### `DELETE /api/me`
 
-회원 탈퇴. 사용자와 그 사용자의 데이터를 삭제한다.
+회원 탈퇴. 사용자와 그 사용자의 북마크를 모두 삭제한다.
 
 - 삭제 후 기존 토큰은 `401`이 된다.
 - 같은 카카오 계정으로 다시 로그인하면 새 사용자로 만든다.
@@ -727,6 +755,141 @@ Content-Type: application/json
 | `401` | `로그인이 필요합니다.` |
 | `429` | `요청이 너무 많습니다. 잠시 후 다시 시도해주세요.` |
 | `500` | `회원 탈퇴를 처리하지 못했습니다.` 또는 `사용자 정보를 확인하지 못했습니다.` |
+
+### `GET /api/bookmarks`
+
+내 북마크 목록을 최근에 북마크한 순서로 반환한다. 로그인이 필요하다.
+
+#### 쿼리 파라미터
+
+| 이름 | 타입 | 필수 | 설명 |
+| --- | --- | --- | --- |
+| `page` | string/integer | 아니오 | 페이지 번호. 잘못된 값은 `1`로 보정. 마지막 페이지를 넘으면 마지막 페이지를 반환 |
+| `pageSize` | string/integer | 아니오 | 페이지 크기. 잘못된 값은 `20`으로 보정, 최대 `100` |
+
+#### 응답 `200`
+
+```json
+{
+  "items": [
+    {
+      "noticeId": "a3f9c2e81b7d4056",
+      "bookmarkedAt": "2026-09-19T06:30:00Z",
+      "notice": {
+        "id": "a3f9c2e81b7d4056",
+        "title": "2026학년도 2학기 수강신청 안내",
+        "content": "수강신청 기간은 ...",
+        "url": "https://www.kau.ac.kr/...",
+        "source": "한국항공대학교 공식 홈페이지",
+        "sources": ["한국항공대학교 공식 홈페이지"],
+        "audienceGroup": "전 구성원 공통",
+        "sourceGroup": "학사",
+        "sourceGroups": ["학사"],
+        "category": "학사",
+        "date": "2026-08-20",
+        "tags": ["학사"],
+        "attachments": []
+      },
+      "saved": {
+        "id": "a3f9c2e81b7d4056",
+        "title": "2026학년도 2학기 수강신청 안내",
+        "url": "https://www.kau.ac.kr/...",
+        "source": "한국항공대학교 공식 홈페이지",
+        "date": "2026-08-20"
+      }
+    },
+    {
+      "noticeId": "5d10be7f02c94a8e",
+      "bookmarkedAt": "2025-09-02T01:12:00Z",
+      "notice": null,
+      "saved": {
+        "id": "5d10be7f02c94a8e",
+        "title": "2025학년도 국가장학금 2차 신청 안내",
+        "url": "https://www.kau.ac.kr/...",
+        "source": "한국항공대학교 공식 홈페이지",
+        "date": "2025-08-28"
+      }
+    }
+  ],
+  "total": 2,
+  "page": 1,
+  "pageSize": 20,
+  "totalPages": 1
+}
+```
+
+#### 오류 응답
+
+| 상태 | `error` |
+| --- | --- |
+| `401` | `로그인이 필요합니다.` |
+| `429` | `요청이 너무 많습니다. 잠시 후 다시 시도해주세요.` |
+| `500` | `북마크 목록을 불러오지 못했습니다.` |
+
+### `GET /api/bookmarks/ids`
+
+내가 북마크한 공지 ID 전체를 최근 순으로 반환한다. 공지 목록·상세 화면에서 북마크 아이콘을 채울지 판단하는 데 쓴다. 로그인이 필요하다.
+
+기존 `GET /api/notices` 응답에 북마크 여부를 섞지 않기 위해 따로 둔다. 사용자당 북마크 수에 상한(`BOOKMARK_MAX_PER_USER`)이 있어 응답 크기가 제한된다.
+
+#### 응답 `200`
+
+```json
+{
+  "noticeIds": ["a3f9c2e81b7d4056", "5d10be7f02c94a8e"]
+}
+```
+
+#### 오류 응답
+
+| 상태 | `error` |
+| --- | --- |
+| `401` | `로그인이 필요합니다.` |
+| `429` | `요청이 너무 많습니다. 잠시 후 다시 시도해주세요.` |
+| `500` | `북마크 목록을 불러오지 못했습니다.` |
+
+### `PUT /api/bookmarks/{noticeId}`
+
+공지를 북마크한다. 이미 북마크한 공지면 아무것도 바꾸지 않고 기존 북마크를 반환한다(멱등). 로그인이 필요하고 요청 본문은 없다.
+
+#### 경로 파라미터
+
+| 이름 | 타입 | 필수 | 설명 |
+| --- | --- | --- | --- |
+| `noticeId` | string | 예 | 공지 ID |
+
+#### 응답
+
+| 상태 | 의미 | 본문 |
+| --- | --- | --- |
+| `201` | 새로 북마크함 | `Bookmark` |
+| `200` | 이미 북마크돼 있음 | `Bookmark` (기존 `bookmarkedAt`, `saved` 유지) |
+
+#### 오류 응답
+
+| 상태 | `error` | 원인 |
+| --- | --- | --- |
+| `401` | `로그인이 필요합니다.` | 인증 실패 |
+| `404` | `공지 항목을 찾을 수 없습니다.` | 현재 공지 스냅샷에 없는 ID. 새 북마크만 해당하고, 이미 북마크한 공지는 스냅샷에서 빠졌어도 `200` |
+| `409` | `북마크는 최대 500개까지 저장할 수 있습니다.` | 상한 초과. 숫자는 `BOOKMARK_MAX_PER_USER`. 이미 있는 북마크 재요청은 상한과 무관하게 `200` |
+| `429` | `요청이 너무 많습니다. 잠시 후 다시 시도해주세요.` | 레이트리밋 |
+| `500` | `북마크를 저장하지 못했습니다.` | 저장 실패 |
+
+### `DELETE /api/bookmarks/{noticeId}`
+
+북마크를 삭제한다. 북마크하지 않은 공지여도 성공으로 처리한다(멱등). 로그인이 필요하다.
+
+#### 응답 `204`
+
+본문 없음.
+
+#### 오류 응답
+
+| 상태 | `error` |
+| --- | --- |
+| `401` | `로그인이 필요합니다.` |
+| `429` | `요청이 너무 많습니다. 잠시 후 다시 시도해주세요.` |
+| `500` | `북마크를 삭제하지 못했습니다.` |
 
 ## CORS
 
@@ -779,9 +942,10 @@ BACKEND_CORS_ORIGINS=http://localhost:3000
 | `KAKAO_ALLOWED_REDIRECT_URIS`              | 로그인 사용 시 | empty                    | 허용할 `redirectUri` 목록. 쉼표 구분. 카카오 콘솔 Redirect URI와 같아야 함           |
 | `JWT_SECRET`                               | 로그인 사용 시 | empty                    | 액세스 토큰 서명 키. 32자 이상 랜덤 값(`openssl rand -hex 32`)                       |
 | `JWT_EXPIRE_SECONDS`                       | 아니오 | `1209600`                        | 액세스 토큰 유효 시간. 기본 14일                                                     |
-| `USER_DB_PATH`                             | 아니오 | `./data/users.db`                | 사용자 SQLite 파일(공지 DB와 분리, 크롤링으로 교체되지 않음)                         |
+| `USER_DB_PATH`                             | 아니오 | `./data/users.db`                | 사용자·북마크 SQLite 파일(공지 DB와 분리, 크롤링으로 교체되지 않음)                  |
+| `BOOKMARK_MAX_PER_USER`                    | 아니오 | `500`                            | 사용자당 북마크 상한                                                                 |
 | `RATE_LIMIT_AUTH`                          | 아니오 | `10/minute`                      | `POST /api/auth/kakao` IP당 한도                                                     |
-| `RATE_LIMIT_BOOKMARKS`                     | 아니오 | `120/minute`                     | `/api/me`(이후 북마크 API 포함) IP당 한도                                            |
+| `RATE_LIMIT_BOOKMARKS`                     | 아니오 | `120/minute`                     | `/api/me`, `/api/bookmarks` IP당 한도(합산)                                          |
 
 ## MVP 비목표
 

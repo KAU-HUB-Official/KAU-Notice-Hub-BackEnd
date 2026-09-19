@@ -10,7 +10,8 @@ uvicorn 워커가 2개라 인메모리 카운터는 워커별로 적용돼 실�
 연타성 어뷰징/비용 폭주 차단에는 충분하다. AGENTS.md의 "Redis 등 외부 인프라 금지"
 원칙에 맞춰 외부 저장소 없이 프로세스 메모리만 쓴다.
 
-한도 값은 설정(`RATE_LIMIT_CHAT`, `RATE_LIMIT_NOTICES`)에서 읽고, 비활성화는
+한도 값은 설정(`RATE_LIMIT_CHAT`, `RATE_LIMIT_NOTICES`, `RATE_LIMIT_AUTH`,
+`RATE_LIMIT_BOOKMARKS`)에서 읽고, 비활성화는
 `RATE_LIMIT_ENABLED=false`로 한다(테스트 기본값은 비활성).
 """
 
@@ -61,6 +62,16 @@ def chat_rate_limit(*_args: object) -> str:
 def notices_rate_limit(*_args: object) -> str:
     """`/api/notices` 한도. 단순 DB 읽기라 느슨하게."""
     return get_settings().rate_limit_notices
+
+
+def auth_rate_limit(*_args: object) -> str:
+    """`/api/auth/kakao` 한도. 요청 1건이 카카오 API를 두 번 호출하므로 빡빡하게."""
+    return get_settings().rate_limit_auth
+
+
+def bookmarks_rate_limit(*_args: object) -> str:
+    """`/api/me`, `/api/bookmarks` 한도. 로그인 사용자의 단순 DB 읽기·쓰기."""
+    return get_settings().rate_limit_bookmarks
 
 
 limiter = Limiter(

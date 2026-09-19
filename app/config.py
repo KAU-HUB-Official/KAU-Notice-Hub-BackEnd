@@ -49,6 +49,17 @@ class Settings(BaseSettings):
     # 별도 append 전용 SQLite 파일(chat_log_db_path)에 턴 단위로 저장한다.
     chat_logging_enabled: bool = False
     chat_log_db_path: Path = Path("./data/chat_sessions.db")
+    # 카카오 로그인. REST API 키, 허용 redirect URI, JWT 서명 키(32자 이상) 중 하나라도
+    # 없으면 POST /api/auth/kakao는 503을 반환하고 나머지 API는 그대로 동작한다.
+    kakao_rest_api_key: str | None = None
+    kakao_client_secret: str | None = None
+    kakao_allowed_redirect_uris: str = ""
+    jwt_secret: str | None = None
+    jwt_expire_seconds: int = 14 * 24 * 60 * 60
+    # 사용자·북마크 DB. 공지 DB는 크롤링마다 통째로 교체되므로 별도 파일에 둔다.
+    user_db_path: Path = Path("./data/users.db")
+    rate_limit_auth: str = "10/minute"
+    rate_limit_bookmarks: str = "120/minute"
 
     model_config = SettingsConfigDict(
         env_file=".env",
@@ -68,6 +79,11 @@ class Settings(BaseSettings):
             for domain in self.content_enrichment_allowed_domains.split(",")
         ]
         return [domain for domain in domains if domain]
+
+    @property
+    def kakao_allowed_redirect_uri_list(self) -> list[str]:
+        uris = [uri.strip() for uri in self.kakao_allowed_redirect_uris.split(",")]
+        return [uri for uri in uris if uri]
 
 
 @lru_cache

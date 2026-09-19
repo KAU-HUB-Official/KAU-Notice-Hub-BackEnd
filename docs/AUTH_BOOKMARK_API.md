@@ -1,8 +1,12 @@
-# 카카오 로그인·북마크 API 명세 (초안)
+# 카카오 로그인·북마크 API 명세
 
 ## 상태
 
-**초안. 로그인·북마크는 아직 구현하지 않았다.** 선행 작업인 [공지 ID 변경](#공지-id-변경)만 구현했다. 구현을 마치면 이 문서의 내용을 [API_SPEC.md](API_SPEC.md)에 합치고, API_SPEC.md의 "MVP 비목표"에서 `인증`을 뺀다.
+| 범위 | 상태 |
+| --- | --- |
+| [공지 ID 변경](#공지-id-변경) | 구현 완료, 배포 전 |
+| 카카오 로그인 (`POST /api/auth/kakao`, `GET/DELETE /api/me`) | 구현 완료, 배포 전. 확정된 계약은 [API_SPEC.md](API_SPEC.md)로 옮겼다 |
+| 북마크 | 초안. 아직 구현하지 않았다. 구현을 마치면 [API_SPEC.md](API_SPEC.md)에 합친다 |
 
 기존 API 공통 규칙(camelCase 필드, `ErrorResponse` 형식, 페이지네이션 보정, 레이트리밋)은 [API_SPEC.md](API_SPEC.md)를 그대로 따른다.
 
@@ -40,47 +44,13 @@
 - 카카오 access token은 사용자 정보를 조회하는 데만 쓰고 저장하지 않는다.
 - CSRF 방지용 `state`는 인가 요청을 시작하고 콜백을 받는 프론트가 만들고 검증한다.
 
-## 인증 규칙
+## 인증과 공통 규칙
 
-### 인증 헤더
-
-로그인이 필요한 엔드포인트는 아래 헤더를 요구한다.
-
-```http
-Authorization: Bearer <accessToken>
-```
-
-### 액세스 토큰
-
-| 항목 | 값 |
-| --- | --- |
-| 형식 | JWT, HS256 서명 (`JWT_SECRET`) |
-| 클레임 | `sub`(내부 사용자 ID), `iat`, `exp` |
-| 만료 | 기본 14일 (`JWT_EXPIRE_SECONDS`) |
-| refresh token | 없음. 만료되면 다시 카카오 로그인 |
-
-- 서버는 세션을 저장하지 않는다. 요청마다 토큰 서명과 만료를 검증하고, `sub` 사용자가 DB에 있는지 확인한다.
-- 탈퇴한 사용자의 토큰은 만료 전이라도 `401`이 된다.
-- 로그아웃은 BFF가 쿠키를 지우는 것으로 처리하고, 백엔드 엔드포인트는 두지 않는다.
-
-### 인증 실패 응답 `401`
-
-토큰이 없거나, 형식이 틀렸거나, 서명이 맞지 않거나, 만료됐거나, 사용자가 없으면 모두 같은 응답을 준다. 어느 경우인지는 서버 로그에만 남긴다.
-
-```http
-HTTP/1.1 401 Unauthorized
-WWW-Authenticate: Bearer
-```
-
-```json
-{ "error": "로그인이 필요합니다." }
-```
-
-프론트는 `401`을 받으면 쿠키를 지우고 로그인 화면으로 보낸다.
+인증 헤더, 액세스 토큰, `401` 응답 형식은 [API_SPEC.md](API_SPEC.md#인증)를 따른다. 북마크 API는 모두 로그인이 필요하다.
 
 ### 시각 형식
 
-사용자·북마크의 시각 필드는 UTC ISO 8601 문자열이다. 공지 `date`(`YYYY-MM-DD`)와는 다르다.
+북마크의 시각 필드는 UTC ISO 8601 문자열이다. 공지 `date`(`YYYY-MM-DD`)와는 다르다.
 
 ```json
 { "bookmarkedAt": "2026-09-19T06:30:00Z" }
@@ -88,37 +58,9 @@ WWW-Authenticate: Bearer
 
 ### 레이트리밋
 
-기존과 같이 IP 단위로 적용한다. BFF는 기존처럼 `X-Client-IP`와 `X-Internal-Token`을 함께 보낸다.
-
-| 엔드포인트 | 기본 한도 | 환경변수 |
-| --- | --- | --- |
-| `POST /api/auth/kakao` | IP당 10회/분 | `RATE_LIMIT_AUTH` |
-| `GET/DELETE /api/me`, `/api/bookmarks` 전체 | IP당 120회/분 | `RATE_LIMIT_BOOKMARKS` |
+북마크 API는 `/api/me`와 같은 버킷(`RATE_LIMIT_BOOKMARKS`, 기본 IP당 120회/분)을 공유한다.
 
 ## 응답 모델
-
-### `User`
-
-```ts
-interface User {
-  id: string; // 내부 사용자 ID. 카카오 회원번호가 아니다.
-  nickname?: string; // 카카오 프로필 닉네임. 동의하지 않았으면 없음
-  profileImageUrl?: string; // 카카오 프로필 이미지. 동의하지 않았으면 없음
-}
-```
-
-카카오 회원번호는 서버 DB에만 저장하고 응답에 내보내지 않는다. 이메일 등 다른 개인정보는 수집하지 않는다.
-
-### `AuthResult`
-
-```ts
-interface AuthResult {
-  accessToken: string;
-  tokenType: "Bearer";
-  expiresIn: number; // 초 단위
-  user: User;
-}
-```
 
 ### `Bookmark`
 
@@ -151,105 +93,19 @@ interface BookmarkListResult {
 
 ## 엔드포인트
 
-| 메서드 | 경로 | 인증 | 설명 |
-| --- | --- | --- | --- |
-| `POST` | `/api/auth/kakao` | 불필요 | 카카오 인가 code로 로그인 |
-| `GET` | `/api/me` | 필요 | 내 정보 |
-| `DELETE` | `/api/me` | 필요 | 회원 탈퇴 |
-| `GET` | `/api/bookmarks` | 필요 | 북마크 목록 |
-| `GET` | `/api/bookmarks/ids` | 필요 | 북마크한 공지 ID 전체 |
-| `PUT` | `/api/bookmarks/{noticeId}` | 필요 | 북마크 추가 |
-| `DELETE` | `/api/bookmarks/{noticeId}` | 필요 | 북마크 삭제 |
+| 메서드 | 경로 | 인증 | 설명 | 상태 |
+| --- | --- | --- | --- | --- |
+| `POST` | `/api/auth/kakao` | 불필요 | 카카오 인가 code로 로그인 | 구현 |
+| `GET` | `/api/me` | 필요 | 내 정보 | 구현 |
+| `DELETE` | `/api/me` | 필요 | 회원 탈퇴 | 구현 |
+| `GET` | `/api/bookmarks` | 필요 | 북마크 목록 | 초안 |
+| `GET` | `/api/bookmarks/ids` | 필요 | 북마크한 공지 ID 전체 | 초안 |
+| `PUT` | `/api/bookmarks/{noticeId}` | 필요 | 북마크 추가 | 초안 |
+| `DELETE` | `/api/bookmarks/{noticeId}` | 필요 | 북마크 삭제 | 초안 |
 
-### `POST /api/auth/kakao`
+### 로그인 API (구현 완료)
 
-카카오 인가 code를 받아 로그인한다. 처음 로그인하는 카카오 계정이면 사용자를 새로 만든다.
-
-#### 요청 본문
-
-```ts
-interface KakaoLoginRequest {
-  code: string; // 카카오가 콜백으로 준 인가 code
-  redirectUri: string; // 인가 요청에 사용한 redirect_uri와 같은 값
-}
-```
-
-- `redirectUri`는 `KAKAO_ALLOWED_REDIRECT_URIS`에 등록된 값이어야 한다. 로컬과 운영의 콜백 주소가 다르기 때문에 요청으로 받되, 허용 목록 밖이면 거부한다.
-- 인가 code는 1회용이다. 같은 code로 두 번 요청하면 `401`이다.
-
-#### 요청 예시
-
-```http
-POST /api/auth/kakao
-Content-Type: application/json
-
-{
-  "code": "kakao-authorization-code",
-  "redirectUri": "https://kau-notice-hub.app/auth/kakao/callback"
-}
-```
-
-#### 응답 `200`
-
-```json
-{
-  "accessToken": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...",
-  "tokenType": "Bearer",
-  "expiresIn": 1209600,
-  "user": {
-    "id": "u_7f3a9c21",
-    "nickname": "항공대생",
-    "profileImageUrl": "https://k.kakaocdn.net/.../profile.jpg"
-  }
-}
-```
-
-#### 오류 응답
-
-| 상태 | `error` | 원인 |
-| --- | --- | --- |
-| `400` | `code와 redirectUri는 필수입니다.` | 필드 누락 또는 빈 문자열 |
-| `400` | `허용되지 않은 redirectUri입니다.` | 허용 목록 밖의 `redirectUri` |
-| `401` | `카카오 인증에 실패했습니다.` | code 만료·재사용·위조, redirect_uri 불일치 |
-| `429` | `요청이 너무 많습니다. 잠시 후 다시 시도해주세요.` | 레이트리밋 |
-| `502` | `카카오 서버와 통신하지 못했습니다.` | 카카오 API 타임아웃·5xx |
-| `503` | `로그인을 사용할 수 없습니다.` | 서버에 카카오 키 또는 `JWT_SECRET`이 설정되지 않음 |
-
-카카오가 돌려준 오류 코드와 메시지는 응답에 넣지 않고 서버 로그에만 남긴다.
-
-### `GET /api/me`
-
-토큰 주인의 정보를 반환한다. 프론트가 헤더에 로그인 상태를 표시할 때 쓴다.
-
-#### 응답 `200`
-
-```json
-{
-  "id": "u_7f3a9c21",
-  "nickname": "항공대생",
-  "profileImageUrl": "https://k.kakaocdn.net/.../profile.jpg"
-}
-```
-
-#### 오류 응답
-
-`401`
-
-### `DELETE /api/me`
-
-회원 탈퇴. 사용자와 그 사용자의 북마크를 모두 삭제한다.
-
-- 삭제 후 기존 토큰은 `401`이 된다.
-- 같은 카카오 계정으로 다시 로그인하면 빈 북마크의 새 사용자로 만든다.
-- 카카오 쪽 앱 연결 끊기(unlink)는 이번 범위에 넣지 않는다. 사용자는 카카오 계정 설정에서 직접 연결을 끊을 수 있다.
-
-#### 응답 `204`
-
-본문 없음.
-
-#### 오류 응답
-
-`401`
+`POST /api/auth/kakao`, `GET /api/me`, `DELETE /api/me`의 요청·응답·오류 계약은 [API_SPEC.md](API_SPEC.md)에 있다. 북마크를 구현하면 `DELETE /api/me`가 사용자의 북마크도 함께 삭제한다.
 
 ### `GET /api/bookmarks`
 
@@ -432,23 +288,15 @@ Content-Type: application/json
 
 ## 저장소
 
-사용자와 북마크는 공지 DB와 분리한 SQLite 파일(`USER_DB_PATH`, 기본 `./data/users.db`)에 저장한다. 공지 DB(`NOTICE_DB_PATH`)는 크롤링 때마다 통째로 교체되기 때문이다. 기존 챗봇 로그 DB(`CHAT_LOG_DB_PATH`)와 같은 방식이다. 테이블 설계는 구현 시 [ERD.md](ERD.md)에 적는다.
+사용자와 북마크는 공지 DB와 분리한 SQLite 파일(`USER_DB_PATH`, 기본 `./data/users.db`)에 저장한다. 공지 DB(`NOTICE_DB_PATH`)는 크롤링 때마다 통째로 교체되기 때문이다. `users` 테이블은 구현했고([ERD.md](ERD.md#사용자-db-usersdb)), 북마크 테이블은 같은 파일에 `users(id)` 외래키(`ON DELETE CASCADE`)로 추가한다. 그러면 회원 탈퇴 시 북마크도 함께 지워진다.
 
 ## 환경변수
 
+로그인 관련 환경변수(`KAKAO_*`, `JWT_*`, `USER_DB_PATH`, `RATE_LIMIT_AUTH`, `RATE_LIMIT_BOOKMARKS`)는 [API_SPEC.md](API_SPEC.md#환경변수)에 있다. 북마크에서 새로 추가할 값은 아래와 같다.
+
 | 이름 | 필수 | 기본값 | 설명 |
 | --- | --- | --- | --- |
-| `KAKAO_REST_API_KEY` | 로그인 사용 시 | empty | 카카오 앱 REST API 키 |
-| `KAKAO_CLIENT_SECRET` | 아니오 | empty | 카카오 콘솔에서 Client Secret을 켰을 때만 설정 |
-| `KAKAO_ALLOWED_REDIRECT_URIS` | 로그인 사용 시 | empty | 허용할 `redirectUri` 목록. 쉼표 구분. 카카오 콘솔에 등록한 Redirect URI와 같아야 한다 |
-| `JWT_SECRET` | 로그인 사용 시 | empty | JWT 서명 키. 32바이트 이상 랜덤 값(`openssl rand -hex 32`) |
-| `JWT_EXPIRE_SECONDS` | 아니오 | `1209600` | 액세스 토큰 유효 시간. 기본 14일 |
-| `USER_DB_PATH` | 아니오 | `./data/users.db` | 사용자·북마크 SQLite 파일 |
 | `BOOKMARK_MAX_PER_USER` | 아니오 | `500` | 사용자당 북마크 상한 |
-| `RATE_LIMIT_AUTH` | 아니오 | `10/minute` | `POST /api/auth/kakao` IP당 한도 |
-| `RATE_LIMIT_BOOKMARKS` | 아니오 | `120/minute` | `/api/me`, `/api/bookmarks` IP당 한도 |
-
-`KAKAO_REST_API_KEY`, `KAKAO_ALLOWED_REDIRECT_URIS`, `JWT_SECRET` 중 하나라도 비어 있으면 `POST /api/auth/kakao`는 `503`을 반환한다. 이 경우에도 공지·챗봇 API는 그대로 동작한다.
 
 ## 프론트엔드 연동 메모
 
@@ -459,4 +307,4 @@ Content-Type: application/json
 - **토큰 보관**: `accessToken`은 `httpOnly; Secure; SameSite=Lax` 쿠키에 `expiresIn`만큼 저장한다. 브라우저 JS와 localStorage에는 두지 않는다.
 - **API 호출**: BFF route가 쿠키의 토큰을 꺼내 `Authorization: Bearer`로 붙인다.
 - **401 처리**: 쿠키를 지우고 로그인을 다시 안내한다.
-- **개인정보 처리방침** `/privacy`: 카카오 회원번호, 닉네임, 프로필 이미지 수집과 탈퇴 시 삭제를 반영한다.
+- **개인정보 처리방침** `/privacy`: 카카오 회원번호, 닉네임 수집과 탈퇴 시 삭제를 반영한다.

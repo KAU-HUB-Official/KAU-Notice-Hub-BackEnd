@@ -238,6 +238,27 @@ notice 스키마와 독립적이며 `SCHEMA_VERSION` 버전 관리·재ingest �
 `retrieval_json`은 나중에 추가된 컬럼이라, 기존 DB에는 `_ensure_initialized`가 `MIGRATION_COLUMNS`를
 보고 `ALTER TABLE ADD COLUMN`으로 멱등하게 채운다(기존 행은 `NULL`).
 
+## 사용자 DB (`users.db`)
+
+카카오 로그인 사용자를 저장하는 별도 SQLite 파일이다(`USER_DB_PATH`, 기본 `./data/users.db`).
+`app/user_store.py`가 정의한다. 공지 DB는 크롤링마다 `os.replace()`로 통째로 교체되므로 회원
+데이터를 분리했다. 교체 대상이 아니라서 chat log DB처럼 WAL 모드를 쓰고, `SCHEMA_VERSION`
+버전 관리·재ingest 대상이 아니다. 운영에서는 `/data` 볼륨 아래에 두며, 볼륨을 지우면 회원 데이터가
+사라진다.
+
+### `users`
+
+| 컬럼 | 타입 | 필수 | 설명 |
+| --- | --- | --- | --- |
+| `id` | `text` | 예 | 내부 사용자 ID(`u_` + 16자리 hex). API와 JWT `sub`에 쓰는 값 |
+| `kakao_id` | `text` | 예 | 카카오 회원번호. `UNIQUE`. 로그인 시 사용자 조회에만 쓰고 API 응답에 내보내지 않는다 |
+| `nickname` | `text` | 아니오 | 카카오 프로필 닉네임. 동의하지 않았으면 `NULL`. 로그인마다 갱신 |
+| `created_at` | `text` | 예 | UTC ISO8601 가입 시각 |
+| `last_login_at` | `text` | 예 | UTC ISO8601 마지막 로그인 시각 |
+
+회원 탈퇴(`DELETE /api/me`)는 행을 삭제한다. 같은 카카오 계정으로 다시 로그인하면 새 `id`로 만든다.
+북마크 테이블은 북마크 구현 때 이 파일에 `users(id)` 외래키(`ON DELETE CASCADE`)로 추가한다.
+
 ## API 논리 모델
 
 DB 모델은 프론트엔드가 사용하는 `Notice` 객체로 변환된다.

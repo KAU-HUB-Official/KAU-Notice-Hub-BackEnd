@@ -77,6 +77,26 @@ class ChatAnswer(BaseModel):
     model: str
 
 
+class KakaoLoginRequest(BaseModel):
+    code: str | None = None
+    redirectUri: str | None = None
+
+    model_config = ConfigDict(extra="ignore")
+
+
+class User(BaseModel):
+    # 내부 사용자 ID. 카카오 회원번호는 응답에 내보내지 않는다.
+    id: str
+    nickname: str | None = None
+
+
+class AuthResult(BaseModel):
+    accessToken: str
+    tokenType: Literal["Bearer"] = "Bearer"
+    expiresIn: int
+    user: User
+
+
 class ErrorResponse(BaseModel):
     error: str
     detail: str | None = None

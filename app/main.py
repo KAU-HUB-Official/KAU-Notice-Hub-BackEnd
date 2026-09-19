@@ -6,12 +6,19 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from slowapi.errors import RateLimitExceeded
 
+from app.api.auth import router as auth_router
 from app.api.chat import router as chat_router
 from app.api.health import router as health_router
 from app.api.notices import router as notices_router
+from app.auth import (
+    AuthenticationRequired,
+    authentication_required_handler,
+    user_store_error_handler,
+)
 from app.config import get_settings
 from app.crawler_scheduler import run_crawler_scheduler
 from app.rate_limit import limiter, rate_limit_exceeded_handler
+from app.user_store import UserStoreError
 
 logger = logging.getLogger("app.main")
 
@@ -48,6 +55,9 @@ def create_app() -> FastAPI:
     # 한도 초과 시 RateLimitExceeded를 일반화된 429 JSON으로 변환한다.
     app.state.limiter = limiter
     app.add_exception_handler(RateLimitExceeded, rate_limit_exceeded_handler)
+    # 로그인 필수 의존성(get_current_user)의 실패를 기존 ErrorResponse 형식으로 바꾼다.
+    app.add_exception_handler(AuthenticationRequired, authentication_required_handler)
+    app.add_exception_handler(UserStoreError, user_store_error_handler)
 
     app.add_middleware(
         CORSMiddleware,
@@ -60,6 +70,7 @@ def create_app() -> FastAPI:
     app.include_router(health_router)
     app.include_router(notices_router)
     app.include_router(chat_router)
+    app.include_router(auth_router)
     return app
 
 

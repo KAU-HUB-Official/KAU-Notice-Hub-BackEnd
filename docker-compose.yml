@@ -37,6 +37,16 @@ services:
       # 경로는 반드시 볼륨(/data) 아래로 둔다. 상대경로 기본값(./data)은 컨테이너 재생성 시 유실.
       CHAT_LOGGING_ENABLED: ${CHAT_LOGGING_ENABLED:-true}
       CHAT_LOG_DB_PATH: ${CHAT_LOG_DB_PATH:-/data/chat_sessions.db}
+      # 카카오 로그인. 키·redirect URI·JWT_SECRET 중 하나라도 비면 로그인 API만 503.
+      KAKAO_REST_API_KEY: ${KAKAO_REST_API_KEY:-}
+      KAKAO_CLIENT_SECRET: ${KAKAO_CLIENT_SECRET:-}
+      KAKAO_ALLOWED_REDIRECT_URIS: ${KAKAO_ALLOWED_REDIRECT_URIS:-}
+      JWT_SECRET: ${JWT_SECRET:-}
+      JWT_EXPIRE_SECONDS: ${JWT_EXPIRE_SECONDS:-1209600}
+      # 사용자·북마크 DB. 반드시 볼륨(/data) 아래에 둔다. 컨테이너 재생성 시 회원 데이터 유실 방지.
+      USER_DB_PATH: ${USER_DB_PATH:-/data/users.db}
+      RATE_LIMIT_AUTH: ${RATE_LIMIT_AUTH:-10/minute}
+      RATE_LIMIT_BOOKMARKS: ${RATE_LIMIT_BOOKMARKS:-120/minute}
     volumes:
       - notice_data:/data
     ports:

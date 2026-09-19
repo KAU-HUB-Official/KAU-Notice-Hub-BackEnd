@@ -196,7 +196,7 @@ docker compose --profile proxy up -d --build --force-recreate api
 1. [Kakao Developers](https://developers.kakao.com) 콘솔 **[앱]**에서 앱을 새로 만든다. 앱 대표 도메인에는 공개 서비스 주소(`https://kau-notice-hub.app`)를 넣는다. `localhost`는 받지 않는다.
 2. **[앱] > [플랫폼 키] > [REST API 키]**의 리다이렉트 URI에 콜백 주소를 등록한다. 예: `http://localhost:3000/auth/kakao/callback`, `https://kau-notice-hub.app/auth/kakao/callback`(최대 10개). 빠뜨리면 로그인 때 `KOE006` 오류가 난다.
 3. **[카카오 로그인] > [사용 설정]**에서 상태를 ON으로 바꾼다. 빠뜨리면 `KOE004` 오류가 난다.
-4. **[카카오 로그인] > [동의항목]**에서 닉네임만 설정한다. 프로필 사진 등 다른 개인정보는 받지 않는다.
+4. **[카카오 로그인] > [동의항목]**은 설정하지 않는다. 로그인에는 카카오 회원번호만 쓰고 닉네임·프로필 사진 등 다른 개인정보는 받지 않는다. 나중에 이름 표시가 필요하면 닉네임을 동의항목으로 켜면 코드 수정 없이 `nickname`이 채워진다.
 5. **[앱] > [플랫폼 키]**에서 REST API 키를 복사하고, **[REST API 키] > [클라이언트 시크릿]**에서 시크릿 값을 복사한다. 클라이언트 시크릿은 기본으로 켜져 있어서 값을 넣지 않으면 토큰 교환이 실패한다(`401 카카오 인증에 실패했습니다.`).
 6. 서버 `.env`에 `KAKAO_REST_API_KEY`, `KAKAO_CLIENT_SECRET`, `KAKAO_ALLOWED_REDIRECT_URIS`(2번과 같은 값), `JWT_SECRET`(`openssl rand -hex 32`)을 넣는다.
 7. 위 명령으로 api 컨테이너를 재생성한다.

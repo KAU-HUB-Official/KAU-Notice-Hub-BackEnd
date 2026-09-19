@@ -273,11 +273,11 @@ MVP에서는 에러 응답을 단순하게 유지한다. 내부 상세 원인은
 ```ts
 interface User {
   id: string; // 내부 사용자 ID. 카카오 회원번호가 아니다.
-  nickname?: string; // 카카오 프로필 닉네임. 동의하지 않았으면 null
+  nickname?: string; // 카카오 닉네임. 현재 동의항목으로 받지 않아 항상 null
 }
 ```
 
-카카오 회원번호는 서버 DB에만 저장하고 응답에 내보내지 않는다. 닉네임 외의 프로필 이미지, 이메일 등 다른 개인정보는 수집하지 않는다.
+카카오 회원번호는 서버 DB에만 저장하고 응답에 내보내지 않는다. 현재 카카오 동의항목을 하나도 설정하지 않아 회원번호 외의 개인정보(닉네임, 프로필 이미지, 이메일 등)는 받지 않는다. `nickname`은 나중에 카카오 콘솔에서 닉네임 동의항목을 켜면 코드 수정 없이 채워지도록 남겨 둔 필드다.
 
 ### `AuthResult`
 
@@ -659,7 +659,7 @@ interface ChatAnswer {
 
 ### `POST /api/auth/kakao`
 
-카카오 인가 code를 받아 로그인하고 액세스 토큰을 발급한다. 처음 로그인하는 카카오 계정이면 사용자를 새로 만들고, 이미 있으면 닉네임을 갱신한다.
+카카오 인가 code를 받아 로그인하고 액세스 토큰을 발급한다. 처음 로그인하는 카카오 계정이면 사용자를 새로 만들고, 이미 있으면 마지막 로그인 시각을 갱신한다(닉네임 동의항목을 켜면 닉네임도 갱신).
 
 백엔드는 code를 카카오 토큰으로 교환하고(`https://kauth.kakao.com/oauth/token`), 그 토큰으로 사용자 정보를 조회한다(`https://kapi.kakao.com/v2/user/me`). 카카오 토큰은 저장하지 않는다. 인가 요청을 시작하고 CSRF 방지용 `state`를 검증하는 일은 프론트가 맡는다.
 
@@ -696,7 +696,7 @@ Content-Type: application/json
   "expiresIn": 1209600,
   "user": {
     "id": "u_7f3a9c21d04e8b65",
-    "nickname": "항공대생"
+    "nickname": null
   }
 }
 ```
@@ -724,7 +724,7 @@ Content-Type: application/json
 ```json
 {
   "id": "u_7f3a9c21d04e8b65",
-  "nickname": "항공대생"
+  "nickname": null
 }
 ```
 

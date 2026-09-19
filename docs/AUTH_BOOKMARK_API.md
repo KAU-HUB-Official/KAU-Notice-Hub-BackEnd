@@ -124,4 +124,4 @@
 - **토큰 보관**: `accessToken`은 `httpOnly; Secure; SameSite=Lax` 쿠키에 `expiresIn`만큼 저장한다. 브라우저 JS와 localStorage에는 두지 않는다.
 - **API 호출**: BFF route가 쿠키의 토큰을 꺼내 `Authorization: Bearer`로 붙인다.
 - **401 처리**: 쿠키를 지우고 로그인을 다시 안내한다.
-- **개인정보 처리방침** `/privacy`: 카카오 회원번호, 닉네임 수집과 탈퇴 시 삭제를 반영한다.
+- **개인정보 처리방침** `/privacy`: 카카오 회원번호 수집(닉네임 등 다른 정보는 받지 않음)과 탈퇴 시 삭제를 반영한다.

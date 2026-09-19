@@ -252,7 +252,7 @@ notice 스키마와 독립적이며 `SCHEMA_VERSION` 버전 관리·재ingest �
 | --- | --- | --- | --- |
 | `id` | `text` | 예 | 내부 사용자 ID(`u_` + 16자리 hex). API와 JWT `sub`에 쓰는 값 |
 | `kakao_id` | `text` | 예 | 카카오 회원번호. `UNIQUE`. 로그인 시 사용자 조회에만 쓰고 API 응답에 내보내지 않는다 |
-| `nickname` | `text` | 아니오 | 카카오 프로필 닉네임. 동의하지 않았으면 `NULL`. 로그인마다 갱신 |
+| `nickname` | `text` | 아니오 | 카카오 닉네임. 현재 동의항목으로 받지 않아 항상 `NULL`. 동의항목을 켜면 로그인마다 갱신 |
 | `created_at` | `text` | 예 | UTC ISO8601 가입 시각 |
 | `last_login_at` | `text` | 예 | UTC ISO8601 마지막 로그인 시각 |
 

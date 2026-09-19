@@ -33,8 +33,10 @@ import requests
 
 from app.config import get_settings
 
+PIPELINE_VERSION = "2026-09-19"  # 이 날짜로 고정한 판정 파이프라인. 지시문·합치기·검사를 바꾸면 날짜를 올린다.
 BODY_CHARS = 6000
 JUDGMENTS = ("merge", "keep_both")
+ADDITION_HEADER = "[추가 안내]"
 
 INSTRUCTIONS = """두 대학 공지의 본문 A, B를 비교해, 둘을 하나의 공지로 합쳐도 되는지 정한다.
 합친다는 것은 한쪽 본문을 기준으로 남기고, 다른 공지에만 있는 정보를 덧붙이는 것이다.
@@ -101,8 +103,18 @@ def body_text(post: dict) -> str:
 
 
 def merged_body(base_text: str, additions: list[str]) -> str:
+    """기준 본문은 그대로 두고, 덧붙일 정보가 있으면 끝에 [추가 안내]로 붙인다."""
     items = [a.strip() for a in additions if a.strip()]
-    return base_text + ("\n\n[추가 안내]\n" + "\n".join(f"- {a}" for a in items) if items else "")
+    return base_text + (f"\n\n{ADDITION_HEADER}\n" + "\n".join(f"- {a}" for a in items) if items else "")
+
+
+def final_judgment(judgment: str | None, base: str | None, missing: list[str] | None) -> str | None:
+    """merge 는 기준 본문이 있고 검사에서 빠진 정보가 없을 때만 남긴다. 그 밖에는 나눈다(애매하면 나눈다)."""
+    if judgment is None:
+        return None
+    if judgment == "merge" and base in ("A", "B") and missing is not None and not missing:
+        return "merge"
+    return "keep_both"
 
 
 def call_llm(api_key: str, model: str, instructions: str, schema: dict, text: str) -> tuple[dict | None, dict, str | None]:
@@ -205,8 +217,10 @@ def main(argv: list[str] | None = None) -> None:
             if checked is None:
                 record["error"] = check_error
                 record["final_judgment"] = None
-            elif record["missing"]:
-                record["final_judgment"] = "keep_both"
+            else:
+                record["final_judgment"] = final_judgment("merge", base, record["missing"])
+        elif judged.get("judgment"):
+            record["final_judgment"] = final_judgment(judged["judgment"], judged.get("base"), None)
         records.append(record)
         if n % 25 == 0:
             print(f"  {n}/{len(rows)}")
@@ -245,6 +259,7 @@ def main(argv: list[str] | None = None) -> None:
         json.dumps(
             {
                 "ran_at": datetime.now().astimezone().isoformat(timespec="seconds"),
+                "pipeline_version": PIPELINE_VERSION,
                 "instructions": INSTRUCTIONS,
                 "check_instructions": CHECK_INSTRUCTIONS,
                 "summary": summary,

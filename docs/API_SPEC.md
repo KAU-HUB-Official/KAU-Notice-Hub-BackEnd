@@ -177,6 +177,12 @@ interface Notice {
 - `tags`는 항상 배열이다.
 - `attachments`는 항상 배열이다.
 - `audienceGroup`, `sourceGroup`, `sourceGroups`는 백엔드에서 계산해 붙인다.
+- `id`는 크롤링을 반복해도 바뀌지 않는 고정값이다. 클라이언트는 형식 없는 문자열로 다루고 길이나 형식에 의존하지 않는다.
+  - 원본 JSON에 `id`가 있으면 그 값을 쓴다. 크롤러 JSON에는 없다.
+  - 없으면 정규화한 원문 URL(`canonicalize_original_url`)의 SHA-256 앞 16자리 hex를 쓴다. 예: `a3f9c2e81b7d4056`
+  - 원문 URL도 없으면 `제목`, `날짜`, `출처`로 같은 방식의 해시를 만든다.
+  - 결과가 겹치면 뒤에 `-2`, `-3`을 붙인다.
+  - 학교 사이트가 공지 URL을 바꾸거나 URL 정규화 규칙이 바뀌면 해당 공지의 ID도 바뀐다. 이때 옛 ID는 `404`가 되고, 다른 공지를 가리키지는 않는다.
 
 ### `NoticeFacets`
 

@@ -90,7 +90,7 @@ erDiagram
 
 ## 실제 SQLite 스키마
 
-`app/db.py`가 테이블과 인덱스를 정의한다. 스키마 버전은 `db.SCHEMA_VERSION`이며 현재 버전은 `3`다. 버전이 맞지 않으면 부팅 시 기존 DB를 제거하고 JSON에서 다시 ingest한다.
+`app/db.py`가 테이블과 인덱스를 정의한다. 스키마 버전은 `db.SCHEMA_VERSION`이며 현재 버전은 `5`다(v5는 테이블 변경 없이 공지 ID 규칙 변경을 재 ingest로 반영하기 위해 올렸다). 버전이 맞지 않으면 부팅 시 기존 DB를 제거하고 JSON에서 다시 ingest한다.
 
 ### `notices`
 
@@ -98,7 +98,7 @@ erDiagram
 
 | 컬럼 | 타입 | 필수 | 설명 |
 | --- | --- | --- | --- |
-| `id` | `text` | 예 | 안정적인 공지 ID. 중복 ID는 ingest 시 suffix로 보정 |
+| `id` | `text` | 예 | 안정적인 공지 ID. 원본 JSON `id`가 없으면 정규화한 원문 URL(없으면 제목·날짜·출처)의 SHA-256 앞 16자리 hex. 중복 ID는 ingest 시 suffix로 보정 |
 | `title` | `text` | 예 | 공지 제목 |
 | `content` | `text` | 예 | Markdown(CommonMark + GFM 표) 문자열 |
 | `url` | `text` | 아니오 | 원문 공지 URL |

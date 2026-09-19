@@ -162,6 +162,36 @@ def test_ingest_normalizes_duplicate_ids(tmp_path) -> None:
     assert ids == ["same", "same-2"]
 
 
+def test_ingest_keeps_notice_ids_when_snapshot_order_changes(tmp_path) -> None:
+    json_path = tmp_path / "notices.json"
+    db_path = tmp_path / "notices.db"
+    existing = [
+        {"title": "수강신청", "content": "본문", "original_url": "https://example.com/1"},
+        {"title": "장학금", "content": "본문", "original_url": "https://example.com/2"},
+    ]
+
+    _write_json(json_path, existing)
+    ingest_json_snapshot(json_path=json_path, db_path=db_path)
+    before = {
+        n.url: n.id for n in asyncio.run(SqliteNoticeRepository(db_path).list_all())
+    }
+
+    # 다음 크롤링에서 새 공지가 앞에 끼어들어 배열 순번이 밀린 경우
+    _write_json(
+        json_path,
+        [{"title": "새 공지", "content": "본문", "original_url": "https://example.com/3"}]
+        + existing,
+    )
+    ingest_json_snapshot(json_path=json_path, db_path=db_path)
+    after = {
+        n.url: n.id for n in asyncio.run(SqliteNoticeRepository(db_path).list_all())
+    }
+
+    assert after["https://example.com/1"] == before["https://example.com/1"]
+    assert after["https://example.com/2"] == before["https://example.com/2"]
+    assert len(set(after.values())) == 3
+
+
 def test_ingest_rejects_non_array_json(tmp_path) -> None:
     json_path = tmp_path / "notices.json"
     db_path = tmp_path / "notices.db"

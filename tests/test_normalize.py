@@ -1,3 +1,5 @@
+import re
+
 from app.normalize import normalize_content_markdown, normalize_notice
 
 
@@ -74,9 +76,54 @@ def test_normalize_generates_fallback_fields() -> None:
 
     assert notice.title == "제목 없음 공지 3"
     assert notice.content == "본문 정보가 비어 있습니다."
-    assert notice.id.startswith("제목-없음-공지-3")
+    assert re.fullmatch(r"[0-9a-f]{16}", notice.id)
     assert notice.tags == []
     assert notice.attachments == []
+
+
+def test_notice_id_is_stable_across_snapshot_positions() -> None:
+    raw = {
+        "title": "2학기 수강신청 안내",
+        "published_at": "2026-09-01",
+        "source_name": "한국항공대학교 공식 홈페이지",
+        "original_url": "https://www.kau.ac.kr/kaulife/notice.php?code=s1101&mode=read&seq=1234",
+    }
+
+    first = normalize_notice(raw, 0).id
+    shifted = normalize_notice(raw, 5).id
+    retitled = normalize_notice({**raw, "title": "[수정] 2학기 수강신청 안내"}, 0).id
+
+    assert re.fullmatch(r"[0-9a-f]{16}", first)
+    assert first == shifted == retitled
+
+
+def test_notice_id_uses_canonical_original_url() -> None:
+    base = "https://www.kau.ac.kr/kaulife/notice.php?code=s1101&mode=read&seq=1234"
+    with_paging = (
+        "https://www.kau.ac.kr/kaulife/notice.php"
+        "?code=s1101&page=3&searchkey=&searchvalue=&mode=read&seq=1234"
+    )
+    other = "https://www.kau.ac.kr/kaulife/notice.php?code=s1101&mode=read&seq=1235"
+
+    base_id = normalize_notice({"title": "공지", "original_url": base}, 0).id
+
+    assert normalize_notice({"title": "공지", "original_url": with_paging}, 0).id == base_id
+    assert normalize_notice({"title": "공지", "original_url": other}, 0).id != base_id
+
+
+def test_notice_id_without_url_ignores_snapshot_position() -> None:
+    raw = {"title": "URL 없는 공지", "date": "2026-09-01", "source_name": "학사"}
+
+    assert normalize_notice(raw, 0).id == normalize_notice(raw, 7).id
+    assert normalize_notice(raw, 0).id != normalize_notice({**raw, "date": "2026-09-02"}, 0).id
+
+
+def test_notice_id_prefers_explicit_raw_id() -> None:
+    notice = normalize_notice(
+        {"id": "given-id", "title": "공지", "original_url": "https://example.com/1"}, 0
+    )
+
+    assert notice.id == "given-id"
 
 
 def test_normalize_converts_raw_html_content_to_markdown() -> None:

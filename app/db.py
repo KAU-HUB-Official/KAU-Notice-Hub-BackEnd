@@ -7,7 +7,9 @@ from pathlib import Path
 # app/dependencies.py deletes the DB and re-ingests from JSON (no down-migration).
 # v2 -> v3: added notices.content_markdown and the notice_facets_cache table.
 # v3 -> v4: removed notices.summary (content is now the single readable body field).
-SCHEMA_VERSION = 4
+# v4 -> v5: notices.id is now a hash of the canonical original URL. No DDL change;
+#           the bump forces a re-ingest at startup so old position-based ids vanish at once.
+SCHEMA_VERSION = 5
 
 SCHEMA_STATEMENTS: tuple[str, ...] = (
     """

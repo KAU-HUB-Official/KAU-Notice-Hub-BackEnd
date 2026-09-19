@@ -11,6 +11,10 @@
 - 학교 이미지 주소 끝부분(imageSrc.do)처럼 서로 다른 파일이 같은 이름으로 잡히는 경우는 파일명이 아니므로
   비교하지 않는다. 비교할 첨부가 없으면 규칙을 적용하지 않는다.
 
+본문 같음 규칙 (2026-09-19 결정): 정규화한 본문 글자가 정확히 같고(50자 이상) 본문 이미지도 같으면(둘 다 없거나
+파일이 전부 같음) 하나로 합쳐도 되는 공지로 본다. 비슷한 정도(유사도)로는 판정하지 않는다. 재게시와 대상별 변형
+공지를 유사도로는 가를 수 없어서다. 글이 같아도 포스터만 다를 수 있으므로 한쪽에만 이미지가 있으면 적용하지 않는다.
+
 본문 이미지 규칙: 두 공지의 본문 이미지 파일(내용 해시)이 모두 같고 개수도 같으면 하나로 합쳐도 되는 공지로 본다
 (2026-09-15 결정). 게시판마다 같은 포스터를 새로 올려 주소가 달라지므로 주소가 아니라 파일 내용으로 비교한다.
 해시를 모르는 이미지가 하나라도 있거나 본문 이미지가 없으면 규칙을 적용하지 않는다.
@@ -26,7 +30,6 @@ CANDIDATE_WINDOW_DAYS = 7
 MIN_TITLE_LENGTH = 6
 TITLE_SIMILARITY = 0.8
 MIN_BODY_LENGTH = 50
-BODY_AUTO_MERGE = 0.9
 
 GENERIC_ATTACHMENT_NAME = re.compile(
     r"^(imagesrc\.do|download\.do|filedown\.do|image|img|inline-image|첨부|첨부파일|파일|file)$"
@@ -69,6 +72,20 @@ def body_similarity(a: str, b: str) -> float | None:
     ga = {a[i : i + 3] for i in range(max(1, len(a) - 2))}
     gb = {b[i : i + 3] for i in range(max(1, len(b) - 2))}
     return len(ga & gb) / len(ga | gb) if ga | gb else 1.0
+
+
+def same_body_text(a: str, b: str) -> bool:
+    """body_for_similarity를 거친 두 본문이 정확히 같고 50자 이상이면 True."""
+    return len(a) >= MIN_BODY_LENGTH and a == b
+
+
+def same_or_no_body_images(
+    a: dict[str, Any], b: dict[str, Any], sha256_of: Callable[[str], str | None]
+) -> bool:
+    """두 공지 모두 본문 이미지가 없거나, 둘 다 있고 파일이 전부 같으면 True."""
+    if not body_image_urls(a) and not body_image_urls(b):
+        return True
+    return same_body_image_set(a, b, sha256_of)
 
 
 def attachment_name_list(post: dict[str, Any]) -> list[str]:

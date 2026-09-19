@@ -30,7 +30,7 @@ NEEDS_JUDGMENT = "판정 필요"
 def similarity_bin(sim: float | None) -> str:
     if sim is None:
         return "비교 불가"
-    return "<0.3" if sim < 0.3 else "0.3~0.6" if sim < 0.6 else "0.6~0.9"
+    return "<0.3" if sim < 0.3 else "0.3~0.6" if sim < 0.6 else "0.6~0.9" if sim < 0.9 else "0.9 이상"
 
 
 def readable_body(content: str) -> str:

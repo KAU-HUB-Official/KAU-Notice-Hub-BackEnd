@@ -1,14 +1,16 @@
 """표본 쌍을 LLM에게 판정시킨다: 두 공지를 하나로 묶어도 되는가.
 
 - 입력은 본문만 넘긴다. 게시판·게시일·제목·첨부 이름은 대상 판단을 흔드는 노이즈라 뺐다(2026-09-15 결정).
-- 라벨과 비교해 일치율을 낸다. 라벨은 Claude 판정이며, 사람이 라벨링한 쌍(human_labels)이 있으면 그것을 우선한다.
+- 대상: 최종 라벨이 있는 표본 쌍 중 지금 규칙으로 정해지지 않는 쌍(classify_crosspost_pairs.py 의 "판정 필요").
+- 라벨(finalize_judgment_labels.py 결과)과 비교해 일치율을 라벨 출처(사람·Claude)별로 낸다.
 - OpenAI 비용이 든다. --limit 으로 호출할 쌍 수를 반드시 정한다.
 
 실행 (BackEnd 루트):
     .venv/bin/python -m scripts.research.judge_merge_llm \\
-        --review data/research/judgment_review_2026-09-16.json \\
+        --labels data/research/judgment_labels_2026-09-19.json \\
+        --pairs data/research/crosspost_pairs_2026-09-15.json \\
         --posts data/research/kau_notices_clean_2026-09-15.json \\
-        --limit 200 --output data/research/analysis/merge_llm_2026-09-16.json
+        --limit 136 --output data/research/analysis/merge_llm_2026-09-19.json
 """
 
 from __future__ import annotations
@@ -98,9 +100,9 @@ def call_llm(api_key: str, model: str, text: str) -> tuple[dict | None, dict, st
 
 def main(argv: list[str] | None = None) -> None:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
-    parser.add_argument("--review", type=Path, required=True, help="build_judgment_review.py 결과")
+    parser.add_argument("--labels", type=Path, required=True, help="finalize_judgment_labels.py 결과")
+    parser.add_argument("--pairs", type=Path, required=True, help="classify_crosspost_pairs.py 결과(판정 필요 쌍만 고른다)")
     parser.add_argument("--posts", type=Path, required=True)
-    parser.add_argument("--human-labels", type=Path, default=None, help="collect_labels.py 결과(있으면 라벨로 우선 사용)")
     parser.add_argument("--model", default="gpt-4.1-mini")
     parser.add_argument("--limit", type=int, required=True, help="호출할 쌍 수. OpenAI 비용이 든다")
     parser.add_argument("--output", type=Path, required=True)
@@ -110,14 +112,14 @@ def main(argv: list[str] | None = None) -> None:
     if not settings.openai_api_key:
         parser.error("OPENAI_API_KEY 가 필요합니다.")
     posts = {p["original_url"]: p for p in json.loads(args.posts.read_text(encoding="utf-8"))}
-    review = json.loads(args.review.read_text(encoding="utf-8"))
-    human = {}
-    if args.human_labels:
-        for p in json.loads(args.human_labels.read_text(encoding="utf-8"))["pairs"]:
-            if p.get("majority"):
-                human[(p["a_url"], p["b_url"])] = p["majority"]
-
-    rows = review["pairs"][: args.limit]
+    steps = {
+        frozenset((p["a_url"], p["b_url"])): p["step"]
+        for p in json.loads(args.pairs.read_text(encoding="utf-8"))["pairs"]
+    }
+    labeled = json.loads(args.labels.read_text(encoding="utf-8"))["pairs"]
+    targets = [r for r in labeled if r["label"] and steps.get(frozenset((r["a_url"], r["b_url"]))) == "판정 필요"]
+    print(f"라벨 {len(labeled)}쌍 중 판정 필요로 남은 쌍 {len(targets)}")
+    rows = targets[: args.limit]
     records = []
     tokens = Counter()
     for n, r in enumerate(rows, 1):
@@ -125,12 +127,11 @@ def main(argv: list[str] | None = None) -> None:
         result, usage, error = call_llm(settings.openai_api_key, args.model, text)
         tokens["input"] += int(usage.get("input_tokens") or 0)
         tokens["output"] += int(usage.get("output_tokens") or 0)
-        label = human.get((r["a_url"], r["b_url"])) or r["claude_judgment"]
         records.append(
             {
                 **{k: r[k] for k in ("no", "a_url", "b_url", "title_a", "title_b", "body_similarity", "bin")},
-                "label": label,
-                "label_source": "사람" if (r["a_url"], r["b_url"]) in human else "Claude",
+                "label": r["label"],
+                "label_source": "Claude" if r["label_source"] == "Claude" else "사람",
                 "claude_confidence": r["claude_confidence"],
                 "llm_judgment": (result or {}).get("judgment"),
                 "llm_reason": (result or {}).get("reason", ""),

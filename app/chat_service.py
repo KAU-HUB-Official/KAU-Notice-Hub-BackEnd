@@ -229,7 +229,7 @@ def fallback_answer(question: str, notices: list[Notice]) -> str:
         [
             f"질문: {question}",
             "",
-            "OpenAI API 키가 없어 로컬 검색 결과를 기준으로 안내합니다.",
+            "지금은 챗봇 답변 생성이 원활하지 않아 검색 결과만 안내합니다.",
             "",
             *lines,
             "",

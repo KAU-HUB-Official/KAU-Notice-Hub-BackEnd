@@ -72,6 +72,7 @@ def main(argv: list[str] | None = None) -> None:
     parser.add_argument("--posts", type=Path, required=True, help="정리본 공지 JSON")
     parser.add_argument("--keep", type=Path, default=None, help="이미 판정한 쌍 목록(select_hard_pairs.py 결과)")
     parser.add_argument("--size", type=int, default=200)
+    parser.add_argument("--only-bin", default=None, help="이 본문 유사도 구간에서만 뽑는다(예: '0.9 이상')")
     parser.add_argument("--output", type=Path, required=True)
     parser.add_argument("--batches", type=Path, default=None, help="판정 입력 묶음을 쓸 디렉터리")
     parser.add_argument("--batch-size", type=int, default=25)
@@ -79,6 +80,8 @@ def main(argv: list[str] | None = None) -> None:
 
     posts = {p["original_url"]: p for p in json.loads(args.posts.read_text(encoding="utf-8"))}
     universe = [p for p in json.loads(args.pairs.read_text(encoding="utf-8"))["pairs"] if p["step"] == NEEDS_JUDGMENT]
+    if args.only_bin:
+        universe = [p for p in universe if similarity_bin(p["body_similarity"]) == args.only_bin]
     kept: dict[tuple[str, str], dict] = {}
     if args.keep:
         for r in json.loads(args.keep.read_text(encoding="utf-8"))["pairs"]:

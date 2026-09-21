@@ -15,6 +15,7 @@ from ..services.content_asset_downloader import (
     extract_inline_embed_assets,
     extract_inline_image_assets,
 )
+from ..services.notice_update import RecheckPolicy, apply_notice_update, compute_content_hash
 from ..services.url_normalizer import canonicalize_original_url
 from ..utils.logger import get_logger
 
@@ -72,6 +73,8 @@ class BoardCrawlReport:
     stop_reason: str = STOP_PAGE_LIMIT
     stop_page: int | None = None
     failed_items: int = 0
+    rechecked_posts: int = 0  # 수정 여부를 확인하려고 다시 읽은 기존 공지
+    updated_posts: int = 0  # 그중 원문이 바뀌어 갱신한 공지
     # 실패한 상세 항목(url/page/is_permanent_notice/reason). 재시도용이라 기록에는 싣지 않는다.
     failed_details: list[dict] = field(default_factory=list, repr=False)
 
@@ -365,6 +368,7 @@ def _parse_detail_item(
         if inline_assets:
             post_dict["content_assets"] = inline_assets
         post_dict["is_permanent_notice"] = is_permanent_notice
+        post_dict["content_hash"] = compute_content_hash(post_dict)
         known_urls.add(post.original_url)
         known_posts_by_url[post.original_url] = post_dict
         return post_dict, False
@@ -380,6 +384,55 @@ def _parse_detail_item(
         return None, False
 
 
+def _recheck_known_item(
+    board: dict[str, Any],
+    detail_item: dict,
+    *,
+    adapter: BoardAdapter,
+    parser: BaseParser,
+    known_post: dict,
+    recheck: RecheckPolicy,
+    report: BoardCrawlReport,
+    since: date | None = None,
+) -> None:
+    """기존 공지를 다시 읽어 원문 해시가 달라졌으면 known_post를 제자리에서 갱신한다.
+
+    다시 읽기에 실패하면 기존 공지를 그대로 두고 실패 목록에도 올리지 않는다.
+    해시가 없는 예전 공지는 이번에 읽은 해시만 저장한다(비교할 기준이 없어 갱신하지 않음).
+    """
+    detail_url = str(detail_item["url"])
+    recheck.done_urls.add(detail_url)
+    report.rechecked_posts += 1
+    fresh, _ = _parse_detail_item(
+        board,
+        detail_item,
+        adapter=adapter,
+        parser=parser,
+        known_urls=set(),
+        known_posts_by_url={},
+        failed_items=[],
+        since=since,
+    )
+    if fresh is None:
+        return
+
+    stored_hash = known_post.get("content_hash")
+    if stored_hash is None:
+        known_post["content_hash"] = fresh["content_hash"]
+        return
+    if stored_hash == fresh["content_hash"]:
+        return
+
+    apply_notice_update(known_post, fresh)
+    report.updated_posts += 1
+    logger.info(
+        "공지 수정 반영 | 게시판=%s | 제목=%s | url=%s",
+        _board_label(board),
+        fresh.get("title"),
+        detail_url,
+    )
+
+
 def crawl_board(
     board: dict[str, Any],
     *,
@@ -388,6 +441,7 @@ def crawl_board(
     known_urls: set[str],
     known_posts_by_url: dict[str, dict] | None = None,
     since: date | None = None,
+    recheck: RecheckPolicy | None = None,
 ) -> tuple[list[dict], list[dict], BoardCrawlReport]:
     parser = adapter.parser_factory(board)
     board_label = _board_label(board)
@@ -466,7 +520,15 @@ def crawl_board(
         new_general_count = sum(
             1 for item in general_items if str(item.get("url") or "") not in seen_for_board
         )
-        stop_after_page = bool(general_items) and new_general_count == 0
+        # 다시 확인할 최근 기존 공지가 있으면 신규가 없어도 이 페이지를 돌고 다음 페이지도 본다.
+        recheck_count = 0
+        if recheck is not None:
+            recheck_count = sum(
+                1
+                for item in general_items
+                if recheck.should_recheck(url := str(item.get("url") or ""), known_posts.get(url))
+            )
+        stop_after_page = bool(general_items) and new_general_count == 0 and recheck_count == 0
         ordered_page_items = _dedup_items(
             permanent_items if stop_after_page else permanent_items + general_items
         )
@@ -491,6 +553,18 @@ def crawl_board(
 
             if detail_url in seen_for_board:
                 _sync_known_item_metadata(detail_item, known_posts_by_url=known_posts)
+                known_post = known_posts.get(detail_url)
+                if recheck is not None and recheck.should_recheck(detail_url, known_post):
+                    _recheck_known_item(
+                        board,
+                        detail_item,
+                        adapter=adapter,
+                        parser=parser,
+                        known_post=known_post,
+                        recheck=recheck,
+                        report=report,
+                        since=since,
+                    )
                 if _evaluate_known_item_policy(
                     board,
                     detail_item,
@@ -525,6 +599,8 @@ def crawl_board(
                 report.failed_details.append({**detail_item, "reason": failed_items[-1]["reason"]})
             if post:
                 posts.append(post)
+                if recheck is not None:
+                    recheck.done_urls.add(post["original_url"])
             if should_stop:
                 logger.info(
                     "수집 종료 | 게시판=%s | 사유=%s | 페이지=%s | url=%s",

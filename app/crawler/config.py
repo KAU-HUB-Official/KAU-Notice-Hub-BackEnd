@@ -134,6 +134,8 @@ def _delay_range_from_env(name: str, default: tuple[float, float]) -> tuple[floa
 # 실행해 별도 경로에 저장한다.
 REQUEST_DELAY_SECONDS = _delay_range_from_env("CRAWLER_REQUEST_DELAY_SECONDS", (0.5, 1.2))
 RECENT_NOTICE_DAYS = _positive_int_from_env("CRAWLER_RECENT_NOTICE_DAYS", 365)
+# 이미 수집한 공지 중 게시일이 이 일수 이내인 것은 상세를 다시 읽어 수정 여부를 확인한다.
+RECHECK_DAYS = _positive_int_from_env("CRAWLER_RECHECK_DAYS", 7)
 
 
 def _source_name(label: str) -> str:

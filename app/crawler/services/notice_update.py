@@ -1,7 +1,7 @@
 """이미 수집한 공지가 게시판에서 수정됐는지 확인하고 반영한다.
 
 수집한 공지는 URL이 같으면 다시 열지 않아 게시 후 수정한 내용이 사이트에 반영되지 않았다.
-최근 공지만 상세 페이지를 다시 읽어, 파싱한 원문의 해시가 저장된 해시와 다르면 갱신한다.
+최근 공지와 상시공지만 상세 페이지를 다시 읽어, 파싱한 원문의 해시가 저장된 해시와 다르면 갱신한다.
 """
 
 from __future__ import annotations
@@ -44,7 +44,10 @@ def compute_content_hash(post: dict) -> str:
 
 @dataclass
 class RecheckPolicy:
-    """게시일이 최근 days일 이내인 기존 공지를 다시 읽는다. done_urls는 한 번 수집에서 공유한다."""
+    """게시일이 최근 days일 이내인 기존 공지와 상시공지를 다시 읽는다. done_urls는 한 번 수집에서 공유한다.
+
+    상시공지는 게시일이 오래돼도 내용을 자주 고치므로 날짜와 무관하게 매 수집마다 확인한다.
+    """
 
     days: int
     today: date = field(default_factory=date.today)
@@ -56,6 +59,8 @@ class RecheckPolicy:
             return False
         if detail_url in self.done_urls:
             return False
+        if known_post.get("is_permanent_notice"):
+            return True
         published = parse_published_date(known_post.get("published_at"))
         return published is not None and published >= self.today - timedelta(days=self.days)
 

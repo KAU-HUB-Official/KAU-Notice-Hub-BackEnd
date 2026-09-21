@@ -452,6 +452,33 @@ def test_recheck_skips_old_posts_and_source_meta_entries() -> None:
     assert not policy.should_recheck(url, known_post(url, published_at="2026-05-09"))
 
 
+def test_recheck_permanent_notice_every_crawl_regardless_of_date() -> None:
+    url = "https://example.com/permanent"
+    stored = known_post(url, published_at="2024-03-02")
+    stored["is_permanent_notice"] = True
+    edited = replace(make_post(url, published_at="2024-03-02"), content="상시 안내 내용을 고쳤습니다.")
+    fetched_details: list[str] = []
+    adapter = make_adapter(
+        items_by_page={1: [{"url": url, "is_permanent_notice": True}]},
+        posts_by_url={url: edited},
+        fetched_pages=[],
+        fetched_details=fetched_details,
+    )
+
+    _posts, _failed, report = crawl_board(
+        BOARD,
+        max_pages=1,
+        adapter=adapter,
+        known_urls={url},
+        known_posts_by_url={url: stored},
+        recheck=RecheckPolicy(days=7, today=TODAY),
+    )
+
+    assert fetched_details == [url]
+    assert report.updated_posts == 1
+    assert stored["content"] == "상시 안내 내용을 고쳤습니다."
+
+
 def test_apply_update_keeps_attachments_from_merged_boards() -> None:
     existing = {
         "attachments": [{"name": "신청서.hwp", "url": "u1"}, {"name": "다른 게시판 안내.pdf", "url": "u2"}],

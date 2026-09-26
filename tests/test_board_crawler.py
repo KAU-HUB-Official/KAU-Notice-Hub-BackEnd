@@ -20,6 +20,7 @@ from app.crawler.services.board_crawler import (
     crawl_board,
     retry_failed_details,
 )
+from app.crawler.services.notice_update import RecheckPolicy, apply_notice_update, compute_content_hash
 
 SINCE = date(2023, 1, 1)
 BOARD = {"key": "test_board", "name": "테스트 공지사항"}
@@ -214,6 +215,8 @@ def test_crawl_board_stops_before_since_and_reports_board() -> None:
         "stop_reason": STOP_SINCE_REACHED,
         "stop_page": 1,
         "failed_items": 0,
+        "rechecked_posts": 0,
+        "updated_posts": 0,
         "reached_since": True,
     }
 
@@ -335,3 +338,156 @@ def test_retry_failed_details_recovers_transient_detail_failure() -> None:
     assert result.attempted_urls == [url]
     assert [post["original_url"] for post in result.recovered] == [url]
     assert result.still_failed == []
+
+
+TODAY = date(2026, 5, 10)
+
+
+def known_post(url: str, *, published_at: str, content: str = "본문입니다.") -> dict:
+    post = make_post(url, published_at=published_at).to_dict()
+    post["content"] = content
+    post["content_hash"] = compute_content_hash(post)
+    return post
+
+
+def test_recheck_rereads_recent_known_post_and_keeps_it_when_unchanged() -> None:
+    recent_url = "https://example.com/recent"
+    old_url = "https://example.com/old"
+    stored = known_post(recent_url, published_at="2026-05-08")
+    fetched_pages: list[int] = []
+    fetched_details: list[str] = []
+    adapter = make_adapter(
+        items_by_page={
+            1: [{"url": recent_url, "is_permanent_notice": False}],
+            2: [{"url": old_url, "is_permanent_notice": False}],
+        },
+        posts_by_url={recent_url: make_post(recent_url, published_at="2026-05-08")},
+        fetched_pages=fetched_pages,
+        fetched_details=fetched_details,
+    )
+
+    posts, failed_items, report = crawl_board(
+        BOARD,
+        max_pages=0,
+        adapter=adapter,
+        known_urls={recent_url, old_url},
+        known_posts_by_url={recent_url: stored, old_url: known_post(old_url, published_at="2026-04-01")},
+        recheck=RecheckPolicy(days=7, today=TODAY),
+    )
+
+    assert posts == [] and failed_items == []
+    # 최근 공지가 있던 1페이지는 신규가 없어도 넘어가고, 최근 공지가 없는 2페이지에서 멈춘다.
+    assert fetched_pages == [1, 2]
+    assert fetched_details == [recent_url]
+    assert (report.rechecked_posts, report.updated_posts) == (1, 0)
+    assert stored["content"] == "본문입니다."
+
+
+def test_recheck_updates_known_post_when_content_hash_changed() -> None:
+    url = "https://example.com/edited"
+    stored = known_post(url, published_at="2026-05-08")
+    stored["content_original"] = "본문입니다."
+    stored["content_enrichment"] = {"status": "success"}
+    stored["source_name"] = ["테스트", "다른 게시판"]
+    edited = replace(make_post(url, published_at="2026-05-08"), content="마감일이 5월 20일로 바뀌었습니다.")
+    adapter = make_adapter(
+        items_by_page={1: [{"url": url, "is_permanent_notice": False}]},
+        posts_by_url={url: edited},
+        fetched_pages=[],
+        fetched_details=[],
+    )
+
+    posts, _failed, report = crawl_board(
+        BOARD,
+        max_pages=1,
+        adapter=adapter,
+        known_urls={url},
+        known_posts_by_url={url: stored},
+        recheck=RecheckPolicy(days=7, today=TODAY),
+    )
+
+    assert posts == []
+    assert report.updated_posts == 1
+    assert stored["content"] == "마감일이 5월 20일로 바뀌었습니다."
+    assert stored["content_hash"] == compute_content_hash(stored)
+    # 이전 보강 결과는 지우고, 수집 과정에서 쌓인 출처 배열은 유지한다.
+    assert "content_original" not in stored and "content_enrichment" not in stored
+    assert stored["source_name"] == ["테스트", "다른 게시판"]
+
+
+def test_recheck_only_stores_hash_for_post_saved_before_hashing() -> None:
+    url = "https://example.com/legacy"
+    stored = known_post(url, published_at="2026-05-08", content="예전에 저장한 본문")
+    del stored["content_hash"]
+    adapter = make_adapter(
+        items_by_page={1: [{"url": url, "is_permanent_notice": False}]},
+        posts_by_url={url: make_post(url, published_at="2026-05-08")},
+        fetched_pages=[],
+        fetched_details=[],
+    )
+
+    _posts, _failed, report = crawl_board(
+        BOARD,
+        max_pages=1,
+        adapter=adapter,
+        known_urls={url},
+        known_posts_by_url={url: stored},
+        recheck=RecheckPolicy(days=7, today=TODAY),
+    )
+
+    assert report.updated_posts == 0
+    assert stored["content"] == "예전에 저장한 본문"
+    assert stored["content_hash"] == compute_content_hash(make_post(url, published_at="2026-05-08").to_dict())
+
+
+def test_recheck_skips_old_posts_and_source_meta_entries() -> None:
+    policy = RecheckPolicy(days=7, today=TODAY)
+    url = "https://example.com/a"
+
+    assert policy.should_recheck(url, known_post(url, published_at="2026-05-03"))
+    assert not policy.should_recheck(url, known_post(url, published_at="2026-05-02"))
+    # 제목 중복으로 합쳐진 다른 게시판 URL은 source_meta 항목이라 공지 본체가 아니다.
+    assert not policy.should_recheck(url, {"original_url": url, "published_at": "2026-05-09"})
+    policy.done_urls.add(url)
+    assert not policy.should_recheck(url, known_post(url, published_at="2026-05-09"))
+
+
+def test_recheck_permanent_notice_every_crawl_regardless_of_date() -> None:
+    url = "https://example.com/permanent"
+    stored = known_post(url, published_at="2024-03-02")
+    stored["is_permanent_notice"] = True
+    edited = replace(make_post(url, published_at="2024-03-02"), content="상시 안내 내용을 고쳤습니다.")
+    fetched_details: list[str] = []
+    adapter = make_adapter(
+        items_by_page={1: [{"url": url, "is_permanent_notice": True}]},
+        posts_by_url={url: edited},
+        fetched_pages=[],
+        fetched_details=fetched_details,
+    )
+
+    _posts, _failed, report = crawl_board(
+        BOARD,
+        max_pages=1,
+        adapter=adapter,
+        known_urls={url},
+        known_posts_by_url={url: stored},
+        recheck=RecheckPolicy(days=7, today=TODAY),
+    )
+
+    assert fetched_details == [url]
+    assert report.updated_posts == 1
+    assert stored["content"] == "상시 안내 내용을 고쳤습니다."
+
+
+def test_apply_update_keeps_attachments_from_merged_boards() -> None:
+    existing = {
+        "attachments": [{"name": "신청서.hwp", "url": "u1"}, {"name": "다른 게시판 안내.pdf", "url": "u2"}],
+        "source_meta": [{"original_url": "a"}, {"original_url": "b"}],
+    }
+    apply_notice_update(existing, {"title": "t", "content": "c", "attachments": [{"name": "신청서(수정).hwp", "url": "u3"}]})
+
+    assert [item["url"] for item in existing["attachments"]] == ["u3", "u1", "u2"]
+
+    single = {"attachments": [{"name": "신청서.hwp", "url": "u1"}]}
+    apply_notice_update(single, {"attachments": [{"name": "신청서(수정).hwp", "url": "u3"}]})
+    assert [item["url"] for item in single["attachments"]] == ["u3"]

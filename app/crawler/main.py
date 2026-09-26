@@ -16,6 +16,7 @@ from .config import (
     OUTPUT_FILE,
     PROJECT_ROOT,
     RECENT_NOTICE_DAYS,
+    RECHECK_DAYS,
     REQUEST_DELAY_SECONDS,
 )
 from .services.board_crawler import (
@@ -31,6 +32,7 @@ from .services.dedup_service import (
     merge_posts_with_dedup,
     prune_stale_posts,
 )
+from .services.notice_update import RecheckPolicy
 from .services.post_store import load_existing_posts
 from .services.url_normalizer import canonicalize_original_url
 from .utils.logger import get_logger
@@ -113,6 +115,7 @@ def crawl_all_notices(
     - 제목이 같아도 합치지 않고 URL 기준 중복 제거만 한다(해마다 같은 제목으로 올라오는 회차 보존).
     - 오래된 공지 삭제와 본문 보강을 하지 않는다.
     - 실패한 상세 공지를 수집 끝에 한 번 더 시도하고, 게시판별 수집 기록(manifest)을 남긴다.
+    - 이미 수집한 공지를 다시 읽어 수정 여부를 확인하지 않는다(운영은 최근 RECHECK_DAYS일 공지를 확인).
     원본을 덮어쓰지 않도록 output_path가 이미 있거나, 수집 조건을 커밋 하나로 남길 수 없도록
     미커밋 파일이 있으면 시작하지 않는다.
     """
@@ -157,6 +160,8 @@ def crawl_all_notices(
         all_failed_items: list[dict] = []
         board_runs: list[tuple[dict, BoardAdapter, list[dict], BoardCrawlReport]] = []
         unsupported_boards: list[str] = []
+        # 운영 수집은 게시 후 수정된 공지를 반영하려고 최근 공지를 다시 읽는다.
+        recheck = None if research else RecheckPolicy(days=RECHECK_DAYS)
 
         logger.info(
             "수집 시작 | 게시판수=%s | 페이지상한=%s | 기존URL=%s",
@@ -185,6 +190,7 @@ def crawl_all_notices(
                 known_urls=known_urls,
                 known_posts_by_url=known_posts_by_url,
                 since=since,
+                recheck=recheck,
             )
             all_new_posts.extend(posts)
             all_failed_items.extend(failed_items)
@@ -258,14 +264,18 @@ def crawl_all_notices(
                     enrichment_result.calls_used,
                 )
 
+        rechecked_posts = sum(report.rechecked_posts for _, _, _, report in board_runs)
+        updated_posts = sum(report.updated_posts for _, _, _, report in board_runs)
         save_json(prune_result.posts, output_path)
         logger.info(
             (
-                "저장 완료 | 전체=%s | 신규=%s | URL중복=%s "
+                "저장 완료 | 전체=%s | 신규=%s | 재확인=%s | 수정반영=%s | URL중복=%s "
                 "| 제목중복=%s | 오래된공지삭제=%s | 경로=%s"
             ),
             len(prune_result.posts),
             len(all_new_posts),
+            rechecked_posts,
+            updated_posts,
             merge_result.url_dedup_removed,
             merge_result.title_dedup_removed,
             prune_result.stale_pruned,
@@ -304,9 +314,12 @@ def crawl_all_notices(
                     },
                     "request_delay_seconds": list(REQUEST_DELAY_SECONDS),
                     "recent_notice_days": None if research else RECENT_NOTICE_DAYS,
+                    "recheck_days": None if research else RECHECK_DAYS,
                     "content_enrichment": content_enrichment_enabled,
                     "totals": {
                         "new_posts": len(all_new_posts),
+                        "rechecked_posts": rechecked_posts,
+                        "updated_posts": updated_posts,
                         "saved_posts": len(prune_result.posts),
                         "url_dedup_removed": merge_result.url_dedup_removed,
                         "title_dedup_removed": merge_result.title_dedup_removed,

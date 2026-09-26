@@ -77,6 +77,47 @@ class ChatAnswer(BaseModel):
     model: str
 
 
+class KakaoLoginRequest(BaseModel):
+    code: str | None = None
+    redirectUri: str | None = None
+
+    model_config = ConfigDict(extra="ignore")
+
+
+class User(BaseModel):
+    # 내부 사용자 ID. 카카오 회원번호는 응답에 내보내지 않는다.
+    id: str
+    nickname: str | None = None
+
+
+class AuthResult(BaseModel):
+    accessToken: str
+    tokenType: Literal["Bearer"] = "Bearer"
+    expiresIn: int
+    user: User
+
+
+class Bookmark(BaseModel):
+    noticeId: str
+    bookmarkedAt: str
+    # 현재 공지 스냅샷에 있으면 전체 공지, 1년이 지나 빠졌으면 None.
+    notice: Notice | None
+    # 북마크한 시점에 저장한 사본. 공지가 사라져도 제목·원문 링크를 보여줄 수 있다.
+    saved: NoticeReference
+
+
+class BookmarkListResult(BaseModel):
+    items: list[Bookmark]
+    total: int
+    page: int
+    pageSize: int
+    totalPages: int
+
+
+class BookmarkIdsResult(BaseModel):
+    noticeIds: list[str]
+
+
 class ErrorResponse(BaseModel):
     error: str
     detail: str | None = None

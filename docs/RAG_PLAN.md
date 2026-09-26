@@ -13,7 +13,7 @@
 - `/api/chat`은 분기(triage) → 후보 검색 → rerank → 답변 2단계 검색 파이프라인을 거친다. `RAG_ENABLED=true`와 `OPENAI_API_KEY`가 있을 때 동작하며, 비활성화·키 부재·호출 실패·references 0건은 local fallback으로 응답한다.
   - 분기: 검색 직전 LLM 1회로 `search`/`history`/`out_of_domain`을 정한다. `history`는 이전 대화가 쌓인 상태에서 직전 답변을 재가공하는 후속 질문일 때만 선택되며, 새 검색 없이 history만으로 답한다. 이 분기 호출은 `temperature=0`으로 고정해 같은 질문이 호출마다 다른 mode/keywords로 흔들리지 않게 한다(답변 생성 호출은 영향받지 않음).
   - 후보 검색: `find_relevant_notices()`로 `RAG_CANDIDATE_POOL`(기본 15)개를 넓게 가져온다.
-  - rerank: 후보가 `RAG_MAX_REFERENCES`보다 많을 때만 LLM 1회로 제목·게시일(date)·본문 발췌(앞 `RERANK_SNIPPET_CHARS`자)를 보고 관련 공지의 **번호**를 골라 최종 n개로 좁힌다. 후보에는 1부터 번호를 붙여 보여주고 응답도 번호 배열로 받는다. 공지 id(제목에서 만든 48자 슬러그)를 받아쓰게 하면 잘림·오탈자로 후보에 없는 id가 돌아오기 때문이다. 입력에서도 id를 빼 호출당 750자쯤 줄어든다. 발췌의 접수·마감 기간과 오늘 날짜를 근거로, 질문이 현재 신청·참여 가능 여부를 물으면 마감이 지난 공지·결과발표·조달(용역/물품임차) 공지를 제외한다. 후보가 n개 이하면 호출을 생략한다.
+  - rerank: 후보가 `RAG_MAX_REFERENCES`보다 많을 때만 LLM 1회로 제목·게시일(date)·본문 발췌(앞 `RERANK_SNIPPET_CHARS`자)를 보고 관련 공지의 **번호**를 골라 최종 n개로 좁힌다. 후보에는 1부터 번호를 붙여 보여주고 응답도 번호 배열로 받는다. 공지 id(원문 URL 해시 16자리)를 받아쓰게 하면 잘림·오탈자로 후보에 없는 id가 돌아오기 때문이다. 입력에서도 id를 빼 호출당 750자쯤 줄어든다. 발췌의 접수·마감 기간과 오늘 날짜를 근거로, 질문이 현재 신청·참여 가능 여부를 물으면 마감이 지난 공지·결과발표·조달(용역/물품임차) 공지를 제외한다. 후보가 n개 이하면 호출을 생략한다.
 - `POST /api/chat/stream`은 같은 파이프라인을 SSE 이벤트(`search_started`, `search_completed`, `answer_delta`, `answer_completed`)로 반환한다. 답변은 OpenAI Responses API의 스트리밍(`stream=true`)으로 받아 토큰 단위 `answer_delta`로 흘려보낸다.
 - 이미지/HWP 공지는 content enrichment로 `content` 품질을 높일 수 있다.
 

@@ -246,3 +246,5 @@
 - `lms.kau.ac.kr`: `id`, `bwid`만 유지
 - `asbt.kau.ac.kr`: `ptype=view`, `idx`, `code`만 유지
 - 그 외: fragment 제거 + query key 정렬
+
+정규화한 URL은 중복 제거 기준이면서 API 공지 ID의 원천이다(`app/normalize.py`의 `build_notice_id`). 규칙을 바꾸면 해당 사이트 공지의 ID가 모두 바뀌어 북마크·공유 링크가 `404`가 되므로, 바꿀 때 영향 범위를 함께 검토한다.

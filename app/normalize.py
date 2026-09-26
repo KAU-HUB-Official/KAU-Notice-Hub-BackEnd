@@ -1,9 +1,11 @@
 from __future__ import annotations
 
+import hashlib
 import re
 from datetime import datetime
 from typing import Any
 
+from app.crawler.services.url_normalizer import canonicalize_original_url
 from app.crawler.utils.markdown_converter import html_node_to_markdown
 from app.schemas import Notice, NoticeAttachment
 
@@ -399,11 +401,23 @@ def _normalize_inline_html_in_markdown(content: str) -> str:
     return value.strip()
 
 
-def slugify(input_value: str) -> str:
-    lowered = input_value.lower()
-    slug = re.sub(r"[^a-z0-9가-힣]+", "-", lowered)
-    slug = re.sub(r"^-+|-+$", "", slug)[:48]
-    return slug or "notice"
+NOTICE_ID_LENGTH = 16
+
+
+def build_notice_id(
+    *, url: str | None, title: str, date: str | None, source: str | None
+) -> str:
+    """원문 URL에서 크롤링을 반복해도 바뀌지 않는 공지 ID를 만든다.
+
+    북마크와 공유 링크가 이 ID를 저장하므로 배열 순번처럼 스냅샷마다 달라지는
+    값을 넣지 않는다. URL은 크롤러 중복 제거와 같은 규칙으로 정규화하므로,
+    canonicalize_original_url 규칙을 바꾸면 해당 사이트 공지의 ID도 바뀐다.
+    """
+    if url:
+        seed = canonicalize_original_url(url)
+    else:
+        seed = "\n".join([title, date or "", source or ""])
+    return hashlib.sha256(seed.encode("utf-8")).hexdigest()[:NOTICE_ID_LENGTH]
 
 
 def normalize_attachments(raw_value: Any) -> list[NoticeAttachment]:
@@ -484,10 +498,9 @@ def normalize_notice(raw: RawNotice, index: int) -> Notice:
         or raw.get("updated_at")
     )
 
-    fallback_id_seed = f"{title}-{date or ''}-{source or ''}-{index + 1}"
-    notice_id = _first_string(raw, ["id", "notice_id", "post_id", "uuid"]) or slugify(
-        fallback_id_seed
-    )
+    notice_id = _first_string(
+        raw, ["id", "notice_id", "post_id", "uuid"]
+    ) or build_notice_id(url=url, title=title, date=date, source=source)
     return Notice(
         id=notice_id,
         title=title,

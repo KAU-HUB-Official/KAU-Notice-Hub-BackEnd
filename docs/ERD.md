@@ -90,7 +90,7 @@ erDiagram
 
 ## 실제 SQLite 스키마
 
-`app/db.py`가 테이블과 인덱스를 정의한다. 스키마 버전은 `db.SCHEMA_VERSION`이며 현재 버전은 `3`다. 버전이 맞지 않으면 부팅 시 기존 DB를 제거하고 JSON에서 다시 ingest한다.
+`app/db.py`가 테이블과 인덱스를 정의한다. 스키마 버전은 `db.SCHEMA_VERSION`이며 현재 버전은 `5`다(v5는 테이블 변경 없이 공지 ID 규칙 변경을 재 ingest로 반영하기 위해 올렸다). 버전이 맞지 않으면 부팅 시 기존 DB를 제거하고 JSON에서 다시 ingest한다.
 
 ### `notices`
 
@@ -98,7 +98,7 @@ erDiagram
 
 | 컬럼 | 타입 | 필수 | 설명 |
 | --- | --- | --- | --- |
-| `id` | `text` | 예 | 안정적인 공지 ID. 중복 ID는 ingest 시 suffix로 보정 |
+| `id` | `text` | 예 | 안정적인 공지 ID. 원본 JSON `id`가 없으면 정규화한 원문 URL(없으면 제목·날짜·출처)의 SHA-256 앞 16자리 hex. 중복 ID는 ingest 시 suffix로 보정 |
 | `title` | `text` | 예 | 공지 제목 |
 | `content` | `text` | 예 | Markdown(CommonMark + GFM 표) 문자열 |
 | `url` | `text` | 아니오 | 원문 공지 URL |
@@ -237,6 +237,44 @@ notice 스키마와 독립적이며 `SCHEMA_VERSION` 버전 관리·재ingest �
 
 `retrieval_json`은 나중에 추가된 컬럼이라, 기존 DB에는 `_ensure_initialized`가 `MIGRATION_COLUMNS`를
 보고 `ALTER TABLE ADD COLUMN`으로 멱등하게 채운다(기존 행은 `NULL`).
+
+## 사용자 DB (`users.db`)
+
+카카오 로그인 사용자를 저장하는 별도 SQLite 파일이다(`USER_DB_PATH`, 기본 `./data/users.db`).
+`app/user_store.py`가 정의한다. 공지 DB는 크롤링마다 `os.replace()`로 통째로 교체되므로 회원
+데이터를 분리했다. 교체 대상이 아니라서 chat log DB처럼 WAL 모드를 쓰고, `SCHEMA_VERSION`
+버전 관리·재ingest 대상이 아니다. 운영에서는 `/data` 볼륨 아래에 두며, 볼륨을 지우면 회원 데이터가
+사라진다.
+
+### `users`
+
+| 컬럼 | 타입 | 필수 | 설명 |
+| --- | --- | --- | --- |
+| `id` | `text` | 예 | 내부 사용자 ID(`u_` + 16자리 hex). API와 JWT `sub`에 쓰는 값 |
+| `kakao_id` | `text` | 예 | 카카오 회원번호. `UNIQUE`. 로그인 시 사용자 조회에만 쓰고 API 응답에 내보내지 않는다 |
+| `nickname` | `text` | 아니오 | 카카오 닉네임. 현재 동의항목으로 받지 않아 항상 `NULL`. 동의항목을 켜면 로그인마다 갱신 |
+| `created_at` | `text` | 예 | UTC ISO8601 가입 시각 |
+| `last_login_at` | `text` | 예 | UTC ISO8601 마지막 로그인 시각 |
+
+회원 탈퇴(`DELETE /api/me`)는 행을 삭제한다. 같은 카카오 계정으로 다시 로그인하면 새 `id`로 만든다.
+
+### `bookmarks`
+
+사용자가 북마크한 공지. 기본키는 `(user_id, notice_id)`라 같은 공지를 두 번 북마크할 수 없다.
+
+| 컬럼 | 타입 | 필수 | 설명 |
+| --- | --- | --- | --- |
+| `user_id` | `text` | 예 | `users.id` 외래키. `ON DELETE CASCADE`라 회원 탈퇴 시 함께 삭제 |
+| `notice_id` | `text` | 예 | 공지 ID(`notices.id`). 공지 DB와는 다른 파일이라 외래키가 없다 |
+| `created_at` | `text` | 예 | UTC ISO8601 북마크 시각. API의 `bookmarkedAt` |
+| `title` | `text` | 예 | 북마크 시점 공지 제목 사본 |
+| `url` | `text` | 아니오 | 북마크 시점 원문 URL 사본 |
+| `source` | `text` | 아니오 | 북마크 시점 대표 출처 사본 |
+| `date` | `text` | 아니오 | 북마크 시점 공지 게시일(`YYYY-MM-DD`) 사본 |
+
+사본 컬럼은 공지가 1년이 지나 공지 DB에서 빠져도 북마크 목록에 제목과 원문 링크를 보여주기 위해 둔다(API의 `saved`).
+인덱스 `idx_bookmarks_user_created (user_id, created_at DESC)`로 사용자별 최근순 조회를 받친다.
+`created_at`은 초 단위라 같은 초에 추가한 북마크는 `rowid`(삽입 순서)로 정렬한다.
 
 ## API 논리 모델
 

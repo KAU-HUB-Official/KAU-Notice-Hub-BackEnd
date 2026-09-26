@@ -11,8 +11,11 @@
 - JSON 전체 스냅샷(`NOTICE_JSON_PATH`) 안전망과 부트스트랩 원천
 - 기존 Next.js MVP API와 호환되는 응답 shape
 - Swagger UI 기반 API 명세 확인
+- 카카오 로그인과 자체 JWT 액세스 토큰, 공지 북마크. 사용자·북마크 데이터는 별도 SQLite 파일(`USER_DB_PATH`)
 
-현재 범위에서는 API 버전 관리, 인증, 관리자 API, 큐, 별도 검색엔진을 추가하지 않는다.
+현재 범위에서는 API 버전 관리, 관리자 API, 큐, 별도 검색엔진을 추가하지 않는다.
+
+로그인·북마크의 설계 배경과 프론트 연동 흐름은 [AUTH_BOOKMARK_API.md](AUTH_BOOKMARK_API.md)를 참고한다.
 
 크롤러 주기 실행, JSON 게시, SQLite ingest 방식은 [CRAWLING_UPDATE.md](CRAWLING_UPDATE.md)를 따른다.
 
@@ -112,6 +115,8 @@ Content-Type: application/json
 
 - `POST /api/chat`, `POST /api/chat/stream`: IP당 15회/분 (`RATE_LIMIT_CHAT`)
 - `GET /api/notices`, `GET /api/notices/{id}`: IP당 120회/분 (`RATE_LIMIT_NOTICES`)
+- `POST /api/auth/kakao`: IP당 10회/분 (`RATE_LIMIT_AUTH`)
+- `GET /api/me`, `DELETE /api/me`, `/api/bookmarks` 전체: 합쳐서 IP당 120회/분 (`RATE_LIMIT_BOOKMARKS`). 토큰 검증을 통과한 요청만 센다. 토큰이 없거나 틀린 요청은 DB 조회 없이 바로 `401`로 끝난다.
 
 한도 초과 시 `429`로 응답한다.
 
@@ -139,6 +144,39 @@ Content-Type: application/json
 - 다른 대분류에서는 `source` 쿼리를 무시한다.
 - 선택된 대분류에 중분류가 없으면 `group` 쿼리를 무시한다.
 - 알 수 없는 source는 버리지 않고 `그 외`로 분류한다.
+
+### 인증
+
+로그인이 필요한 엔드포인트(`/api/me`, `/api/bookmarks`)는 `POST /api/auth/kakao`가 발급한 액세스 토큰을 요구한다.
+
+```http
+Authorization: Bearer <accessToken>
+```
+
+| 항목 | 값 |
+| --- | --- |
+| 형식 | JWT, HS256 서명 (`JWT_SECRET`) |
+| 클레임 | `sub`(내부 사용자 ID), `iat`, `exp` |
+| 만료 | 기본 14일 (`JWT_EXPIRE_SECONDS`) |
+| refresh token | 없음. 만료되면 다시 카카오 로그인 |
+
+- 서버는 세션을 저장하지 않는다. 요청마다 토큰 서명과 만료를 검증하고, `sub` 사용자가 DB에 있는지 확인한다.
+- 탈퇴한 사용자의 토큰은 만료 전이라도 `401`이 된다.
+- 로그아웃 엔드포인트는 없다. 프론트(BFF)가 토큰을 담은 쿠키를 지운다.
+- `JWT_SECRET`을 바꾸면 이미 발급한 토큰이 모두 `401`이 된다.
+
+토큰이 없거나, 형식이 틀렸거나, 서명이 맞지 않거나, 만료됐거나, 사용자가 없으면 모두 같은 응답을 준다. 어느 경우인지는 서버 로그에만 남긴다.
+
+```http
+HTTP/1.1 401 Unauthorized
+WWW-Authenticate: Bearer
+```
+
+```json
+{ "error": "로그인이 필요합니다." }
+```
+
+프론트는 `401`을 받으면 쿠키를 지우고 로그인을 다시 안내한다.
 
 ## 응답 모델
 
@@ -177,6 +215,12 @@ interface Notice {
 - `tags`는 항상 배열이다.
 - `attachments`는 항상 배열이다.
 - `audienceGroup`, `sourceGroup`, `sourceGroups`는 백엔드에서 계산해 붙인다.
+- `id`는 크롤링을 반복해도 바뀌지 않는 고정값이다. 클라이언트는 형식 없는 문자열로 다루고 길이나 형식에 의존하지 않는다.
+  - 원본 JSON에 `id`가 있으면 그 값을 쓴다. 크롤러 JSON에는 없다.
+  - 없으면 정규화한 원문 URL(`canonicalize_original_url`)의 SHA-256 앞 16자리 hex를 쓴다. 예: `a3f9c2e81b7d4056`
+  - 원문 URL도 없으면 `제목`, `날짜`, `출처`로 같은 방식의 해시를 만든다.
+  - 결과가 겹치면 뒤에 `-2`, `-3`을 붙인다.
+  - 학교 사이트가 공지 URL을 바꾸거나 URL 정규화 규칙이 바뀌면 해당 공지의 ID도 바뀐다. 이때 옛 ID는 `404`가 되고, 다른 공지를 가리키지는 않는다.
 
 ### `NoticeFacets`
 
@@ -223,6 +267,56 @@ interface ErrorResponse {
 ```
 
 MVP에서는 에러 응답을 단순하게 유지한다. 내부 상세 원인은 서버 로그에 남긴다.
+
+### `User`
+
+```ts
+interface User {
+  id: string; // 내부 사용자 ID. 카카오 회원번호가 아니다.
+  nickname?: string; // 카카오 닉네임. 현재 동의항목으로 받지 않아 항상 null
+}
+```
+
+카카오 회원번호는 서버 DB에만 저장하고 응답에 내보내지 않는다. 현재 카카오 동의항목을 하나도 설정하지 않아 회원번호 외의 개인정보(닉네임, 프로필 이미지, 이메일 등)는 받지 않는다. `nickname`은 나중에 카카오 콘솔에서 닉네임 동의항목을 켜면 코드 수정 없이 채워지도록 남겨 둔 필드다.
+
+### `AuthResult`
+
+```ts
+interface AuthResult {
+  accessToken: string;
+  tokenType: "Bearer";
+  expiresIn: number; // 초 단위
+  user: User;
+}
+```
+
+### `Bookmark`
+
+```ts
+interface Bookmark {
+  noticeId: string;
+  bookmarkedAt: string; // UTC ISO 8601. 예: "2026-09-19T06:30:00Z"
+  notice: Notice | null; // 현재 공지 스냅샷에 있으면 전체 공지, 없으면 null
+  saved: NoticeReference; // 북마크한 시점에 저장한 사본. 항상 있다
+}
+```
+
+- 공지는 1년이 지나면 스냅샷에서 빠질 수 있다. 이때 `notice`는 `null`이 되지만 북마크는 지우지 않는다. 프론트는 `saved.title`과 원문 링크 `saved.url`로 "삭제된 공지" 카드를 보여준다.
+- `notice`가 있으면 공지 목록과 같은 카드 컴포넌트를 그대로 쓸 수 있다.
+- `saved`는 북마크한 시점의 값이다. 이후 공지 제목이 바뀌어도 갱신하지 않는다.
+- `bookmarkedAt`은 공지 `date`(`YYYY-MM-DD`)와 달리 시각까지 포함한다.
+
+### `BookmarkListResult`
+
+```ts
+interface BookmarkListResult {
+  items: Bookmark[];
+  total: number;
+  page: number;
+  pageSize: number;
+  totalPages: number;
+}
+```
 
 ## 엔드포인트
 
@@ -563,6 +657,240 @@ interface ChatAnswer {
 }
 ```
 
+### `POST /api/auth/kakao`
+
+카카오 인가 code를 받아 로그인하고 액세스 토큰을 발급한다. 처음 로그인하는 카카오 계정이면 사용자를 새로 만들고, 이미 있으면 마지막 로그인 시각을 갱신한다(닉네임 동의항목을 켜면 닉네임도 갱신).
+
+백엔드는 code를 카카오 토큰으로 교환하고(`https://kauth.kakao.com/oauth/token`), 그 토큰으로 사용자 정보를 조회한다(`https://kapi.kakao.com/v2/user/me`). 카카오 토큰은 저장하지 않는다. 인가 요청을 시작하고 CSRF 방지용 `state`를 검증하는 일은 프론트가 맡는다.
+
+#### 요청 본문
+
+```ts
+interface KakaoLoginRequest {
+  code: string; // 카카오가 콜백으로 준 인가 code
+  redirectUri: string; // 인가 요청에 사용한 redirect_uri와 같은 값
+}
+```
+
+- `redirectUri`는 `KAKAO_ALLOWED_REDIRECT_URIS`에 있는 값과 정확히 같아야 한다. 로컬과 운영의 콜백 주소가 달라 요청으로 받되, 허용 목록 밖이면 카카오를 호출하지 않고 거부한다.
+- 인가 code는 1회용이다. 같은 code로 다시 요청하면 `401`이다.
+
+#### 요청 예시
+
+```http
+POST /api/auth/kakao
+Content-Type: application/json
+
+{
+  "code": "kakao-authorization-code",
+  "redirectUri": "https://kau-notice-hub.app/auth/kakao/callback"
+}
+```
+
+#### 응답 `200`
+
+```json
+{
+  "accessToken": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...",
+  "tokenType": "Bearer",
+  "expiresIn": 1209600,
+  "user": {
+    "id": "u_7f3a9c21d04e8b65",
+    "nickname": null
+  }
+}
+```
+
+#### 오류 응답
+
+| 상태 | `error` | 원인 |
+| --- | --- | --- |
+| `400` | `code와 redirectUri는 필수입니다.` | 필드 누락 또는 빈 문자열 |
+| `400` | `허용되지 않은 redirectUri입니다.` | 허용 목록 밖의 `redirectUri` |
+| `401` | `카카오 인증에 실패했습니다.` | code 만료·재사용·위조, redirect_uri 불일치, 잘못된 앱 키 |
+| `429` | `요청이 너무 많습니다. 잠시 후 다시 시도해주세요.` | 레이트리밋 |
+| `500` | `로그인을 처리하지 못했습니다.` | 사용자 DB 저장 실패 |
+| `502` | `카카오 서버와 통신하지 못했습니다.` | 카카오 API 타임아웃(5초)·5xx·예상과 다른 응답 |
+| `503` | `로그인을 사용할 수 없습니다.` | `KAKAO_REST_API_KEY`, `KAKAO_ALLOWED_REDIRECT_URIS`, `JWT_SECRET`(32자 이상) 중 하나가 없음 |
+
+카카오가 돌려준 오류 코드(`KOE320` 등)는 응답에 넣지 않고 서버 로그에만 남긴다.
+
+### `GET /api/me`
+
+토큰 주인의 정보를 반환한다. 프론트가 로그인 상태를 표시할 때 쓴다.
+
+#### 응답 `200`
+
+```json
+{
+  "id": "u_7f3a9c21d04e8b65",
+  "nickname": null
+}
+```
+
+#### 오류 응답
+
+| 상태 | `error` |
+| --- | --- |
+| `401` | `로그인이 필요합니다.` |
+| `429` | `요청이 너무 많습니다. 잠시 후 다시 시도해주세요.` |
+| `500` | `사용자 정보를 확인하지 못했습니다.` |
+
+### `DELETE /api/me`
+
+회원 탈퇴. 사용자와 그 사용자의 북마크를 모두 삭제한다.
+
+- 삭제 후 기존 토큰은 `401`이 된다.
+- 같은 카카오 계정으로 다시 로그인하면 새 사용자로 만든다.
+- 카카오 쪽 앱 연결 끊기(unlink)는 하지 않는다. 사용자는 카카오 계정 설정에서 직접 연결을 끊을 수 있다.
+
+#### 응답 `204`
+
+본문 없음.
+
+#### 오류 응답
+
+| 상태 | `error` |
+| --- | --- |
+| `401` | `로그인이 필요합니다.` |
+| `429` | `요청이 너무 많습니다. 잠시 후 다시 시도해주세요.` |
+| `500` | `회원 탈퇴를 처리하지 못했습니다.` 또는 `사용자 정보를 확인하지 못했습니다.` |
+
+### `GET /api/bookmarks`
+
+내 북마크 목록을 최근에 북마크한 순서로 반환한다. 로그인이 필요하다.
+
+#### 쿼리 파라미터
+
+| 이름 | 타입 | 필수 | 설명 |
+| --- | --- | --- | --- |
+| `page` | string/integer | 아니오 | 페이지 번호. 잘못된 값은 `1`로 보정. 마지막 페이지를 넘으면 마지막 페이지를 반환 |
+| `pageSize` | string/integer | 아니오 | 페이지 크기. 잘못된 값은 `20`으로 보정, 최대 `100` |
+
+#### 응답 `200`
+
+```json
+{
+  "items": [
+    {
+      "noticeId": "a3f9c2e81b7d4056",
+      "bookmarkedAt": "2026-09-19T06:30:00Z",
+      "notice": {
+        "id": "a3f9c2e81b7d4056",
+        "title": "2026학년도 2학기 수강신청 안내",
+        "content": "수강신청 기간은 ...",
+        "url": "https://www.kau.ac.kr/...",
+        "source": "한국항공대학교 공식 홈페이지",
+        "sources": ["한국항공대학교 공식 홈페이지"],
+        "audienceGroup": "전 구성원 공통",
+        "sourceGroup": "학사",
+        "sourceGroups": ["학사"],
+        "category": "학사",
+        "date": "2026-08-20",
+        "tags": ["학사"],
+        "attachments": []
+      },
+      "saved": {
+        "id": "a3f9c2e81b7d4056",
+        "title": "2026학년도 2학기 수강신청 안내",
+        "url": "https://www.kau.ac.kr/...",
+        "source": "한국항공대학교 공식 홈페이지",
+        "date": "2026-08-20"
+      }
+    },
+    {
+      "noticeId": "5d10be7f02c94a8e",
+      "bookmarkedAt": "2025-09-02T01:12:00Z",
+      "notice": null,
+      "saved": {
+        "id": "5d10be7f02c94a8e",
+        "title": "2025학년도 국가장학금 2차 신청 안내",
+        "url": "https://www.kau.ac.kr/...",
+        "source": "한국항공대학교 공식 홈페이지",
+        "date": "2025-08-28"
+      }
+    }
+  ],
+  "total": 2,
+  "page": 1,
+  "pageSize": 20,
+  "totalPages": 1
+}
+```
+
+#### 오류 응답
+
+| 상태 | `error` |
+| --- | --- |
+| `401` | `로그인이 필요합니다.` |
+| `429` | `요청이 너무 많습니다. 잠시 후 다시 시도해주세요.` |
+| `500` | `북마크 목록을 불러오지 못했습니다.` |
+
+### `GET /api/bookmarks/ids`
+
+내가 북마크한 공지 ID 전체를 최근 순으로 반환한다. 공지 목록·상세 화면에서 북마크 아이콘을 채울지 판단하는 데 쓴다. 로그인이 필요하다.
+
+기존 `GET /api/notices` 응답에 북마크 여부를 섞지 않기 위해 따로 둔다. 사용자당 북마크 수에 상한(`BOOKMARK_MAX_PER_USER`)이 있어 응답 크기가 제한된다.
+
+#### 응답 `200`
+
+```json
+{
+  "noticeIds": ["a3f9c2e81b7d4056", "5d10be7f02c94a8e"]
+}
+```
+
+#### 오류 응답
+
+| 상태 | `error` |
+| --- | --- |
+| `401` | `로그인이 필요합니다.` |
+| `429` | `요청이 너무 많습니다. 잠시 후 다시 시도해주세요.` |
+| `500` | `북마크 목록을 불러오지 못했습니다.` |
+
+### `PUT /api/bookmarks/{noticeId}`
+
+공지를 북마크한다. 이미 북마크한 공지면 아무것도 바꾸지 않고 기존 북마크를 반환한다(멱등). 로그인이 필요하고 요청 본문은 없다.
+
+#### 경로 파라미터
+
+| 이름 | 타입 | 필수 | 설명 |
+| --- | --- | --- | --- |
+| `noticeId` | string | 예 | 공지 ID |
+
+#### 응답
+
+| 상태 | 의미 | 본문 |
+| --- | --- | --- |
+| `201` | 새로 북마크함 | `Bookmark` |
+| `200` | 이미 북마크돼 있음 | `Bookmark` (기존 `bookmarkedAt`, `saved` 유지) |
+
+#### 오류 응답
+
+| 상태 | `error` | 원인 |
+| --- | --- | --- |
+| `401` | `로그인이 필요합니다.` | 인증 실패 |
+| `404` | `공지 항목을 찾을 수 없습니다.` | 현재 공지 스냅샷에 없는 ID. 새 북마크만 해당하고, 이미 북마크한 공지는 스냅샷에서 빠졌어도 `200` |
+| `409` | `북마크는 최대 500개까지 저장할 수 있습니다.` | 상한 초과. 숫자는 `BOOKMARK_MAX_PER_USER`. 이미 있는 북마크 재요청은 상한과 무관하게 `200` |
+| `429` | `요청이 너무 많습니다. 잠시 후 다시 시도해주세요.` | 레이트리밋 |
+| `500` | `북마크를 저장하지 못했습니다.` | 저장 실패 |
+
+### `DELETE /api/bookmarks/{noticeId}`
+
+북마크를 삭제한다. 북마크하지 않은 공지여도 성공으로 처리한다(멱등). 로그인이 필요하다.
+
+#### 응답 `204`
+
+본문 없음.
+
+#### 오류 응답
+
+| 상태 | `error` |
+| --- | --- |
+| `401` | `로그인이 필요합니다.` |
+| `429` | `요청이 너무 많습니다. 잠시 후 다시 시도해주세요.` |
+| `500` | `북마크를 삭제하지 못했습니다.` |
+
 ## CORS
 
 MVP 로컬 개발에서는 프론트엔드 origin을 허용한다.
@@ -609,12 +937,21 @@ BACKEND_CORS_ORIGINS=http://localhost:3000
 | `CRAWLER_LOCK_PATH`                        | 아니오 | empty                            | 크롤러 중복 실행 방지 lock 파일 경로. 미지정 시 JSON 디렉터리의 `.crawler.lock` 사용 |
 | `CHAT_LOGGING_ENABLED`                     | 아니오 | `false`                          | 챗봇 Q/A 세션 로깅. `true`이고 요청에 `sessionId`가 있을 때만 저장                   |
 | `CHAT_LOG_DB_PATH`                         | 아니오 | `./data/chat_sessions.db`        | 세션 로그 저장 SQLite 파일(운영 notice DB와 분리된 append 전용)                      |
+| `KAKAO_REST_API_KEY`                       | 로그인 사용 시 | empty                    | 카카오 앱 REST API 키                                                                |
+| `KAKAO_CLIENT_SECRET`                      | 아니오 | empty                            | REST API 키의 클라이언트 시크릿. 콘솔 기본값이 켜짐이라 사실상 필요                  |
+| `KAKAO_ALLOWED_REDIRECT_URIS`              | 로그인 사용 시 | empty                    | 허용할 `redirectUri` 목록. 쉼표 구분. 카카오 콘솔 Redirect URI와 같아야 함           |
+| `JWT_SECRET`                               | 로그인 사용 시 | empty                    | 액세스 토큰 서명 키. 32자 이상 랜덤 값(`openssl rand -hex 32`)                       |
+| `JWT_EXPIRE_SECONDS`                       | 아니오 | `1209600`                        | 액세스 토큰 유효 시간. 기본 14일                                                     |
+| `USER_DB_PATH`                             | 아니오 | `./data/users.db`                | 사용자·북마크 SQLite 파일(공지 DB와 분리, 크롤링으로 교체되지 않음)                  |
+| `BOOKMARK_MAX_PER_USER`                    | 아니오 | `500`                            | 사용자당 북마크 상한                                                                 |
+| `RATE_LIMIT_AUTH`                          | 아니오 | `10/minute`                      | `POST /api/auth/kakao` IP당 한도                                                     |
+| `RATE_LIMIT_BOOKMARKS`                     | 아니오 | `120/minute`                     | `/api/me`, `/api/bookmarks` IP당 한도(합산)                                          |
 
 ## MVP 비목표
 
 초기 백엔드 버전에서는 아래 기능을 구현하지 않는다.
 
-- 인증
+- 카카오 외 로그인, refresh token, 서버 측 세션
 - 관리자 대시보드 API
 - Alembic migration
 - Redis/Celery/별도 작업 큐

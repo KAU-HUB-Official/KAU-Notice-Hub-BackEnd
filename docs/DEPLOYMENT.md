@@ -143,6 +143,15 @@ http://localhost:8000/openapi.json
 | `CRAWLER_MAX_PAGES` | `0` | 게시판별 목록 페이지 상한. 0이면 최근성 정책으로 자동 중단 |
 | `CRAWLER_MIN_RECORDS` | `1` | 게시 허용 최소 레코드 수 |
 | `CRAWLER_MIN_RETAIN_RATIO` | `0.5` | 기존 개수 대비 급감 방어 비율 |
+| `KAKAO_REST_API_KEY` | (비움) | 카카오 앱 REST API 키. 비우면 로그인 API만 `503` |
+| `KAKAO_CLIENT_SECRET` | (비움) | 카카오 REST API 키의 클라이언트 시크릿. 콘솔에서 기본으로 켜져 있어 사실상 필수. 끈 경우에만 비운다 |
+| `KAKAO_ALLOWED_REDIRECT_URIS` | `https://kau-notice-hub.app/auth/kakao/callback` | 로그인 요청의 `redirectUri` 허용 목록. 쉼표 구분. 카카오 콘솔 Redirect URI와 정확히 같아야 한다 |
+| `JWT_SECRET` | `openssl rand -hex 32` 결과 | 액세스 토큰 서명 키. 32자 미만이면 미설정으로 보고 로그인 API가 `503`. 바꾸면 기존 로그인이 모두 풀린다 |
+| `JWT_EXPIRE_SECONDS` | `1209600` | 액세스 토큰 유효 시간. 기본 14일 |
+| `USER_DB_PATH` | `/data/users.db` | 사용자·북마크 SQLite 파일. 반드시 `/data` 볼륨 아래에 둔다 |
+| `BOOKMARK_MAX_PER_USER` | `500` | 사용자당 북마크 상한 |
+| `RATE_LIMIT_AUTH` | `10/minute` | `POST /api/auth/kakao` IP당 한도 |
+| `RATE_LIMIT_BOOKMARKS` | `120/minute` | `/api/me`, `/api/bookmarks` IP당 한도(로그인 요청 기준) |
 
 로컬 예시:
 
@@ -177,6 +186,24 @@ RAG_QUERY_EXTRACTION_ENABLED=true
 ```bash
 docker compose --profile proxy up -d --build --force-recreate api
 ```
+
+### 카카오 로그인 설정
+
+메뉴 이름은 2026-09 카카오 공식 문서([카카오 로그인 > 설정하기](https://developers.kakao.com/docs/ko/kakaologin/prerequisite), [앱 설정 > 앱](https://developers.kakao.com/docs/ko/app-setting/app)) 기준이다. 콘솔 개편으로 위치가 바뀔 수 있다.
+
+이 서비스는 서버가 인가 코드를 토큰으로 바꾸는 REST API 방식이라 **REST API 키**만 쓴다. JavaScript 키(JavaScript SDK 도메인)와 네이티브 앱 키는 설정하지 않는다.
+
+1. [Kakao Developers](https://developers.kakao.com) 콘솔 **[앱]**에서 앱을 새로 만든다. 앱 대표 도메인에는 공개 서비스 주소(`https://kau-notice-hub.app`)를 넣는다. `localhost`는 받지 않는다.
+2. **[앱] > [플랫폼 키] > [REST API 키]**의 리다이렉트 URI에 콜백 주소를 등록한다. 예: `http://localhost:3000/auth/kakao/callback`, `https://kau-notice-hub.app/auth/kakao/callback`(최대 10개). 빠뜨리면 로그인 때 `KOE006` 오류가 난다.
+3. **[카카오 로그인] > [사용 설정]**에서 상태를 ON으로 바꾼다. 빠뜨리면 `KOE004` 오류가 난다.
+4. **[카카오 로그인] > [동의항목]**은 설정하지 않는다. 로그인에는 카카오 회원번호만 쓰고 닉네임·프로필 사진 등 다른 개인정보는 받지 않는다. 나중에 이름 표시가 필요하면 닉네임을 동의항목으로 켜면 코드 수정 없이 `nickname`이 채워진다.
+5. **[앱] > [플랫폼 키]**에서 REST API 키를 복사하고, **[REST API 키] > [클라이언트 시크릿]**에서 시크릿 값을 복사한다. 클라이언트 시크릿은 기본으로 켜져 있어서 값을 넣지 않으면 토큰 교환이 실패한다(`401 카카오 인증에 실패했습니다.`).
+6. 서버 `.env`에 `KAKAO_REST_API_KEY`, `KAKAO_CLIENT_SECRET`, `KAKAO_ALLOWED_REDIRECT_URIS`(2번과 같은 값), `JWT_SECRET`(`openssl rand -hex 32`)을 넣는다.
+7. 위 명령으로 api 컨테이너를 재생성한다.
+
+확인: 값을 넣기 전에는 `curl -X POST https://<도메인>/api/auth/kakao -H 'Content-Type: application/json' -d '{}'`가 `503`, 넣은 뒤에는 `400`(code 누락)이다.
+
+사용자 DB(`USER_DB_PATH`)는 크롤링으로 교체되지 않는 회원 데이터다. `/data` 볼륨을 지우면 사용자와 북마크가 함께 사라지므로, 볼륨 초기화 전에 `users.db`를 백업한다.
 
 ## Docker Compose
 

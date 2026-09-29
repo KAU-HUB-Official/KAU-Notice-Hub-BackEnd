@@ -4,11 +4,13 @@
 
 순서 (규칙 정의는 crosspost_rules.py)
 1. 후보: 게시판이 다르고 게시일 차이 7일 이내, 제목이 같거나 비슷함(2-gram 0.8 이상).
-2. 첨부파일 규칙: 첨부파일 이름·개수가 전부 같으면 합침.
-3. 본문 유사도 0.9 이상이면 합침. 한쪽 본문이 50자 미만이면 비교 불가로 다음 단계로 넘긴다.
+2. 첨부파일 규칙: 첨부파일이 전부 같고 개수도 같으면 합침. 두 공지 모두 첨부가 있는데 파일이 다르면
+   다른 공지(둘 다 남김). 같은 시리즈라도 첨부가 다르면 주로 제공하는 정보가 다르다(2026-09-19 결정).
+3. 본문 같음: 정규화한 본문 글자가 정확히 같고(50자 이상) 본문 이미지도 같으면(둘 다 없거나 전부 같음) 합침.
+   비슷한 정도(유사도)로는 판정하지 않는다(2026-09-19 결정).
 4. 본문 이미지 규칙: 본문 이미지 파일(해시)·개수가 전부 같으면 합침.
-   해시는 3단계까지 정하지 못한 쌍의 이미지만 구한다. 보강 캐시에 있으면 쓰고, 없으면 학교 서버에서 내려받는다.
-5. 나머지는 판정 필요 (본문 유사도 구간별로 센다).
+   해시는 2단계까지 정하지 못한 쌍의 이미지만 구한다. 보강 캐시에 있으면 쓰고, 없으면 학교 서버에서 내려받는다.
+5. 나머지는 판정 필요 (본문 유사도 구간별로 센다. 유사도는 기록용이며 판정에 쓰지 않는다).
 
 실행 (BackEnd 루트):
     .venv/bin/python -m scripts.research.classify_crosspost_pairs \\
@@ -36,19 +38,22 @@ from app.crawler.services.content_asset_downloader import (
     ContentAssetDownloadError,
 )
 from scripts.research.crosspost_rules import (
-    BODY_AUTO_MERGE,
     CANDIDATE_WINDOW_DAYS,
     body_for_similarity,
     body_image_urls,
     body_similarity,
+    different_attachment_files,
     loose_title,
     same_attachment_set,
     same_body_image_set,
+    same_body_text,
+    same_or_no_body_images,
     similar_titles,
 )
 
 ATTACHMENT_RULE = "첨부파일 일치"
-BODY_RULE = "본문 90% 이상"
+ATTACHMENT_DIFFERENT = "첨부파일 다름"
+BODY_RULE = "본문 같음"
 IMAGE_RULE = "본문 이미지 일치"
 NEEDS_JUDGMENT = "판정 필요"
 
@@ -56,7 +61,7 @@ NEEDS_JUDGMENT = "판정 필요"
 def similarity_bin(sim: float | None) -> str:
     if sim is None:
         return "비교 불가(한쪽 본문 50자 미만)"
-    return "<0.3" if sim < 0.3 else "0.3~0.6" if sim < 0.6 else "0.6~0.9"
+    return "<0.3" if sim < 0.3 else "0.3~0.6" if sim < 0.6 else "0.6~0.9" if sim < 0.9 else "0.9 이상"
 
 
 def candidate_pairs(posts: list[dict[str, Any]]) -> list[tuple[int, int]]:
@@ -132,11 +137,11 @@ def main(argv: list[str] | None = None) -> None:
         sim = body_similarity(bodies[i], bodies[j])
         if same_attachment_set(a, b):
             step = ATTACHMENT_RULE
-        elif sim is not None and sim >= BODY_AUTO_MERGE:
-            step = BODY_RULE
+        elif different_attachment_files(a, b):
+            step = ATTACHMENT_DIFFERENT
         else:
             step = NEEDS_JUDGMENT
-        rows.append({"i": i, "j": j, "sim": sim, "step": step})
+        rows.append({"i": i, "j": j, "sim": sim, "step": step, "same_text": same_body_text(bodies[i], bodies[j])})
 
     settings = get_settings()
     downloader = None if args.offline else ContentAssetDownloader(
@@ -148,8 +153,11 @@ def main(argv: list[str] | None = None) -> None:
     both_have_images = [r for r in pending if body_image_urls(posts[r["i"]]) and body_image_urls(posts[r["j"]])]
     urls = list(dict.fromkeys(u for r in both_have_images for k in ("i", "j") for u in body_image_urls(posts[r[k]])))
     hashes.fetch(urls, args.delay)
-    for r in both_have_images:
-        if same_body_image_set(posts[r["i"]], posts[r["j"]], hashes.lookup):
+    for r in pending:
+        a, b = posts[r["i"]], posts[r["j"]]
+        if r["same_text"] and same_or_no_body_images(a, b, hashes.lookup):
+            r["step"] = BODY_RULE
+        elif body_image_urls(a) and body_image_urls(b) and same_body_image_set(a, b, hashes.lookup):
             r["step"] = IMAGE_RULE
 
     counts = Counter(r["step"] for r in rows)
@@ -158,7 +166,7 @@ def main(argv: list[str] | None = None) -> None:
     summary = {
         "posts": len(posts),
         "candidate_pairs": len(rows),
-        "steps": {s: counts[s] for s in (ATTACHMENT_RULE, BODY_RULE, IMAGE_RULE, NEEDS_JUDGMENT)},
+        "steps": {s: counts[s] for s in (ATTACHMENT_RULE, ATTACHMENT_DIFFERENT, BODY_RULE, IMAGE_RULE, NEEDS_JUDGMENT)},
         "needs_judgment_by_body_similarity": dict(sorted(judgment_bins.items())),
         "image_rule": {
             "pairs_checked": len(both_have_images),

@@ -7,9 +7,12 @@ from scripts.research.crosspost_rules import (
     body_for_similarity,
     body_image_urls,
     body_similarity,
+    different_attachment_files,
     loose_title,
     same_attachment_set,
     same_body_image_set,
+    same_body_text,
+    same_or_no_body_images,
     shared_attachment_names,
     similar_titles,
 )
@@ -42,6 +45,31 @@ def test_generic_url_endings_and_empty_lists_do_not_apply() -> None:
     assert attachment_name_list(_post("imageSrc.do", "첨부파일")) == []
     assert not same_attachment_set(_post("imageSrc.do"), _post("imagesrc.do"))
     assert not same_attachment_set({"attachments": []}, {"attachments": []})
+
+
+def test_number_prefix_extension_and_final_mark_are_the_same_file() -> None:
+    a = _post("붙임2.중간강의평가응답방법(학생).pdf", "첨부1.공적조서양식.hwp")
+    b = _post("중간강의평가응답방법(학생).pdf", "[첨부2]공적조서양식(최종).hwp")
+
+    assert same_attachment_set(a, b)
+    assert not different_attachment_files(a, b)
+    assert same_attachment_set(_post("2026_boeing_day_참가팀_지원서.hwp"), _post("2026boeingday참가팀지원서.hwp"))
+
+
+def test_same_document_in_two_formats_counts_once() -> None:
+    both_formats = _post("모집공고.hwpx", "모집공고_.pdf")
+
+    assert same_attachment_set(both_formats, _post("모집공고.pdf"))
+
+
+def test_different_files_mean_different_notices_only_when_both_have_attachments() -> None:
+    older = _post("강의시간표(20260306).pdf")
+    newer = _post("(최종)강의시간표(20260414).xlsx")
+
+    assert different_attachment_files(older, newer)  # 날짜가 다른 판은 다른 파일
+    assert different_attachment_files(_post("서약서.hwp"), _post("서약서.hwp", "가이드라인.pdf"))  # 한쪽에 파일이 더 있음
+    assert not different_attachment_files(_post("서약서.hwp"), {"attachments": []})  # 한쪽만 첨부
+    assert not different_attachment_files(_post("imageSrc.do"), _post("신청서.hwp"))  # 파일명이 아닌 값은 비교하지 않음
 
 
 def _images(*urls: str) -> dict:
@@ -85,3 +113,18 @@ def test_candidate_titles_and_body_similarity() -> None:
     assert similar_titles(loose_title("[학사] 2025-2 수강신청 안내"), loose_title("2025-2 수강신청 안내"))
     assert not similar_titles(loose_title("[공지] 휴강"), loose_title("휴강"))
     assert body_similarity(body_for_similarity("짧은 본문"), body_for_similarity("짧은 본문")) is None
+
+
+def test_same_body_text_needs_exact_match_and_enough_length() -> None:
+    text = body_for_similarity("2026학년도 2학기 수강신청 일정은 8월 10일부터 8월 14일까지이며 학과 사무실에서 수강 상담을 함께 진행합니다.")
+    assert same_body_text(text, text)
+    assert not same_body_text(text, text[:-1] + "x")  # 한 글자만 달라도 규칙 대상 아님(유사도로 판정하지 않음)
+    assert not same_body_text("", "")  # 이미지뿐인 본문은 정규화하면 비어 비교하지 않음
+
+
+def test_same_text_needs_same_or_no_body_images() -> None:
+    assert same_or_no_body_images({"content": "본문"}, {"content": "본문"}, HASHES.get)
+    poster_a = _images("https://kau.ac.kr/a/poster.jpg")
+    assert same_or_no_body_images(poster_a, _images("https://college.kau.ac.kr/b/poster.jpg"), HASHES.get)
+    assert not same_or_no_body_images(poster_a, {"content": "본문"}, HASHES.get)  # 한쪽에만 포스터
+    assert not same_or_no_body_images(poster_a, _images("https://kau.ac.kr/c/other.png"), HASHES.get)

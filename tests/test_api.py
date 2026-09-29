@@ -190,7 +190,9 @@ def test_post_chat_fallback(client: TestClient) -> None:
     assert body["usedFallback"] is True
     assert body["model"] == "local-fallback"
     assert body["references"][0]["id"] == "common-academic"
-    assert "OpenAI API 키가 없어" in body["answer"]
+    # 내부 사정(API 키)은 사용자에게 드러내지 않는다.
+    assert "지금은 챗봇 답변 생성이 원활하지 않아" in body["answer"]
+    assert "OpenAI" not in body["answer"]
 
 
 def test_post_chat_rejects_empty_question(client: TestClient) -> None:

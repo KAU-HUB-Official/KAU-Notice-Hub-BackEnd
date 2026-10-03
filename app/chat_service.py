@@ -12,6 +12,7 @@ import requests
 
 from app.classification import get_notice_source_names
 from app.config import get_settings
+from app.privacy import mask_personal_identifiers
 from app.schemas import ChatAnswer, ChatMessage, Notice, NoticeReference
 from app.service import NoticeQuery, NoticeService
 
@@ -191,7 +192,7 @@ def build_context(notices: list[Notice]) -> str:
                     f"sources: {', '.join(get_notice_source_names(notice)) or '출처 미상'}",
                     f"category: {notice.category or '분류 없음'}",
                     f"url: {notice.url or '링크 없음'}",
-                    f"content: {truncate(notice.content, CONTEXT_CONTENT_CHARS)}",
+                    f"content: {truncate(mask_personal_identifiers(notice.content), CONTEXT_CONTENT_CHARS)}",
                 ]
             )
         )
@@ -207,7 +208,10 @@ def build_rerank_list(notices: list[Notice]) -> str:
     """
     blocks: list[str] = []
     for number, notice in enumerate(notices, start=1):
-        snippet = truncate(" ".join((notice.content or "").split()), RERANK_SNIPPET_CHARS)
+        snippet = truncate(
+            " ".join(mask_personal_identifiers(notice.content or "").split()),
+            RERANK_SNIPPET_CHARS,
+        )
         blocks.append(
             f"{number}. 제목: {notice.title} | 게시일: {notice.date or '날짜 미상'}\n"
             f"  발췌: {snippet or '없음'}"
@@ -222,7 +226,10 @@ def fallback_answer(question: str, notices: list[Notice]) -> str:
     lines: list[str] = []
     for index, notice in enumerate(notices[:3], start=1):
         meta = " | ".join(value for value in [notice.date, notice.source] if value)
-        preview = truncate(" ".join((notice.content or "").split()), 120) or "본문 미상"
+        preview = (
+            truncate(" ".join(mask_personal_identifiers(notice.content or "").split()), 120)
+            or "본문 미상"
+        )
         lines.append(f"{index}. {notice.title}\n{meta}\n{preview}")
 
     return "\n".join(

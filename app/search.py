@@ -13,6 +13,7 @@ from app.classification import (
     normalize_filter_value,
     normalize_whitespace,
 )
+from app.privacy import mask_personal_identifiers
 from app.schemas import Notice
 
 
@@ -86,9 +87,12 @@ def extract_search_terms(input_value: str | None = None) -> list[str]:
 
 
 def build_search_text(notice: Notice) -> str:
+    # 검색 인덱스에서만 학번·표 성명 셀을 가린다. 저장된 본문은 원문 그대로다.
+    # 여기가 SQLite 적재(app/ingest.py)와 JSON 폴백 검색이 함께 쓰는 관문이라,
+    # 이 한 곳만 막으면 두 경로 모두 학번으로 사람을 찾을 수 없게 된다.
     values = [
-        notice.title,
-        notice.content,
+        mask_personal_identifiers(notice.title),
+        mask_personal_identifiers(notice.content),
         classify_notice_audience(notice),
         *classify_notice_source_groups(notice),
         normalize_facet_value(notice.source),

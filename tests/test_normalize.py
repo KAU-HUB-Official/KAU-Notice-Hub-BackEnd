@@ -248,7 +248,10 @@ def test_normalize_converts_empty_header_flow_table_to_text() -> None:
 
     assert "| --- |" not in notice.content
     assert "4. 제출절차\n이수확인서 작성 및 성적증명서 발급 → 주임교수 이수 확인 →" in notice.content
-    assert "\n▪ e-mail접수 [jchae@kau.ac.kr](mailto:jchae@kau.ac.kr)" in notice.content
+    # 본문 마스킹(PRIVACY_MASK_BODY, 기본 켜짐)이 이메일 로컬 파트를 가리고, 가려진
+    # 주소로 메일 앱이 열리지 않도록 mailto 링크를 평문으로 펼친다. 마스킹을 끈
+    # 상태의 mailto 정규화는 tests/test_privacy.py가 검사한다.
+    assert "\n▪ e-mail접수 ○○○@kau.ac.kr" in notice.content
     assert "\n▪ 사무실 접수" in notice.content
     assert "\n별첨 양식 다운로드\n5. 문의 사항" in notice.content
 

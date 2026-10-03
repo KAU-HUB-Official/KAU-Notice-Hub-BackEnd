@@ -60,6 +60,15 @@ class Settings(BaseSettings):
     user_db_path: Path = Path("./data/users.db")
     # 사용자당 북마크 상한. GET /api/bookmarks/ids 응답 크기도 이 값으로 제한된다.
     bookmark_max_per_user: int = 500
+    # 공개 연락처(부서 전화·이메일·법인계좌)까지 검색 인덱스와 LLM 입력에서
+    # 가릴지 여부. 저장된 공지 본문은 어느 쪽이든 원문 그대로다. 끄면 학번과
+    # 표 성명 셀만 가린다. docs/PRIVACY_MASKING.md 참고.
+    privacy_mask_contacts: bool = True
+    # 사용자에게 렌더되는 공지 본문도 가릴지 여부. 끄면 본문은 원문 그대로 저장되고
+    # 검색 인덱스와 LLM 입력만 가려진다. 제목과 첨부파일은 어느 쪽이든 건드리지
+    # 않는다(제목은 공지 ID 계산에 쓰여 북마크가 끊긴다). 공지 DB는 크롤링마다
+    # 교체되므로 끄면 다음 적재에서 원문으로 돌아온다.
+    privacy_mask_body: bool = True
     rate_limit_auth: str = "10/minute"
     rate_limit_bookmarks: str = "120/minute"
 

@@ -113,7 +113,7 @@ def test_get_notices_basic_shape(client: TestClient) -> None:
     assert body["pageSize"] == 20
     assert isinstance(body["items"][0]["tags"], list)
     assert isinstance(body["items"][0]["attachments"], list)
-    assert "전 구성원 공통" in body["facets"]["audienceGroups"]
+    assert "공식 홈페이지" in body["facets"]["audienceGroups"]
 
 
 def test_get_notices_accepts_audience_group_and_source_alias(client: TestClient) -> None:

@@ -41,6 +41,8 @@ services:
       KAKAO_REST_API_KEY: ${KAKAO_REST_API_KEY:-}
       KAKAO_CLIENT_SECRET: ${KAKAO_CLIENT_SECRET:-}
       KAKAO_ALLOWED_REDIRECT_URIS: ${KAKAO_ALLOWED_REDIRECT_URIS:-}
+      # 앱 로그인(/api/auth/kakao/token)용 카카오 앱 ID. 비면 앱 로그인만 503.
+      KAKAO_APP_ID: ${KAKAO_APP_ID:-}
       JWT_SECRET: ${JWT_SECRET:-}
       JWT_EXPIRE_SECONDS: ${JWT_EXPIRE_SECONDS:-1209600}
       # 사용자·북마크 DB. 반드시 볼륨(/data) 아래에 둔다. 컨테이너 재생성 시 회원 데이터 유실 방지.

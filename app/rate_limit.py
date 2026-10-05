@@ -65,7 +65,9 @@ def notices_rate_limit(*_args: object) -> str:
 
 
 def auth_rate_limit(*_args: object) -> str:
-    """`/api/auth/kakao` 한도. 요청 1건이 카카오 API를 두 번 호출하므로 빡빡하게."""
+    """`/api/auth/kakao`, `/api/auth/kakao/token` 공통 한도.
+
+    요청 1건이 카카오 API를 두 번 호출하므로 빡빡하게."""
     return get_settings().rate_limit_auth
 
 

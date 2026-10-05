@@ -11,7 +11,7 @@
 | 경로 | 역할 |
 | --- | --- |
 | `app/` | FastAPI 앱, API router, service/repository 계층, SQLite ingest, 검색/분류 로직 |
-| `app/api/` | `/health`, `/api/notices`, `/api/chat`, `/api/auth/kakao`·`/api/me`, `/api/bookmarks` router |
+| `app/api/` | `/health`, `/api/notices`, `/api/chat`, `/api/auth/kakao`·`/api/auth/kakao/token`·`/api/me`, `/api/bookmarks` router |
 | `app/crawler/` | KAU 공지 크롤러 본체. client, parser, service, policy로 분리 |
 | `scripts/` | 수동 운영 스크립트. 현재 `run_incremental_crawl_publish.sh`가 JSON 스냅샷을 atomic 게시 |
 | `tests/` | pytest 테스트와 retrieval eval case |

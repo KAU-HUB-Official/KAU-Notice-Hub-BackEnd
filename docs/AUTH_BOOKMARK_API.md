@@ -6,6 +6,7 @@
 | --- | --- |
 | [공지 ID 변경](#공지-id-변경) | 구현 완료, 배포 전 |
 | 카카오 로그인 (`POST /api/auth/kakao`, `GET/DELETE /api/me`) | 구현 완료, 배포 전. 확정된 계약은 [API_SPEC.md](API_SPEC.md)로 옮겼다 |
+| 앱 카카오 로그인 (`POST /api/auth/kakao/token`) | 구현 완료, 배포 전. 계약은 [API_SPEC.md](API_SPEC.md) |
 | 북마크 (`/api/bookmarks`) | 구현 완료, 배포 전. 확정된 계약은 [API_SPEC.md](API_SPEC.md)로 옮겼다 |
 
 이 문서는 설계 배경과 결정 기록, 프론트 연동 흐름을 남긴다. 요청·응답·오류 계약은 [API_SPEC.md](API_SPEC.md)가 기준이다.
@@ -17,6 +18,7 @@
 | 공지 식별자 | 공지 ID를 원문 URL 해시 기반의 고정값으로 바꾼다 ([공지 ID 변경](#공지-id-변경)) | 확정 |
 | 회원 탈퇴 | `DELETE /api/me`를 포함한다 | 확정 |
 | 로그인 흐름 | 프론트가 카카오 인가 code를 받고, 백엔드가 code를 토큰으로 교환해 자체 JWT를 발급한다 | 확정 |
+| 앱 로그인 흐름 | 앱은 카카오 SDK가 받은 카카오 access token을 보내고, 백엔드가 토큰의 `app_id`를 확인한 뒤 같은 JWT를 발급한다 ([앱 로그인](#앱-로그인)) | 확정 |
 
 ## 전체 흐름
 
@@ -44,11 +46,29 @@
 - 카카오 access token은 사용자 정보를 조회하는 데만 쓰고 저장하지 않는다.
 - CSRF 방지용 `state`는 인가 요청을 시작하고 콜백을 받는 프론트가 만들고 검증한다.
 
+### 앱 로그인
+
+앱에는 BFF가 없고, 카카오톡 앱 전환 로그인을 쓰려면 카카오 네이티브 SDK를 써야 한다. SDK는 code 교환까지 앱 안에서(네이티브 앱 키로) 끝내고 카카오 access token을 돌려주므로, 앱용 입구는 code 대신 토큰을 받는다.
+
+```text
+앱 → 카카오 SDK: 로그인(카카오톡 앱 전환, 없으면 카카오계정 웹 로그인)
+카카오 SDK → 앱: 카카오 access token
+앱 → 백엔드 POST /api/auth/kakao/token { accessToken }
+백엔드 → 카카오: 토큰 정보 조회(app_id가 KAKAO_APP_ID인지 확인), 사용자 정보 조회
+백엔드: 사용자 upsert, 자체 JWT 발급 (웹과 같은 로직)
+앱: accessToken을 Keychain/Keystore에 저장, 이후 Authorization: Bearer로 백엔드 직접 호출
+```
+
+- `app_id` 확인이 없으면 다른 카카오 앱이 자기 사용자의 토큰을 보내 그 사용자로 로그인할 수 있다. 그래서 사용자 정보보다 토큰 정보를 먼저 조회하고, 다른 앱의 토큰이면 사용자 정보를 조회하지 않고 `401`로 끝낸다.
+- 웹과 같은 카카오 앱을 써야 회원번호가 같아 같은 사용자로 묶인다.
+- 앱 로그인에는 REST API 키·클라이언트 시크릿·redirect URI가 필요 없다. `KAKAO_APP_ID`와 `JWT_SECRET`만 있으면 된다.
+
 ## API 요약
 
 | 메서드 | 경로 | 인증 | 설명 |
 | --- | --- | --- | --- |
-| `POST` | `/api/auth/kakao` | 불필요 | 카카오 인가 code로 로그인 |
+| `POST` | `/api/auth/kakao` | 불필요 | 카카오 인가 code로 로그인 (웹) |
+| `POST` | `/api/auth/kakao/token` | 불필요 | 카카오 access token으로 로그인 (앱) |
 | `GET` | `/api/me` | 필요 | 내 정보 |
 | `DELETE` | `/api/me` | 필요 | 회원 탈퇴. 북마크도 함께 삭제 |
 | `GET` | `/api/bookmarks` | 필요 | 북마크 목록(최근순, 페이지네이션) |

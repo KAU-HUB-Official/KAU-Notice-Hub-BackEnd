@@ -192,6 +192,7 @@ def test_openapi_declares_bearer_auth_for_protected_endpoints() -> None:
     ]:
         assert spec["paths"][path][method]["security"] == [{"HTTPBearer": []}]
     assert "security" not in spec["paths"]["/api/auth/kakao"]["post"]
+    assert "security" not in spec["paths"]["/api/auth/kakao/token"]["post"]
     assert "security" not in spec["paths"]["/api/notices"]["get"]
 
 
@@ -220,3 +221,126 @@ def test_delete_me_removes_user_and_invalidates_token(login_env, kakao_calls) ->
         # 같은 카카오 계정으로 다시 로그인하면 새 사용자가 된다.
         again = _login(client).json()
         assert again["user"]["id"] != first["user"]["id"]
+
+
+APP_ID = "123456"
+
+
+@pytest.fixture()
+def app_login_env(login_env, monkeypatch):
+    monkeypatch.setattr(login_env, "kakao_app_id", APP_ID)
+    return login_env
+
+
+@pytest.fixture()
+def kakao_token_calls(monkeypatch):
+    """카카오 API 대신 access token별로 정해 둔 프로필(또는 예외)을 돌려준다."""
+    calls: list[dict] = []
+    results: dict[str, object] = {
+        "token-a": kakao.KakaoProfile("1001", "항공대생"),
+    }
+
+    def fake(access_token, *, app_id):
+        calls.append({"access_token": access_token, "app_id": app_id})
+        result = results[access_token]
+        if isinstance(result, Exception):
+            raise result
+        return result
+
+    monkeypatch.setattr(auth_api.kakao, "fetch_profile_by_access_token", fake)
+    return calls, results
+
+
+def _app_login(client: TestClient, access_token: str = "token-a"):
+    return client.post("/api/auth/kakao/token", json={"accessToken": access_token})
+
+
+def test_app_login_issues_token(app_login_env, kakao_token_calls) -> None:
+    calls, _ = kakao_token_calls
+    with TestClient(app) as client:
+        res = _app_login(client)
+        assert res.status_code == 200
+        body = res.json()
+
+        assert body["tokenType"] == "Bearer"
+        assert body["expiresIn"] == 3600
+        assert body["user"] == {"id": body["user"]["id"], "nickname": "항공대생"}
+        assert "1001" not in res.text
+
+        me = client.get("/api/me", headers=_auth(body["accessToken"]))
+        assert me.status_code == 200
+        assert me.json() == body["user"]
+
+    assert calls == [{"access_token": "token-a", "app_id": APP_ID}]
+
+
+def test_app_and_web_login_share_user(app_login_env, kakao_calls, kakao_token_calls) -> None:
+    # 같은 카카오 앱이면 회원번호가 같으므로 웹과 앱이 같은 사용자(북마크)를 쓴다.
+    with TestClient(app) as client:
+        web_user = _login(client).json()["user"]
+        app_user = _app_login(client).json()["user"]
+
+    assert app_user["id"] == web_user["id"]
+
+
+@pytest.mark.parametrize(
+    "overrides",
+    [
+        {"kakao_app_id": None},
+        {"kakao_app_id": "  "},
+        {"jwt_secret": None},
+        {"jwt_secret": "too-short"},
+    ],
+)
+def test_app_login_is_unavailable_when_not_configured(
+    app_login_env, kakao_token_calls, monkeypatch, overrides
+) -> None:
+    for name, value in overrides.items():
+        monkeypatch.setattr(app_login_env, name, value)
+
+    with TestClient(app) as client:
+        res = _app_login(client)
+
+    assert res.status_code == 503
+    assert res.json() == {"error": "로그인을 사용할 수 없습니다."}
+    assert kakao_token_calls[0] == []
+
+
+def test_app_login_does_not_need_web_login_settings(
+    app_login_env, kakao_token_calls, monkeypatch
+) -> None:
+    monkeypatch.setattr(app_login_env, "kakao_rest_api_key", None)
+    monkeypatch.setattr(app_login_env, "kakao_allowed_redirect_uris", "")
+
+    with TestClient(app) as client:
+        assert _app_login(client).status_code == 200
+
+
+@pytest.mark.parametrize("payload", [{}, {"accessToken": "  "}, {"accessToken": None}])
+def test_app_login_requires_access_token(app_login_env, kakao_token_calls, payload) -> None:
+    with TestClient(app) as client:
+        res = client.post("/api/auth/kakao/token", json=payload)
+
+    assert res.status_code == 400
+    assert res.json() == {"error": "accessToken은 필수입니다."}
+    assert kakao_token_calls[0] == []
+
+
+@pytest.mark.parametrize(
+    ("error", "status", "message"),
+    [
+        (kakao.KakaoAuthError("rejected"), 401, "카카오 인증에 실패했습니다."),
+        (kakao.KakaoUnavailableError("down"), 502, "카카오 서버와 통신하지 못했습니다."),
+    ],
+)
+def test_app_login_maps_kakao_errors(
+    app_login_env, kakao_token_calls, error, status, message
+) -> None:
+    _, results = kakao_token_calls
+    results["token-a"] = error
+
+    with TestClient(app) as client:
+        res = _app_login(client)
+
+    assert res.status_code == status
+    assert res.json() == {"error": message}

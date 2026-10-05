@@ -54,6 +54,9 @@ class Settings(BaseSettings):
     kakao_rest_api_key: str | None = None
     kakao_client_secret: str | None = None
     kakao_allowed_redirect_uris: str = ""
+    # 앱 로그인(POST /api/auth/kakao/token)용 카카오 앱 ID. 앱이 보낸 토큰이 이 앱에서
+    # 발급됐는지 확인한다. JWT 서명 키와 함께 없으면 앱 로그인만 503이다.
+    kakao_app_id: str | None = None
     jwt_secret: str | None = None
     jwt_expire_seconds: int = 14 * 24 * 60 * 60
     # 사용자·북마크 DB. 공지 DB는 크롤링마다 통째로 교체되므로 별도 파일에 둔다.

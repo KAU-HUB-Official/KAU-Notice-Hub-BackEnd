@@ -1,14 +1,21 @@
 import asyncio
 import logging
+from collections.abc import Callable
 
 from fastapi import APIRouter, Depends, Request, Response
 from fastapi.responses import JSONResponse
 
 from app import kakao, user_store
 from app.auth import get_current_user, issue_access_token, jwt_secret
-from app.config import get_settings
+from app.config import Settings, get_settings
 from app.rate_limit import auth_rate_limit, bookmarks_rate_limit, limiter
-from app.schemas import AuthResult, ErrorResponse, KakaoLoginRequest, User
+from app.schemas import (
+    AuthResult,
+    ErrorResponse,
+    KakaoLoginRequest,
+    KakaoTokenLoginRequest,
+    User,
+)
 from app.user_store import UserRecord, UserStoreError
 
 
@@ -62,14 +69,67 @@ async def login_with_kakao(
             status_code=400, content={"error": "허용되지 않은 redirectUri입니다."}
         )
 
-    try:
-        profile = await asyncio.to_thread(
-            kakao.fetch_profile_by_code,
+    return await _login(
+        lambda: kakao.fetch_profile_by_code(
             code,
             redirect_uri,
             client_id=settings.kakao_rest_api_key,
             client_secret=settings.kakao_client_secret,
+        ),
+        settings=settings,
+        secret=secret,
+    )
+
+
+@router.post(
+    "/api/auth/kakao/token",
+    response_model=AuthResult,
+    responses={
+        400: {"model": ErrorResponse},
+        401: {"model": ErrorResponse},
+        429: {"model": ErrorResponse},
+        500: {"model": ErrorResponse},
+        502: {"model": ErrorResponse},
+        503: {"model": ErrorResponse},
+    },
+)
+@limiter.shared_limit(auth_rate_limit, scope="auth")
+async def login_with_kakao_token(
+    request: Request, body: KakaoTokenLoginRequest
+) -> AuthResult | JSONResponse:
+    """앱 로그인. 카카오 SDK가 발급받은 카카오 access token으로 로그인한다."""
+    settings = get_settings()
+    secret = jwt_secret(settings)
+    app_id = (settings.kakao_app_id or "").strip()
+    if not app_id or not secret:
+        logger.warning(
+            "kakao app login is not configured: app_id=%s jwt_secret=%s",
+            bool(app_id),
+            bool(secret),
         )
+        return JSONResponse(
+            status_code=503, content={"error": "로그인을 사용할 수 없습니다."}
+        )
+
+    access_token = (body.accessToken or "").strip()
+    if not access_token:
+        return JSONResponse(
+            status_code=400, content={"error": "accessToken은 필수입니다."}
+        )
+
+    return await _login(
+        lambda: kakao.fetch_profile_by_access_token(access_token, app_id=app_id),
+        settings=settings,
+        secret=secret,
+    )
+
+
+async def _login(
+    fetch_profile: Callable[[], kakao.KakaoProfile], *, settings: Settings, secret: str
+) -> AuthResult | JSONResponse:
+    """카카오에서 사용자를 확인하고, 사용자를 저장한 뒤 자체 액세스 토큰을 발급한다."""
+    try:
+        profile = await asyncio.to_thread(fetch_profile)
     except kakao.KakaoAuthError:
         return JSONResponse(
             status_code=401, content={"error": "카카오 인증에 실패했습니다."}

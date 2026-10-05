@@ -1,7 +1,11 @@
 """카카오 로그인 REST API 호출.
 
-프론트가 받은 인가 code를 카카오 토큰으로 교환하고, 그 토큰으로 사용자 정보를
-조회한다. 카카오 access token은 사용자 확인에만 쓰고 저장하지 않는다.
+웹은 프론트가 받은 인가 code를 카카오 토큰으로 교환하고, 앱은 카카오 SDK가 이미
+발급받은 access token을 보낸다. 어느 쪽이든 그 토큰으로 사용자 정보를 조회한다.
+카카오 access token은 사용자 확인에만 쓰고 저장하지 않는다.
+
+앱이 보낸 토큰은 우리 카카오 앱에서 발급된 것인지(app_id) 먼저 확인한다. 확인하지
+않으면 다른 카카오 앱의 토큰으로도 그 사용자로 로그인할 수 있다.
 
 오류는 두 가지로만 나눈다.
 - KakaoAuthError: 카카오가 요청을 거부함(code 만료·재사용·위조, redirect_uri 불일치 등)
@@ -22,6 +26,7 @@ logger = logging.getLogger(__name__)
 
 KAKAO_TOKEN_URL = "https://kauth.kakao.com/oauth/token"
 KAKAO_USER_URL = "https://kapi.kakao.com/v2/user/me"
+KAKAO_TOKEN_INFO_URL = "https://kapi.kakao.com/v1/user/access_token_info"
 REQUEST_TIMEOUT_SECONDS = 5
 
 
@@ -50,6 +55,27 @@ def fetch_profile_by_code(
         code, redirect_uri, client_id=client_id, client_secret=client_secret
     )
     return _fetch_profile(access_token)
+
+
+def fetch_profile_by_access_token(access_token: str, *, app_id: str) -> KakaoProfile:
+    _verify_app_id(access_token, app_id)
+    return _fetch_profile(access_token)
+
+
+def _verify_app_id(access_token: str, app_id: str) -> None:
+    payload = _call(
+        "token_info",
+        requests.get,
+        KAKAO_TOKEN_INFO_URL,
+        headers={"Authorization": f"Bearer {access_token}"},
+    )
+    token_app_id = payload.get("app_id")
+    if not isinstance(token_app_id, int):
+        logger.error("kakao token_info response has no app_id")
+        raise KakaoUnavailableError("카카오 토큰 정보 응답이 올바르지 않습니다.")
+    if str(token_app_id) != app_id:
+        logger.warning("kakao access token issued for another app: app_id=%s", token_app_id)
+        raise KakaoAuthError("카카오 인증에 실패했습니다.")
 
 
 def _exchange_code(

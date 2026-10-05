@@ -115,7 +115,7 @@ Content-Type: application/json
 
 - `POST /api/chat`, `POST /api/chat/stream`: IP당 15회/분 (`RATE_LIMIT_CHAT`)
 - `GET /api/notices`, `GET /api/notices/{id}`: IP당 120회/분 (`RATE_LIMIT_NOTICES`)
-- `POST /api/auth/kakao`: IP당 10회/분 (`RATE_LIMIT_AUTH`)
+- `POST /api/auth/kakao`, `POST /api/auth/kakao/token`: 합쳐서 IP당 10회/분 (`RATE_LIMIT_AUTH`)
 - `GET /api/me`, `DELETE /api/me`, `/api/bookmarks` 전체: 합쳐서 IP당 120회/분 (`RATE_LIMIT_BOOKMARKS`). 토큰 검증을 통과한 요청만 센다. 토큰이 없거나 틀린 요청은 DB 조회 없이 바로 `401`로 끝난다.
 
 한도 초과 시 `429`로 응답한다.
@@ -147,7 +147,7 @@ Content-Type: application/json
 
 ### 인증
 
-로그인이 필요한 엔드포인트(`/api/me`, `/api/bookmarks`)는 `POST /api/auth/kakao`가 발급한 액세스 토큰을 요구한다.
+로그인이 필요한 엔드포인트(`/api/me`, `/api/bookmarks`)는 `POST /api/auth/kakao`(웹) 또는 `POST /api/auth/kakao/token`(앱)이 발급한 액세스 토큰을 요구한다. 두 로그인이 발급하는 토큰은 같다.
 
 ```http
 Authorization: Bearer <accessToken>
@@ -715,6 +715,46 @@ Content-Type: application/json
 
 카카오가 돌려준 오류 코드(`KOE320` 등)는 응답에 넣지 않고 서버 로그에만 남긴다.
 
+### `POST /api/auth/kakao/token`
+
+앱 로그인. 앱의 카카오 SDK가 발급받은 카카오 access token으로 로그인하고 액세스 토큰을 발급한다. 사용자 생성·갱신과 응답 형식은 `POST /api/auth/kakao`와 같다. 웹과 앱이 같은 카카오 앱을 쓰면 회원번호가 같으므로 같은 사용자(북마크 포함)로 로그인된다.
+
+백엔드는 먼저 토큰 정보를 조회해(`https://kapi.kakao.com/v1/user/access_token_info`) 토큰의 `app_id`가 `KAKAO_APP_ID`와 같은지 확인한 뒤, 사용자 정보를 조회한다(`https://kapi.kakao.com/v2/user/me`). 다른 카카오 앱에서 발급된 토큰은 사용자 정보를 조회하지 않고 거부한다. 카카오 토큰은 저장하지 않는다.
+
+#### 요청 본문
+
+```ts
+interface KakaoTokenLoginRequest {
+  accessToken: string; // 카카오 SDK가 발급받은 카카오 access token
+}
+```
+
+#### 요청 예시
+
+```http
+POST /api/auth/kakao/token
+Content-Type: application/json
+
+{
+  "accessToken": "kakao-access-token"
+}
+```
+
+#### 응답 `200`
+
+`POST /api/auth/kakao`의 응답과 같다.
+
+#### 오류 응답
+
+| 상태 | `error` | 원인 |
+| --- | --- | --- |
+| `400` | `accessToken은 필수입니다.` | 필드 누락 또는 빈 문자열 |
+| `401` | `카카오 인증에 실패했습니다.` | 만료·위조된 카카오 토큰, 다른 카카오 앱에서 발급된 토큰 |
+| `429` | `요청이 너무 많습니다. 잠시 후 다시 시도해주세요.` | 레이트리밋(`POST /api/auth/kakao`와 합산) |
+| `500` | `로그인을 처리하지 못했습니다.` | 사용자 DB 저장 실패 |
+| `502` | `카카오 서버와 통신하지 못했습니다.` | 카카오 API 타임아웃(5초)·5xx·예상과 다른 응답 |
+| `503` | `로그인을 사용할 수 없습니다.` | `KAKAO_APP_ID`, `JWT_SECRET`(32자 이상) 중 하나가 없음 |
+
 ### `GET /api/me`
 
 토큰 주인의 정보를 반환한다. 프론트가 로그인 상태를 표시할 때 쓴다.
@@ -940,11 +980,12 @@ BACKEND_CORS_ORIGINS=http://localhost:3000
 | `KAKAO_REST_API_KEY`                       | 로그인 사용 시 | empty                    | 카카오 앱 REST API 키                                                                |
 | `KAKAO_CLIENT_SECRET`                      | 아니오 | empty                            | REST API 키의 클라이언트 시크릿. 콘솔 기본값이 켜짐이라 사실상 필요                  |
 | `KAKAO_ALLOWED_REDIRECT_URIS`              | 로그인 사용 시 | empty                    | 허용할 `redirectUri` 목록. 쉼표 구분. 카카오 콘솔 Redirect URI와 같아야 함           |
+| `KAKAO_APP_ID`                             | 앱 로그인 사용 시 | empty                 | 카카오 앱 ID. 앱 로그인 토큰이 이 앱에서 발급됐는지 확인                             |
 | `JWT_SECRET`                               | 로그인 사용 시 | empty                    | 액세스 토큰 서명 키. 32자 이상 랜덤 값(`openssl rand -hex 32`)                       |
 | `JWT_EXPIRE_SECONDS`                       | 아니오 | `1209600`                        | 액세스 토큰 유효 시간. 기본 14일                                                     |
 | `USER_DB_PATH`                             | 아니오 | `./data/users.db`                | 사용자·북마크 SQLite 파일(공지 DB와 분리, 크롤링으로 교체되지 않음)                  |
 | `BOOKMARK_MAX_PER_USER`                    | 아니오 | `500`                            | 사용자당 북마크 상한                                                                 |
-| `RATE_LIMIT_AUTH`                          | 아니오 | `10/minute`                      | `POST /api/auth/kakao` IP당 한도                                                     |
+| `RATE_LIMIT_AUTH`                          | 아니오 | `10/minute`                      | `POST /api/auth/kakao`, `POST /api/auth/kakao/token` IP당 한도(합산)                 |
 | `RATE_LIMIT_BOOKMARKS`                     | 아니오 | `120/minute`                     | `/api/me`, `/api/bookmarks` IP당 한도(합산)                                          |
 
 ## MVP 비목표

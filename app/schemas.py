@@ -84,6 +84,13 @@ class KakaoLoginRequest(BaseModel):
     model_config = ConfigDict(extra="ignore")
 
 
+class KakaoTokenLoginRequest(BaseModel):
+    # 앱의 카카오 SDK가 발급받은 카카오 access token.
+    accessToken: str | None = None
+
+    model_config = ConfigDict(extra="ignore")
+
+
 class User(BaseModel):
     # 내부 사용자 ID. 카카오 회원번호는 응답에 내보내지 않는다.
     id: str

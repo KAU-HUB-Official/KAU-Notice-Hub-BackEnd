@@ -9,7 +9,9 @@ services:
       # 연구 라벨이 없는 새 공지에 게시판 규칙 + LLM으로 대상 라벨을 붙인다. 끄려면 .env에 false.
       NOTICE_AUTO_LABEL_ENABLED: ${NOTICE_AUTO_LABEL_ENABLED:-true}
       NOTICE_AUTO_LABELS_PATH: /data/notice_labels_auto.jsonl
-      NOTICE_AUTO_LABEL_MODEL: ${NOTICE_AUTO_LABEL_MODEL:-gpt-4.1-mini}
+      NOTICE_AUTO_LABEL_MODEL: ${NOTICE_AUTO_LABEL_MODEL:-gpt-6-luna}
+      # 추론 모델 effort. gpt-4.1-mini처럼 추론 모델이 아니면 .env에 빈 값(NOTICE_AUTO_LABEL_REASONING_EFFORT=)
+      NOTICE_AUTO_LABEL_REASONING_EFFORT: ${NOTICE_AUTO_LABEL_REASONING_EFFORT-none}
       NOTICE_AUTO_LABEL_MAX_LLM_CALLS_PER_RUN: ${NOTICE_AUTO_LABEL_MAX_LLM_CALLS_PER_RUN:-100}
       BACKEND_CORS_ORIGINS: ${BACKEND_CORS_ORIGINS:-http://localhost:3000}
       OPENAI_API_KEY: ${OPENAI_API_KEY:-}

@@ -174,6 +174,17 @@ def test_label_with_llm_truncates_long_body(fake_openai) -> None:
     assert "가" * (notice_auto_label.LLM_BODY_MAX_CHARS + 1) not in text
 
 
+def test_reasoning_model_payload_sends_effort_instead_of_temperature() -> None:
+    reasoning = notice_auto_label.build_llm_payload(_notice(), model="gpt-6-luna", reasoning_effort="none")
+    plain = notice_auto_label.build_llm_payload(_notice(), model="gpt-4.1-mini")
+
+    assert reasoning["reasoning"] == {"effort": "none"}
+    assert "temperature" not in reasoning
+    assert reasoning["max_output_tokens"] > plain["max_output_tokens"]
+    assert plain["temperature"] == 0
+    assert "reasoning" not in plain
+
+
 @pytest.mark.parametrize(
     "response",
     [
@@ -224,7 +235,7 @@ def snapshot(tmp_path: Path) -> dict[str, Path]:
 def fake_llm(monkeypatch):
     calls: list[str] = []
 
-    def fake(notice, *, api_key, model):
+    def fake(notice, *, api_key, model, reasoning_effort=None):
         calls.append(notice.title)
         if "실패" in notice.title:
             return None
@@ -355,6 +366,8 @@ def test_publish_labels_before_ingest_when_enabled(tmp_path: Path, monkeypatch) 
     _publish(tmp_path, monkeypatch, enabled=True, labeler=labeler)
 
     assert calls and calls[0]["api_key"] == "sk-test"
+    assert calls[0]["model"] == "gpt-6-luna"
+    assert calls[0]["reasoning_effort"] == "none"
     notices = asyncio.run(SqliteNoticeRepository(tmp_path / "notices.db").list_all())
     assert [notice.targetAudiences for notice in notices] == [["외부"]]
 

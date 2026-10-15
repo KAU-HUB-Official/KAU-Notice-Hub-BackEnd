@@ -14,7 +14,10 @@ class Settings(BaseSettings):
     # 켜져 있어도 OPENAI_API_KEY가 없으면 게시판 규칙 라벨만 붙인다.
     notice_auto_label_enabled: bool = False
     notice_auto_labels_path: Path = Path("./data/notice_labels_auto.jsonl")
-    notice_auto_label_model: str = "gpt-4.1-mini"
+    notice_auto_label_model: str = "gpt-6-luna"
+    # 추론 모델의 reasoning.effort. 지정하면 temperature 대신 이 값을 보낸다. 추론 모델이 아닌
+    # 모델(gpt-4.1-mini 등)로 바꾸면 빈 값으로 둔다. "none"이면 추론 토큰이 0이라 출력 비용이 거의 없다.
+    notice_auto_label_reasoning_effort: str | None = "none"
     # 한 번 수집할 때 LLM에 보내는 공지 수 상한(비용 방어선). 남은 공지는 다음 수집 때 붙인다.
     notice_auto_label_max_llm_calls_per_run: int = 100
     backend_cors_origins: str = "http://localhost:3000"

@@ -100,6 +100,7 @@ def publish_crawler_snapshot(settings: Settings) -> CrawlerPublishResult | None:
                         api_key=settings.openai_api_key,
                         model=settings.notice_auto_label_model,
                         max_llm_calls=settings.notice_auto_label_max_llm_calls_per_run,
+                        reasoning_effort=settings.notice_auto_label_reasoning_effort or None,
                     )
                 except Exception:
                     logger.exception("notice auto labeling failed; ingest continues")

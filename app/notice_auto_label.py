@@ -315,21 +315,39 @@ def normalize_audiences(values: list[str] | tuple[str, ...]) -> tuple[str, ...]:
     return tuple(code for code in AUDIENCE_CODES if code in present)
 
 
-def label_with_llm(
-    notice: NoticeForLabel, *, api_key: str, model: str
-) -> tuple[tuple[str, ...], tuple[str, ...], str] | None:
-    """(audiences, excludes, reason). 호출이나 응답이 잘못되면 None."""
-    payload = {
+def build_llm_payload(
+    notice: NoticeForLabel, *, model: str, reasoning_effort: str | None = None
+) -> dict[str, Any]:
+    """추론 모델(reasoning_effort 지정)은 temperature를 받지 않으므로 effort만 보낸다.
+
+    추론 토큰도 출력 상한에 들어가므로 추론 모델은 상한을 넉넉히 둔다.
+    """
+    payload: dict[str, Any] = {
         "model": model,
         "store": False,
-        "temperature": 0,
-        "max_output_tokens": 300,
+        "max_output_tokens": 300 if reasoning_effort is None else 2000,
         "instructions": LLM_INSTRUCTIONS,
         "input": [
             {"role": "user", "content": [{"type": "input_text", "text": build_llm_input(notice)}]}
         ],
         "text": {"format": LLM_SCHEMA},
     }
+    if reasoning_effort is None:
+        payload["temperature"] = 0
+    else:
+        payload["reasoning"] = {"effort": reasoning_effort}
+    return payload
+
+
+def label_with_llm(
+    notice: NoticeForLabel,
+    *,
+    api_key: str,
+    model: str,
+    reasoning_effort: str | None = None,
+) -> tuple[tuple[str, ...], tuple[str, ...], str] | None:
+    """(audiences, excludes, reason). 호출이나 응답이 잘못되면 None."""
+    payload = build_llm_payload(notice, model=model, reasoning_effort=reasoning_effort)
     try:
         response = requests.post(
             OPENAI_RESPONSES_URL,
@@ -416,6 +434,7 @@ def label_unlabeled_notices(
     api_key: str | None,
     model: str,
     max_llm_calls: int,
+    reasoning_effort: str | None = None,
 ) -> AutoLabelResult:
     """연구 라벨과 자동 라벨이 모두 없는 공지에 라벨을 붙여 auto_labels_path에 더한다."""
     auto_file = Path(auto_labels_path).expanduser()
@@ -447,7 +466,9 @@ def label_unlabeled_notices(
             llm_skipped += 1
             continue
         llm_calls += 1
-        result = label_with_llm(notice, api_key=api_key, model=model)
+        result = label_with_llm(
+            notice, api_key=api_key, model=model, reasoning_effort=reasoning_effort
+        )
         if result is None:
             llm_failed += 1
             continue

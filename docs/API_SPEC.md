@@ -979,7 +979,8 @@ BACKEND_CORS_ORIGINS=http://localhost:3000
 | `NOTICE_LABELS_PATH`                       | 아니오 | `./data/notice_labels.jsonl`     | 공지 적용 대상 라벨 JSONL. 없으면 라벨 없이 ingest                                   |
 | `NOTICE_AUTO_LABEL_ENABLED`                | 아니오 | `false`                          | 새 공지 대상 자동 라벨(게시판 규칙 + LLM). compose 기본은 `true`                     |
 | `NOTICE_AUTO_LABELS_PATH`                  | 아니오 | `./data/notice_labels_auto.jsonl` | 자동 라벨 JSONL. 연구 라벨이 없는 공지에만 쓴다                                     |
-| `NOTICE_AUTO_LABEL_MODEL`                  | 아니오 | `gpt-4.1-mini`                   | 자동 라벨 LLM 모델                                                                   |
+| `NOTICE_AUTO_LABEL_MODEL`                  | 아니오 | `gpt-6-luna`                     | 자동 라벨 LLM 모델                                                                   |
+| `NOTICE_AUTO_LABEL_REASONING_EFFORT`       | 아니오 | `none`                           | 추론 모델 effort. 비우면 temperature 0으로 호출(추론 모델이 아닐 때)                  |
 | `NOTICE_AUTO_LABEL_MAX_LLM_CALLS_PER_RUN`  | 아니오 | `100`                            | 수집 1회당 자동 라벨 LLM 호출 상한                                                   |
 | `OPENAI_API_KEY`                           | 아니오 | empty                            | content 보강과 RAG 챗봇 OpenAI 호출에 사용. 없으면 챗봇은 local fallback             |
 | `OPENAI_MODEL`                             | 아니오 | `gpt-4.1-mini`                   | RAG 챗봇과 content 보강 OpenAI 호출 기본 모델                                        |

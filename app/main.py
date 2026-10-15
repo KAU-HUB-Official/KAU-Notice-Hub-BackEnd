@@ -24,6 +24,22 @@ from app.user_store import UserStoreError
 logger = logging.getLogger("app.main")
 
 
+def configure_app_logging(level: str) -> None:
+    """app.* 로거를 LOG_LEVEL로 출력한다.
+
+    uvicorn은 자기 로거(uvicorn.*)만 설정하므로, 그대로 두면 app.* 로그는 WARNING 이상만
+    보이고 ingest 결과 같은 INFO 로그가 운영 로그에 남지 않는다. 루트 로거는 건드리지 않아
+    openai/httpx 같은 라이브러리 로그는 늘어나지 않는다.
+    """
+    app_logger = logging.getLogger("app")
+    resolved = logging.getLevelName(level.strip().upper())
+    app_logger.setLevel(resolved if isinstance(resolved, int) else logging.INFO)
+    if not app_logger.handlers:
+        handler = logging.StreamHandler()
+        handler.setFormatter(logging.Formatter("%(levelname)s:     %(name)s %(message)s"))
+        app_logger.addHandler(handler)
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     settings = get_settings()
@@ -46,6 +62,7 @@ async def lifespan(app: FastAPI):
 
 def create_app() -> FastAPI:
     settings = get_settings()
+    configure_app_logging(settings.log_level)
     app = FastAPI(
         title="KAU Notice Hub BackEnd",
         version="0.1.0",

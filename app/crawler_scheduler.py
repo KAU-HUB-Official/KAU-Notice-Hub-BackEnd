@@ -14,6 +14,7 @@ from types import TracebackType
 
 from app.config import Settings
 from app.ingest import ingest_json_snapshot
+from app.notice_auto_label import label_unlabeled_notices
 
 logger = logging.getLogger("app.crawler_scheduler")
 
@@ -89,11 +90,26 @@ def publish_crawler_snapshot(settings: Settings) -> CrawlerPublishResult | None:
                 final_path,
                 total_records,
             )
+            if settings.notice_auto_label_enabled:
+                # 라벨링이 실패해도 publish와 ingest는 진행한다. 실패한 공지는 다음 수집 때 다시 본다.
+                try:
+                    label_unlabeled_notices(
+                        json_path=final_path,
+                        labels_path=settings.notice_labels_path,
+                        auto_labels_path=settings.notice_auto_labels_path,
+                        api_key=settings.openai_api_key,
+                        model=settings.notice_auto_label_model,
+                        max_llm_calls=settings.notice_auto_label_max_llm_calls_per_run,
+                        reasoning_effort=settings.notice_auto_label_reasoning_effort or None,
+                    )
+                except Exception:
+                    logger.exception("notice auto labeling failed; ingest continues")
             try:
                 ingest_json_snapshot(
                     json_path=final_path,
                     db_path=settings.notice_db_path,
                     labels_path=settings.notice_labels_path,
+                    auto_labels_path=settings.notice_auto_labels_path,
                 )
             except Exception:
                 logger.exception(

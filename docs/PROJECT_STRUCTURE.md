@@ -43,7 +43,8 @@ FastAPI lifespan
   -> app/crawler/main.py가 증분 수집 후 전체 스냅샷으로 병합
   -> 결과 JSON 검증
   -> NOTICE_JSON_PATH를 os.replace()로 atomic 교체
-  -> app/ingest.py가 같은 JSON을 임시 SQLite DB에 쓰고, 적용 대상 라벨(NOTICE_LABELS_PATH)을 붙여 NOTICE_DB_PATH를 atomic 교체
+  -> app/notice_auto_label.py가 라벨 없는 공지에 게시판 규칙 + LLM으로 대상 라벨을 붙여 NOTICE_AUTO_LABELS_PATH에 더함 (NOTICE_AUTO_LABEL_ENABLED)
+  -> app/ingest.py가 같은 JSON을 임시 SQLite DB에 쓰고, 적용 대상 라벨(연구 라벨 → 자동 라벨 순)을 붙여 NOTICE_DB_PATH를 atomic 교체
 ```
 
 수동 스크립트 `scripts/run_incremental_crawl_publish.sh`는 JSON 스냅샷 게시를 담당한다. API 서버는 기동 시 DB가 없거나 스키마가 다르면 해당 JSON에서 DB를 다시 만든다.
@@ -58,6 +59,7 @@ FastAPI lifespan
 | `app/db.py` | SQLite schema version과 DDL |
 | `app/ingest.py` | JSON 전체 스냅샷을 SQLite DB로 atomic ingest |
 | `app/notice_labels.py` | 공지 적용 대상 라벨 파일(`NOTICE_LABELS_PATH`) 읽기, URL 키, 목록 `target` 판정 규칙(`covers`) |
+| `app/notice_auto_label.py` | 라벨 없는 새 공지의 대상 자동 라벨(게시판 규칙 + LLM), `NOTICE_AUTO_LABELS_PATH`에 기록 |
 | `app/sqlite_repository.py` | SQLite 기반 공지 목록/상세/검색 repository |
 | `app/repository.py` | repository protocol과 JSON fallback repository |
 | `app/service.py` | API용 공지 service, pagination 정규화, 관련 공지 조회 |

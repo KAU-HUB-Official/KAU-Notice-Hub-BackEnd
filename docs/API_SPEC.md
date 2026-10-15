@@ -387,7 +387,7 @@ MVP는 `status`만 반환해도 된다.
 3. `targetAudiences`가 빈 목록이면(모든 학생) 보인다.
 4. 위 표에서 그 `target`이 보는 코드 중 하나라도 `targetAudiences`에 있으면 보인다.
 
-챗봇(`/api/chat`) 검색에는 `target` 필터를 쓰지 않는다.
+챗봇(`/api/chat`, `/api/chat/stream`)은 요청의 `userGroup`을 같은 `target` 값으로 검색 후보에 건다. 답변 프롬프트에는 넣지 않는다.
 
 #### 검색어 매칭
 
@@ -610,9 +610,12 @@ interface ChatRequestBody {
   source?: string;
   category?: string;
   department?: string;
+  userGroup?: string; // 선택. 사용자가 고른 공지 대상. 목록 target과 같은 5개 값
   sessionId?: string; // 선택. 세션 로깅이 켜진 경우에만 사용 (아래 참고)
 }
 ```
+
+`userGroup`은 `학부재학생`, `신입생·편입생`, `일반대학원생`, `특수대학원생`, `교직원·기타` 중 하나다. 주면 챗봇이 찾는 공지 후보(검색과, 검색 결과가 없을 때의 최신 공지)를 [적용 대상 라벨](#적용-대상-라벨) 규칙으로 거른다. 라벨 없는 공지는 거르지 않는다. 답변 프롬프트에는 넣지 않는다. 모르는 값이나 빈 값은 필터 없음으로 보고 400으로 막지 않는다. 세션 로깅이 켜져 있으면 user·assistant 턴 모두 `user_group`에 남는다.
 
 `sessionId`는 선택 필드다. 클라이언트가 대화 시작 시 한 번 발급(예: UUID)해 같은 대화의 매 `/api/chat`·`/api/chat/stream` 요청에 함께 보낸다. 서버에서 `CHAT_LOGGING_ENABLED=true`이고 요청에 `sessionId`가 있을 때만, 평가셋·챗봇 개선용으로 각 턴(사용자 질문 / LLM 답변)을 별도 SQLite 파일(`CHAT_LOG_DB_PATH`, 운영 notice DB와 분리)에 append 저장한다. 저장은 응답 전송과 분리된 백그라운드에서 best-effort로 수행되며, 실패해도 응답에는 영향을 주지 않는다. `sessionId`가 없거나 로깅이 꺼져 있으면 아무것도 저장하지 않으며 응답 형태도 동일하다(비파괴적). 응답 본문에는 로깅 관련 필드가 추가되지 않는다.
 

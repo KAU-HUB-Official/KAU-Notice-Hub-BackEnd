@@ -67,6 +67,10 @@ class ChatRequestBody(BaseModel):
     source: str | None = None
     category: str | None = None
     department: str | None = None
+    # 사용자가 고른 공지 대상(목록 target과 같은 값: 학부재학생, 신입생·편입생, 일반대학원생,
+    # 특수대학원생, 교직원·기타). 검색 후보를 그 대상의 공지로 거르고 로그에 남긴다.
+    # 답변 프롬프트에는 넣지 않는다. 모르는 값은 무시한다(400으로 막지 않는다).
+    userGroup: str | None = None
     # 클라이언트가 대화 시작 시 발급해 같은 대화의 매 요청에 함께 보내는 식별자.
     # 서버 로깅이 켜져 있을 때만 이 값으로 턴을 세션에 묶어 저장한다(없으면 저장 안 함).
     sessionId: str | None = None

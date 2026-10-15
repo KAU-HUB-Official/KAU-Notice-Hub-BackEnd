@@ -20,7 +20,7 @@ class NoticeQuery:
     source: str | None = None
     category: str | None = None
     department: str | None = None
-    # 목록 전용 적용 대상 필터. 챗봇 검색(find_relevant_notices)에는 넘기지 않는다.
+    # 적용 대상 필터(app/notice_labels.py). 목록 target과 챗봇 userGroup이 같은 값을 쓴다.
     target: str | None = None
     page: int | None = None
     page_size: int | None = None
@@ -104,6 +104,7 @@ class NoticeService:
                 source=base.source,
                 category=base.category,
                 department=base.department,
+                target=base.target,
                 page=1,
                 page_size=limit,
             )
@@ -121,6 +122,7 @@ class NoticeService:
                 source=base.source,
                 category=base.category,
                 department=base.department,
+                target=base.target,
                 page=1,
                 page_size=limit,
             )

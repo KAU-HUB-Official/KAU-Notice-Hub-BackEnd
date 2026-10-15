@@ -10,6 +10,13 @@ class Settings(BaseSettings):
     # 연구 세션이 검수한 공지 적용 대상 라벨(JSONL). ingest 때마다 URL로 공지에 붙인다.
     # 파일이 없으면 라벨 없이 ingest하고, 목록의 target 필터는 모든 공지를 보여준다.
     notice_labels_path: Path = Path("./data/notice_labels.jsonl")
+    # 연구 라벨이 없는 공지의 자동 라벨(게시판 규칙 + LLM). 크롤링 publish 뒤, ingest 전에 붙인다.
+    # 켜져 있어도 OPENAI_API_KEY가 없으면 게시판 규칙 라벨만 붙인다.
+    notice_auto_label_enabled: bool = False
+    notice_auto_labels_path: Path = Path("./data/notice_labels_auto.jsonl")
+    notice_auto_label_model: str = "gpt-4.1-mini"
+    # 한 번 수집할 때 LLM에 보내는 공지 수 상한(비용 방어선). 남은 공지는 다음 수집 때 붙인다.
+    notice_auto_label_max_llm_calls_per_run: int = 100
     backend_cors_origins: str = "http://localhost:3000"
     openai_api_key: str | None = None
     openai_model: str = "gpt-4.1-mini"

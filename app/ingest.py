@@ -45,6 +45,7 @@ def ingest_json_snapshot(
     json_path: str | Path,
     db_path: str | Path,
     labels_path: str | Path | None = None,
+    auto_labels_path: str | Path | None = None,
 ) -> IngestResult:
     json_file = Path(json_path).expanduser().resolve()
     final_db = Path(db_path).expanduser().resolve()
@@ -65,8 +66,13 @@ def ingest_json_snapshot(
         try:
             initialize_schema(conn)
             _write_notices(conn, notices)
-            if labels_path is not None:
-                _write_labels(conn, notices, Path(labels_path))
+            if labels_path is not None or auto_labels_path is not None:
+                _write_labels(
+                    conn,
+                    notices,
+                    Path(labels_path) if labels_path is not None else None,
+                    Path(auto_labels_path) if auto_labels_path is not None else None,
+                )
             build_and_store_facets(conn)
         finally:
             conn.close()
@@ -218,10 +224,22 @@ def _write_notices(conn: sqlite3.Connection, items: list[_ClassifiedNotice]) -> 
 
 
 def _write_labels(
-    conn: sqlite3.Connection, items: list[_ClassifiedNotice], labels_path: Path
+    conn: sqlite3.Connection,
+    items: list[_ClassifiedNotice],
+    labels_path: Path | None,
+    auto_labels_path: Path | None,
 ) -> None:
-    """라벨 파일을 원문 URL로 공지에 붙인다. 라벨 파일 문제로 ingest를 실패시키지 않는다."""
-    labels = load_notice_labels(labels_path)
+    """라벨 파일을 원문 URL로 공지에 붙인다. 라벨 파일 문제로 ingest를 실패시키지 않는다.
+
+    연구 세션의 확정 라벨이 먼저고, 그 라벨이 없는 공지에만 자동 라벨(app/notice_auto_label.py)을 쓴다.
+    """
+    research = load_notice_labels(labels_path) if labels_path is not None else {}
+    auto = (
+        load_notice_labels(auto_labels_path, warn_missing=False)
+        if auto_labels_path is not None
+        else {}
+    )
+    labels = {**auto, **research}
 
     label_rows: list[tuple[str, str, str, str | None, str | None, str | None, str | None]] = []
     target_rows: list[tuple[str, str]] = []
@@ -268,9 +286,12 @@ def _write_labels(
         raise
 
     logger.info(
-        "notice labels attached: path=%s labeled=%s unlabeled=%s unmatched_labels=%s",
+        "notice labels attached: path=%s labeled=%s research=%s auto=%s unlabeled=%s "
+        "unmatched_labels=%s",
         labels_path,
         len(label_rows),
+        len(used_keys & research.keys()),
+        len(used_keys - research.keys()),
         len(items) - len(label_rows),
         len(labels) - len(used_keys),
     )

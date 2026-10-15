@@ -217,7 +217,7 @@ interface Notice {
 - `tags`는 항상 배열이다.
 - `attachments`는 항상 배열이다.
 - `audienceGroup`, `sourceGroup`, `sourceGroups`는 백엔드에서 계산해 붙인다.
-- `targetAudiences`, `targetExcludes`는 연구 세션이 검수한 라벨 파일(`NOTICE_LABELS_PATH`)에서 원문 URL로 맞춰 붙인다. 게시판 기준 분류인 `audienceGroup`과는 별개다. [적용 대상 라벨](#적용-대상-라벨) 참고.
+- `targetAudiences`, `targetExcludes`는 연구 세션이 검수한 라벨 파일(`NOTICE_LABELS_PATH`)에서 원문 URL로 맞춰 붙인다. 연구 라벨이 없는 새 공지는 크롤링 때 게시판 규칙과 LLM으로 만든 자동 라벨(`NOTICE_AUTO_LABELS_PATH`, [CRAWLING_UPDATE.md](CRAWLING_UPDATE.md#공지-대상-자동-라벨))을 쓴다. 게시판 기준 분류인 `audienceGroup`과는 별개다. [적용 대상 라벨](#적용-대상-라벨) 참고.
 - `id`는 크롤링을 반복해도 바뀌지 않는 고정값이다. 클라이언트는 형식 없는 문자열로 다루고 길이나 형식에 의존하지 않는다.
   - 원본 JSON에 `id`가 있으면 그 값을 쓴다. 크롤러 JSON에는 없다.
   - 없으면 정규화한 원문 URL(`canonicalize_original_url`)의 SHA-256 앞 16자리 hex를 쓴다. 예: `a3f9c2e81b7d4056`
@@ -977,6 +977,10 @@ BACKEND_CORS_ORIGINS=http://localhost:3000
 | `NOTICE_JSON_PATH`                         | 아니오 | `./data/kau_official_posts.json` | 크롤러 JSON 파일 경로                                                                |
 | `NOTICE_DB_PATH`                           | 아니오 | `./data/kau_notice_hub.db`       | API가 우선 읽는 SQLite DB 경로                                                       |
 | `NOTICE_LABELS_PATH`                       | 아니오 | `./data/notice_labels.jsonl`     | 공지 적용 대상 라벨 JSONL. 없으면 라벨 없이 ingest                                   |
+| `NOTICE_AUTO_LABEL_ENABLED`                | 아니오 | `false`                          | 새 공지 대상 자동 라벨(게시판 규칙 + LLM). compose 기본은 `true`                     |
+| `NOTICE_AUTO_LABELS_PATH`                  | 아니오 | `./data/notice_labels_auto.jsonl` | 자동 라벨 JSONL. 연구 라벨이 없는 공지에만 쓴다                                     |
+| `NOTICE_AUTO_LABEL_MODEL`                  | 아니오 | `gpt-4.1-mini`                   | 자동 라벨 LLM 모델                                                                   |
+| `NOTICE_AUTO_LABEL_MAX_LLM_CALLS_PER_RUN`  | 아니오 | `100`                            | 수집 1회당 자동 라벨 LLM 호출 상한                                                   |
 | `OPENAI_API_KEY`                           | 아니오 | empty                            | content 보강과 RAG 챗봇 OpenAI 호출에 사용. 없으면 챗봇은 local fallback             |
 | `OPENAI_MODEL`                             | 아니오 | `gpt-4.1-mini`                   | RAG 챗봇과 content 보강 OpenAI 호출 기본 모델                                        |
 | `RAG_ENABLED`                              | 아니오 | `false`                          | `true`이고 API key가 있으면 `/api/chat`이 OpenAI 답변 생성                           |

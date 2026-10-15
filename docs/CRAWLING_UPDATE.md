@@ -116,6 +116,20 @@ NOTICE_JSON_PATH=/data/kau_official_posts.json
 
 이 방식은 백엔드가 파일을 읽는 도중 크롤러가 같은 파일을 쓰면서 깨진 JSON을 읽는 문제를 줄인다.
 
+### 남은 임시 파일 정리
+
+임시 파일은 정상 종료나 예외 시 `finally`(스크립트는 `trap EXIT`)에서 지운다. 하지만 프로세스가 강제 종료되면(`mem_limit` OOM kill, 배포 시 컨테이너 재생성 등) 정리 코드가 실행되지 않아 전체 스냅샷 크기(수십~100MB)의 임시 파일이 `/data`에 남는다. 서버 내장 스케줄러는 `.kau_official_posts.json.tmp.XXXXXXXX`(8자), 수동 스크립트는 `.kau_official_posts.json.tmp.XXXXXX`(6자) 형태로 만든다.
+
+서버 내장 스케줄러는 publish마다 `.crawler.lock`을 잡은 직후, 새 임시 파일을 만들기 전에 수정 시각이 6시간(`STALE_TEMP_SNAPSHOT_MAX_AGE_SECONDS`) 이상 지난 `.{NOTICE_JSON_PATH 파일명}.tmp.*`를 지운다. `CRAWLER_RUN_ON_STARTUP=true`이면 api 기동 직후 첫 publish에서 정리된다.
+
+- lock을 못 잡으면(다른 publish 진행 중) 정리하지 않는다.
+- 크롤러는 결과를 마지막에 한 번만 쓰므로 진행 중인 임시 파일의 mtime은 생성 시각이다. 6시간은 크롤링 소요 시간보다 충분히 길게 잡은 값이다.
+- 수동 스크립트는 `.crawler.lock`을 잡지 않으므로, 수동 크롤링이 6시간 넘게 이어지면 그 임시 파일이 지워질 수 있다.
+- `kau_official_posts.json`, `*.bak*`, DB 임시 파일(`.kau_notice_hub.db.tmp.*`)은 대상이 아니다.
+- 지운 개수와 용량은 `app.crawler_scheduler` INFO 로그(`removed stale temp snapshots: count=... bytes=...`)로 남는다.
+
+이미 쌓인 파일을 손으로 정리하는 절차는 [DEPLOYMENT.md의 `/data` 임시 스냅샷 정리](./DEPLOYMENT.md#data-임시-스냅샷-정리)를 따른다.
+
 ## JSON fallback 재로드 정책
 API의 기본 repository는 SQLite다. 다만 DB 부트스트랩이 실패하거나 JSON fallback을 사용하는 경우 `JsonNoticeRepository`가 파일의 `st_mtime_ns` 수정 시각을 기준으로 캐시를 관리한다.
 

@@ -51,6 +51,7 @@ def _build_repository() -> NoticeRepository:
                     json_path=json_path,
                     db_path=db_path,
                     labels_path=settings.notice_labels_path,
+                    auto_labels_path=settings.notice_auto_labels_path,
                 )
             except Exception:
                 logger.exception(

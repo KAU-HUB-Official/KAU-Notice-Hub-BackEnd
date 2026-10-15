@@ -166,7 +166,7 @@ def test_ingest_skips_broken_label_lines(tmp_path: Path, caplog) -> None:
     assert asyncio.run(repository.get_by_id("n-1")).targetAudiences == ["교직원"]
     assert asyncio.run(repository.get_by_id("n-2")).targetAudiences is None
     assert "invalid_lines=3" in caplog.text
-    assert "labeled=1 unlabeled=1" in caplog.text
+    assert "labeled=1 research=1 auto=0 unlabeled=1" in caplog.text
 
 
 def test_load_notice_labels_keeps_first_of_duplicated_urls(tmp_path: Path) -> None:

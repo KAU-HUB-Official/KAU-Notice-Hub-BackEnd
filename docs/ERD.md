@@ -21,6 +21,7 @@
 | 중분류 | `CLASSIFICATION.md` 기준으로 계산되는 source group. 한 공지가 여러 중분류에 매칭될 수 있음 |
 | 첨부파일 | 원본 공지에 연결된 파일 |
 | 태그 | 검색/표시에 쓰는 정규화 태그 |
+| 적용 대상 라벨 | 연구 세션이 검수한 공지 적용 대상. DB 밖 파일(`NOTICE_LABELS_PATH`)에서 ingest마다 원문 URL로 붙인다 |
 
 ## 분류 필드
 
@@ -44,6 +45,8 @@ erDiagram
   notices ||--o{ notice_source_groups : classified_as
   notices ||--o{ notice_attachments : has
   notices ||--o{ notice_tags : has
+  notices ||--o| notice_labels : labeled_as
+  notices ||--o{ notice_label_targets : visible_to
 
   notices {
     text id PK
@@ -84,13 +87,28 @@ erDiagram
     text tag
     integer tag_order
   }
+
+  notice_labels {
+    text notice_id PK
+    text audiences_json
+    text excludes_json
+    text series
+    text term
+    text label_version
+    text label_source
+  }
+
+  notice_label_targets {
+    text notice_id FK
+    text target
+  }
 ```
 
 `schema_meta(key, value)`는 `SCHEMA_VERSION`을 저장하는 메타 테이블이다.
 
 ## 실제 SQLite 스키마
 
-`app/db.py`가 테이블과 인덱스를 정의한다. 스키마 버전은 `db.SCHEMA_VERSION`이며 현재 버전은 `5`다(v5는 테이블 변경 없이 공지 ID 규칙 변경을 재 ingest로 반영하기 위해 올렸다). 버전이 맞지 않으면 부팅 시 기존 DB를 제거하고 JSON에서 다시 ingest한다.
+`app/db.py`가 테이블과 인덱스를 정의한다. 스키마 버전은 `db.SCHEMA_VERSION`이며 현재 버전은 `6`이다(v6은 `notice_labels`, `notice_label_targets`를 추가했다. v5는 테이블 변경 없이 공지 ID 규칙 변경을 재 ingest로 반영하기 위해 올렸다). 버전이 맞지 않으면 부팅 시 기존 DB를 제거하고 JSON에서 다시 ingest한다.
 
 ### `notices`
 
@@ -179,6 +197,31 @@ erDiagram
 | `tag_order` | `integer` | 예 | API 반환 순서 |
 
 기본키는 `(notice_id, tag)`이다.
+
+### `notice_labels`
+
+공지 적용 대상 라벨을 저장한다. 라벨 원본은 연구 세션이 관리하는 JSONL 파일(`NOTICE_LABELS_PATH`)이고, ingest가 `_write_notices` 다음에 읽어 원문 URL로 공지와 맞춘다. URL은 스킴(http/https)을 버리고, 호스트를 소문자로 바꿔 `www.`를 떼고, 쿼리 인자를 정렬해 비교한다(`app/notice_labels.py`의 `label_url_key`). 라벨이 없는 공지는 행이 없다. 파일이 없거나 줄이 깨져 있어도 ingest는 경고만 남기고 계속한다.
+
+| 컬럼 | 타입 | 필수 | 설명 |
+| --- | --- | --- | --- |
+| `notice_id` | `text` | 예 | `notices.id` FK, 기본키 |
+| `audiences_json` | `text` | 예 | 대상 코드 JSON 배열. `[]`은 모든 학생 |
+| `excludes_json` | `text` | 예 | 제외 대상 JSON 배열. 지금은 `신입생·편입생`만 쓴다 |
+| `series` | `text` | 아니오 | 반복 공지 묶음 이름 |
+| `term` | `text` | 아니오 | 학기(예: `2026-1`) |
+| `label_version` | `text` | 아니오 | 라벨 기준서 버전 |
+| `label_source` | `text` | 아니오 | 라벨을 만든 방식 |
+
+### `notice_label_targets`
+
+라벨이 있는 공지가 목록 `target` 필터의 어느 값에 보이는지 ingest 때 `covers()`로 미리 계산해 둔다. 목록 필터는 라벨이 없거나 이 표에 `(notice_id, target)`이 있는 공지만 남긴다.
+
+| 컬럼 | 타입 | 필수 | 설명 |
+| --- | --- | --- | --- |
+| `notice_id` | `text` | 예 | `notices.id` FK |
+| `target` | `text` | 예 | `학부재학생`, `신입생·편입생`, `일반대학원생`, `특수대학원생`, `교직원·기타` 중 하나 |
+
+기본키는 `(notice_id, target)`이고, `target`에 인덱스가 있다.
 
 ### `notice_facets_cache`
 
@@ -296,6 +339,8 @@ interface Notice {
   date?: string;
   tags: string[];
   attachments: NoticeAttachment[];
+  targetAudiences: string[] | null;
+  targetExcludes: string[];
 }
 ```
 
@@ -317,6 +362,8 @@ interface Notice {
 | `date` | `notices.published_at` |
 | `tags` | `tag_order` 순서의 전체 `notice_tags.tag` |
 | `attachments` | `attachment_order` 순서의 `notice_attachments` 행 목록 |
+| `targetAudiences` | `notice_labels.audiences_json`. 행이 없으면 `null` |
+| `targetExcludes` | `notice_labels.excludes_json`. 행이 없으면 `[]` |
 
 ## JSON 원천 형태
 

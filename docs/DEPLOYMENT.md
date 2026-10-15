@@ -114,6 +114,7 @@ http://localhost:8000/openapi.json
 | --- | --- | --- |
 | `NOTICE_JSON_PATH` | `/data/kau_official_posts.json` | API 서버가 읽는 전체 공지 JSON 스냅샷 |
 | `NOTICE_DB_PATH` | `/data/kau_notice_hub.db` | API 서버가 우선 읽고 ingest가 atomic 교체하는 SQLite DB |
+| `NOTICE_LABELS_PATH` | `/data/notice_labels.jsonl` | 공지 적용 대상 라벨(연구 세션이 관리). ingest 때마다 원문 URL로 공지에 붙인다. 파일을 바꾸면 다음 ingest(크롤링 주기 또는 api 재시작 후 스키마 불일치 재 ingest)부터 반영된다. 없으면 경고만 남기고 라벨 없이 ingest |
 | `BACKEND_CORS_ORIGINS` | `https://kau-notice-hub.vercel.app,http://localhost:3000` | 쉼표로 구분한 허용 frontend origin. 배포된 프론트가 별도 origin(Vercel 등)이면 그 origin을 반드시 포함해야 브라우저 직접 호출이 CORS 차단되지 않는다. 프론트와 API가 같은 origin이면 무관 |
 | `BACKEND_PORT` | `8000` | Docker host에 바인딩할 API 포트. compose에서는 `127.0.0.1`에만 바인딩 |
 | `API_DOMAIN` | `api.kau-notice.example.com` 또는 `:80` | Caddy가 받을 host. 도메인이 없으면 `:80` |
@@ -159,6 +160,7 @@ http://localhost:8000/openapi.json
 ```env
 NOTICE_JSON_PATH=./data/kau_official_posts.json
 NOTICE_DB_PATH=./data/kau_notice_hub.db
+NOTICE_LABELS_PATH=./data/notice_labels.jsonl
 BACKEND_CORS_ORIGINS=http://localhost:3000
 OPENAI_API_KEY=
 OPENAI_MODEL=gpt-4.1-mini

@@ -9,7 +9,8 @@ from pathlib import Path
 # v3 -> v4: removed notices.summary (content is now the single readable body field).
 # v4 -> v5: notices.id is now a hash of the canonical original URL. No DDL change;
 #           the bump forces a re-ingest at startup so old position-based ids vanish at once.
-SCHEMA_VERSION = 5
+# v5 -> v6: added notice_labels and notice_label_targets (target audience labels).
+SCHEMA_VERSION = 6
 
 SCHEMA_STATEMENTS: tuple[str, ...] = (
     """
@@ -62,6 +63,24 @@ SCHEMA_STATEMENTS: tuple[str, ...] = (
     )
     """,
     """
+    CREATE TABLE IF NOT EXISTS notice_labels (
+        notice_id TEXT PRIMARY KEY REFERENCES notices(id) ON DELETE CASCADE,
+        audiences_json TEXT NOT NULL,
+        excludes_json TEXT NOT NULL,
+        series TEXT,
+        term TEXT,
+        label_version TEXT,
+        label_source TEXT
+    )
+    """,
+    """
+    CREATE TABLE IF NOT EXISTS notice_label_targets (
+        notice_id TEXT NOT NULL REFERENCES notices(id) ON DELETE CASCADE,
+        target TEXT NOT NULL,
+        PRIMARY KEY (notice_id, target)
+    )
+    """,
+    """
     CREATE TABLE IF NOT EXISTS notice_facets_cache (
         audience TEXT NOT NULL,
         source_group TEXT NOT NULL,
@@ -82,6 +101,7 @@ SCHEMA_STATEMENTS: tuple[str, ...] = (
     "CREATE INDEX IF NOT EXISTS idx_notices_department ON notices(department)",
     "CREATE INDEX IF NOT EXISTS idx_notice_sources_source_name ON notice_sources(source_name)",
     "CREATE INDEX IF NOT EXISTS idx_notice_source_groups_source_group ON notice_source_groups(source_group)",
+    "CREATE INDEX IF NOT EXISTS idx_notice_label_targets_target ON notice_label_targets(target)",
 )
 
 

@@ -207,6 +207,8 @@ interface Notice {
   date?: string;
   tags: string[];
   attachments: NoticeAttachment[];
+  targetAudiences: string[] | null; // 적용 대상 라벨. null은 라벨 없음, []는 모든 학생
+  targetExcludes: string[]; // 본문이 분명히 뺀 대상. 지금은 "신입생·편입생"만 쓴다
 }
 ```
 
@@ -215,6 +217,7 @@ interface Notice {
 - `tags`는 항상 배열이다.
 - `attachments`는 항상 배열이다.
 - `audienceGroup`, `sourceGroup`, `sourceGroups`는 백엔드에서 계산해 붙인다.
+- `targetAudiences`, `targetExcludes`는 연구 세션이 검수한 라벨 파일(`NOTICE_LABELS_PATH`)에서 원문 URL로 맞춰 붙인다. 게시판 기준 분류인 `audienceGroup`과는 별개다. [적용 대상 라벨](#적용-대상-라벨) 참고.
 - `id`는 크롤링을 반복해도 바뀌지 않는 고정값이다. 클라이언트는 형식 없는 문자열로 다루고 길이나 형식에 의존하지 않는다.
   - 원본 JSON에 `id`가 있으면 그 값을 쓴다. 크롤러 JSON에는 없다.
   - 없으면 정규화한 원문 URL(`canonicalize_original_url`)의 SHA-256 앞 16자리 hex를 쓴다. 예: `a3f9c2e81b7d4056`
@@ -349,6 +352,7 @@ MVP는 `status`만 반환해도 된다.
 | `q`           | string         | 아니오 | 검색어                                             |
 | `category`    | string         | 아니오 | category 필터                                      |
 | `department`  | string         | 아니오 | department 필터                                    |
+| `target`      | string         | 아니오 | 적용 대상 필터. [적용 대상 라벨](#적용-대상-라벨) 참고 |
 | `page`        | string/integer | 아니오 | 페이지 번호. 잘못된 값은 `1`로 보정                |
 | `pageSize`    | string/integer | 아니오 | 페이지 크기. 잘못된 값은 `20`으로 보정, 최대 `100` |
 
@@ -359,10 +363,31 @@ MVP는 `status`만 반환해도 된다.
 3. 사용 가능한 `sourceGroups` 계산
 4. 선택된 대분류에서 유효한 경우에만 `group` 필터 적용
 5. `source` 필터 허용 여부 판단
-6. `source`, `category`, `department`, `q` 필터 적용
+6. `source`, `category`, `department`, `target`, `q` 필터 적용
 7. 검색 점수화 및 정렬
 8. 페이지네이션
 9. 응답 항목에 분류 필드 추가
+
+#### 적용 대상 라벨
+
+`target` 값은 5개다. 이 밖의 값이나 필터 없음 값(`전체` 등)은 무시한다. facet은 `target`과 무관하게 계산한다.
+
+| `target` | 보이는 `targetAudiences` 코드 |
+| --- | --- |
+| `학부재학생` | `학부재학생` |
+| `신입생·편입생` | `신입생·편입생`, `학부재학생` |
+| `일반대학원생` | `일반대학원생` |
+| `특수대학원생` | `항공경영대학원생`, `항공우주정책대학원생` |
+| `교직원·기타` | `교직원`, `부속기관교육생`, `외부` |
+
+공지 하나가 `target`에 보이는지는 아래 순서로 정한다. 연구 코드(`noticebench/audience.py`의 `covers`)와 같은 규칙이다.
+
+1. 라벨이 없으면(`targetAudiences: null`) 보인다. 라벨이 없다고 공지가 사라지지 않게 한다.
+2. `target`이 `targetExcludes`에 있으면 보이지 않는다.
+3. `targetAudiences`가 빈 목록이면(모든 학생) 보인다.
+4. 위 표에서 그 `target`이 보는 코드 중 하나라도 `targetAudiences`에 있으면 보인다.
+
+챗봇(`/api/chat`) 검색에는 `target` 필터를 쓰지 않는다.
 
 #### 검색어 매칭
 
@@ -951,6 +976,7 @@ BACKEND_CORS_ORIGINS=http://localhost:3000
 | ------------------------------------------ | ------ | -------------------------------- | ------------------------------------------------------------------------------------ |
 | `NOTICE_JSON_PATH`                         | 아니오 | `./data/kau_official_posts.json` | 크롤러 JSON 파일 경로                                                                |
 | `NOTICE_DB_PATH`                           | 아니오 | `./data/kau_notice_hub.db`       | API가 우선 읽는 SQLite DB 경로                                                       |
+| `NOTICE_LABELS_PATH`                       | 아니오 | `./data/notice_labels.jsonl`     | 공지 적용 대상 라벨 JSONL. 없으면 라벨 없이 ingest                                   |
 | `OPENAI_API_KEY`                           | 아니오 | empty                            | content 보강과 RAG 챗봇 OpenAI 호출에 사용. 없으면 챗봇은 local fallback             |
 | `OPENAI_MODEL`                             | 아니오 | `gpt-4.1-mini`                   | RAG 챗봇과 content 보강 OpenAI 호출 기본 모델                                        |
 | `RAG_ENABLED`                              | 아니오 | `false`                          | `true`이고 API key가 있으면 `/api/chat`이 OpenAI 답변 생성                           |

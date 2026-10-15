@@ -93,6 +93,7 @@ def publish_crawler_snapshot(settings: Settings) -> CrawlerPublishResult | None:
                 ingest_json_snapshot(
                     json_path=final_path,
                     db_path=settings.notice_db_path,
+                    labels_path=settings.notice_labels_path,
                 )
             except Exception:
                 logger.exception(

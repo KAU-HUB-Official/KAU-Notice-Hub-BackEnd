@@ -22,6 +22,7 @@ class NoticeSearchQuery:
     source: str | None = None
     category: str | None = None
     department: str | None = None
+    target: str | None = None
     page: int = 1
     page_size: int = 20
 

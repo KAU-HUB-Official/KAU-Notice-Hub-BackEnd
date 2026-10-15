@@ -23,6 +23,10 @@ class Notice(BaseModel):
     date: str | None = None
     tags: list[str] = Field(default_factory=list)
     attachments: list[NoticeAttachment] = Field(default_factory=list)
+    # 연구 세션이 검수한 적용 대상 라벨. None은 라벨 없음, 빈 목록은 모든 학생이다.
+    # audienceGroup(게시판 기준 분류)과는 별개다.
+    targetAudiences: list[str] | None = None
+    targetExcludes: list[str] = Field(default_factory=list)
 
 
 class NoticeFacets(BaseModel):

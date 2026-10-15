@@ -20,6 +20,8 @@ class NoticeQuery:
     source: str | None = None
     category: str | None = None
     department: str | None = None
+    # 목록 전용 적용 대상 필터. 챗봇 검색(find_relevant_notices)에는 넘기지 않는다.
+    target: str | None = None
     page: int | None = None
     page_size: int | None = None
 
@@ -57,6 +59,7 @@ class NoticeService:
                 source=query.source,
                 category=query.category,
                 department=query.department,
+                target=query.target,
                 page=page,
                 page_size=page_size,
             )

@@ -7,6 +7,9 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 class Settings(BaseSettings):
     notice_json_path: Path = Path("./data/kau_official_posts.json")
     notice_db_path: Path = Path("./data/kau_notice_hub.db")
+    # 연구 세션이 검수한 공지 적용 대상 라벨(JSONL). ingest 때마다 URL로 공지에 붙인다.
+    # 파일이 없으면 라벨 없이 ingest하고, 목록의 target 필터는 모든 공지를 보여준다.
+    notice_labels_path: Path = Path("./data/notice_labels.jsonl")
     backend_cors_origins: str = "http://localhost:3000"
     openai_api_key: str | None = None
     openai_model: str = "gpt-4.1-mini"

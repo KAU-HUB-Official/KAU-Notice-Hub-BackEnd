@@ -16,6 +16,7 @@ from app.classification import (
 )
 from app.db import connect, initialize_schema
 from app.normalize import normalize_notice
+from app.notice_labels import TARGETS, covers, label_url_key, load_notice_labels
 from app.schemas import Notice
 from app.search import build_search_text, compact_search_text
 from app.sqlite_repository import build_and_store_facets
@@ -43,6 +44,7 @@ def ingest_json_snapshot(
     *,
     json_path: str | Path,
     db_path: str | Path,
+    labels_path: str | Path | None = None,
 ) -> IngestResult:
     json_file = Path(json_path).expanduser().resolve()
     final_db = Path(db_path).expanduser().resolve()
@@ -63,6 +65,8 @@ def ingest_json_snapshot(
         try:
             initialize_schema(conn)
             _write_notices(conn, notices)
+            if labels_path is not None:
+                _write_labels(conn, notices, Path(labels_path))
             build_and_store_facets(conn)
         finally:
             conn.close()
@@ -211,6 +215,65 @@ def _write_notices(conn: sqlite3.Connection, items: list[_ClassifiedNotice]) -> 
     except Exception:
         conn.execute("ROLLBACK")
         raise
+
+
+def _write_labels(
+    conn: sqlite3.Connection, items: list[_ClassifiedNotice], labels_path: Path
+) -> None:
+    """라벨 파일을 원문 URL로 공지에 붙인다. 라벨 파일 문제로 ingest를 실패시키지 않는다."""
+    labels = load_notice_labels(labels_path)
+
+    label_rows: list[tuple[str, str, str, str | None, str | None, str | None, str | None]] = []
+    target_rows: list[tuple[str, str]] = []
+    used_keys: set[str] = set()
+    for item in items:
+        key = label_url_key(item.notice.url)
+        label = labels.get(key) if key else None
+        if label is None:
+            continue
+        used_keys.add(key)
+        label_rows.append(
+            (
+                item.notice.id,
+                json.dumps(list(label.audiences), ensure_ascii=False),
+                json.dumps(list(label.excludes), ensure_ascii=False),
+                label.series,
+                label.term,
+                label.label_version,
+                label.label_source,
+            )
+        )
+        target_rows.extend(
+            (item.notice.id, target)
+            for target in TARGETS
+            if covers(label.audiences, target, label.excludes)
+        )
+
+    conn.execute("BEGIN")
+    try:
+        if label_rows:
+            conn.executemany(
+                "INSERT INTO notice_labels (notice_id, audiences_json, excludes_json, "
+                "series, term, label_version, label_source) VALUES (?, ?, ?, ?, ?, ?, ?)",
+                label_rows,
+            )
+        if target_rows:
+            conn.executemany(
+                "INSERT INTO notice_label_targets (notice_id, target) VALUES (?, ?)",
+                target_rows,
+            )
+        conn.execute("COMMIT")
+    except Exception:
+        conn.execute("ROLLBACK")
+        raise
+
+    logger.info(
+        "notice labels attached: path=%s labeled=%s unlabeled=%s unmatched_labels=%s",
+        labels_path,
+        len(label_rows),
+        len(items) - len(label_rows),
+        len(labels) - len(used_keys),
+    )
 
 
 class _suppress_missing:

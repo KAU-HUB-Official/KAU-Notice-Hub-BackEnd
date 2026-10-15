@@ -47,7 +47,11 @@ def _build_repository() -> NoticeRepository:
             try:
                 if db_path.exists():
                     db_path.unlink()
-                ingest_json_snapshot(json_path=json_path, db_path=db_path)
+                ingest_json_snapshot(
+                    json_path=json_path,
+                    db_path=db_path,
+                    labels_path=settings.notice_labels_path,
+                )
             except Exception:
                 logger.exception(
                     "bootstrap ingest failed; falling back to JSON repository"

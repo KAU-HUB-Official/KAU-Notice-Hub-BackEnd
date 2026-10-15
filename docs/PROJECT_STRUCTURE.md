@@ -43,7 +43,7 @@ FastAPI lifespan
   -> app/crawler/main.py가 증분 수집 후 전체 스냅샷으로 병합
   -> 결과 JSON 검증
   -> NOTICE_JSON_PATH를 os.replace()로 atomic 교체
-  -> app/ingest.py가 같은 JSON을 임시 SQLite DB에 쓰고 NOTICE_DB_PATH를 atomic 교체
+  -> app/ingest.py가 같은 JSON을 임시 SQLite DB에 쓰고, 적용 대상 라벨(NOTICE_LABELS_PATH)을 붙여 NOTICE_DB_PATH를 atomic 교체
 ```
 
 수동 스크립트 `scripts/run_incremental_crawl_publish.sh`는 JSON 스냅샷 게시를 담당한다. API 서버는 기동 시 DB가 없거나 스키마가 다르면 해당 JSON에서 DB를 다시 만든다.
@@ -57,6 +57,7 @@ FastAPI lifespan
 | `app/dependencies.py` | `NoticeService`와 repository 구성. SQLite 우선, JSON fallback |
 | `app/db.py` | SQLite schema version과 DDL |
 | `app/ingest.py` | JSON 전체 스냅샷을 SQLite DB로 atomic ingest |
+| `app/notice_labels.py` | 공지 적용 대상 라벨 파일(`NOTICE_LABELS_PATH`) 읽기, URL 키, 목록 `target` 판정 규칙(`covers`) |
 | `app/sqlite_repository.py` | SQLite 기반 공지 목록/상세/검색 repository |
 | `app/repository.py` | repository protocol과 JSON fallback repository |
 | `app/service.py` | API용 공지 service, pagination 정규화, 관련 공지 조회 |

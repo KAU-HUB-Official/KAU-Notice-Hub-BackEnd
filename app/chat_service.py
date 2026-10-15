@@ -502,6 +502,7 @@ class RetrievalTrace:
     """
 
     mode: str  # "search" | "history" | "out_of_domain" | "legacy"
+    target: str | None = None  # 검색에 건 적용 대상(요청 userGroup). 없으면 None
     triage_called: bool = False
     triage_keywords: list[str] | None = None  # triage 실패/비활성 시 None
     triage_raw: str | None = None  # LLM 원문(파싱 실패 진단용)
@@ -870,7 +871,9 @@ async def _retrieve_references(
     settings = get_settings()
     pool = max(settings.rag_candidate_pool, settings.rag_max_references)
 
-    trace = RetrievalTrace(mode="legacy", candidate_pool=pool)
+    trace = RetrievalTrace(
+        mode="legacy", candidate_pool=pool, target=filters.target if filters else None
+    )
     retrieval_started = perf_counter()
 
     search_query = normalized_question

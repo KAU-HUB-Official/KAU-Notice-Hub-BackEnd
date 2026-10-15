@@ -21,7 +21,7 @@
 | 중분류 | `CLASSIFICATION.md` 기준으로 계산되는 source group. 한 공지가 여러 중분류에 매칭될 수 있음 |
 | 첨부파일 | 원본 공지에 연결된 파일 |
 | 태그 | 검색/표시에 쓰는 정규화 태그 |
-| 적용 대상 라벨 | 연구 세션이 검수한 공지 적용 대상. DB 밖 파일(`NOTICE_LABELS_PATH`)에서 ingest마다 원문 URL로 붙인다 |
+| 적용 대상 라벨 | 공지 적용 대상. 연구 세션이 검수한 라벨(`NOTICE_LABELS_PATH`)이 먼저고, 없으면 자동 라벨(`NOTICE_AUTO_LABELS_PATH`)을 쓴다. 둘 다 DB 밖 파일이고 ingest마다 원문 URL로 붙인다 |
 
 ## 분류 필드
 
@@ -200,7 +200,7 @@ erDiagram
 
 ### `notice_labels`
 
-공지 적용 대상 라벨을 저장한다. 라벨 원본은 연구 세션이 관리하는 JSONL 파일(`NOTICE_LABELS_PATH`)이고, ingest가 `_write_notices` 다음에 읽어 원문 URL로 공지와 맞춘다. URL은 스킴(http/https)을 버리고, 호스트를 소문자로 바꿔 `www.`를 떼고, 쿼리 인자를 정렬해 비교한다(`app/notice_labels.py`의 `label_url_key`). 라벨이 없는 공지는 행이 없다. 파일이 없거나 줄이 깨져 있어도 ingest는 경고만 남기고 계속한다.
+공지 적용 대상 라벨을 저장한다. 라벨 원본은 연구 세션이 관리하는 JSONL 파일(`NOTICE_LABELS_PATH`)이고, ingest가 `_write_notices` 다음에 읽어 원문 URL로 공지와 맞춘다. URL은 스킴(http/https)을 버리고, 호스트를 소문자로 바꿔 `www.`를 떼고, 쿼리 인자를 정렬해 비교한다(`app/notice_labels.py`의 `label_url_key`). 연구 라벨이 없는 공지는 자동 라벨 파일(`NOTICE_AUTO_LABELS_PATH`, `label_source`가 `auto_rule`·`auto_llm`)에서 같은 방식으로 찾는다. 둘 다 없는 공지는 행이 없다. 파일이 없거나 줄이 깨져 있어도 ingest는 경고만 남기고 계속한다.
 
 | 컬럼 | 타입 | 필수 | 설명 |
 | --- | --- | --- | --- |
@@ -274,11 +274,12 @@ notice 스키마와 독립적이며 `SCHEMA_VERSION` 버전 관리·재ingest �
 | `source` | `text` | 아니오 | user 행: 요청에 적용된 필터 |
 | `category` | `text` | 아니오 | user 행: 요청에 적용된 필터 |
 | `department` | `text` | 아니오 | user 행: 요청에 적용된 필터 |
-| `retrieval_json` | `text` | 아니오 | assistant 행: 검색 단계 trace(mode, triage keywords, 후보 목록, rerank 결과, 단계별 latency) JSON |
+| `retrieval_json` | `text` | 아니오 | assistant 행: 검색 단계 trace(mode, 검색에 건 target, triage keywords, 후보 목록, rerank 결과, 단계별 latency) JSON |
+| `user_group` | `text` | 아니오 | user·assistant 행: 요청 `userGroup`(사용자가 고른 공지 대상). 모르는 값이나 미선택은 `NULL` |
 
 인덱스 `idx_chat_messages_session (session_id, id)`로 세션별 시간순 조회를 받친다.
 
-`retrieval_json`은 나중에 추가된 컬럼이라, 기존 DB에는 `_ensure_initialized`가 `MIGRATION_COLUMNS`를
+`retrieval_json`, `user_group`은 나중에 추가된 컬럼이라, 기존 DB에는 `_ensure_initialized`가 `MIGRATION_COLUMNS`를
 보고 `ALTER TABLE ADD COLUMN`으로 멱등하게 채운다(기존 행은 `NULL`).
 
 ## 사용자 DB (`users.db`)

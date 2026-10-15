@@ -43,7 +43,8 @@ SCHEMA_STATEMENTS: tuple[str, ...] = (
         source TEXT,
         category TEXT,
         department TEXT,
-        retrieval_json TEXT
+        retrieval_json TEXT,
+        user_group TEXT
     )
     """,
     "CREATE INDEX IF NOT EXISTS idx_chat_messages_session ON chat_messages(session_id, id)",
@@ -51,7 +52,11 @@ SCHEMA_STATEMENTS: tuple[str, ...] = (
 
 # 이미 만들어진 DB에는 CREATE TABLE IF NOT EXISTS가 새 컬럼을 추가하지 않는다.
 # (컬럼명, 타입)을 순서대로 멱등 적용해 운영 DB를 수작업 없이 따라오게 한다.
-MIGRATION_COLUMNS: tuple[tuple[str, str], ...] = (("retrieval_json", "TEXT"),)
+MIGRATION_COLUMNS: tuple[tuple[str, str], ...] = (
+    ("retrieval_json", "TEXT"),
+    # 사용자가 고른 공지 대상(요청 userGroup). user·assistant 턴 모두 그 요청의 값을 남긴다.
+    ("user_group", "TEXT"),
+)
 
 _init_lock = threading.Lock()
 _initialized: set[str] = set()
@@ -126,8 +131,8 @@ def _insert_message(
                 session_id, role, content, created_at,
                 references_json, used_fallback, model,
                 audience_group, source_group, source, category, department,
-                retrieval_json
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                retrieval_json, user_group
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 session_id,
@@ -143,6 +148,7 @@ def _insert_message(
                 flt.get("category"),
                 flt.get("department"),
                 retrieval_json,
+                flt.get("user_group"),
             ),
         )
     finally:
@@ -178,6 +184,7 @@ def record_assistant_message(
     used_fallback: bool | None = None,
     model: str | None = None,
     retrieval: dict[str, Any] | None = None,
+    user_group: str | None = None,
 ) -> None:
     """LLM 답변 한 턴을 references·model·fallback과 함께 저장한다(best-effort).
 
@@ -199,6 +206,7 @@ def record_assistant_message(
             references_json=references_json,
             used_fallback=used_fallback,
             model=model,
+            filters={"user_group": user_group},
             retrieval_json=retrieval_json,
         )
     except Exception:  # noqa: BLE001

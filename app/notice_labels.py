@@ -81,13 +81,17 @@ def label_url_key(url: str | None) -> str | None:
     return f"{netloc}{parsed.path}?{query}" if query else f"{netloc}{parsed.path}"
 
 
-def load_notice_labels(path: str | Path) -> dict[str, NoticeLabel]:
-    """라벨 파일을 URL 키별로 읽는다. 파일이 없거나 줄이 깨져 있어도 예외 없이 경고만 남긴다."""
+def load_notice_labels(path: str | Path, *, warn_missing: bool = True) -> dict[str, NoticeLabel]:
+    """라벨 파일을 URL 키별로 읽는다. 파일이 없거나 줄이 깨져 있어도 예외 없이 경고만 남긴다.
+
+    자동 라벨 파일처럼 처음에는 없는 게 정상인 파일은 warn_missing=False로 읽는다.
+    """
     labels_file = Path(path).expanduser()
     try:
         lines = labels_file.read_text(encoding="utf-8").splitlines()
     except FileNotFoundError:
-        logger.warning("notice labels file not found: path=%s", labels_file)
+        if warn_missing:
+            logger.warning("notice labels file not found: path=%s", labels_file)
         return {}
     except (OSError, UnicodeDecodeError):
         logger.warning("notice labels file is unreadable: path=%s", labels_file, exc_info=True)

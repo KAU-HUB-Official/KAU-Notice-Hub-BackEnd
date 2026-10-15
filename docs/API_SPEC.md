@@ -217,7 +217,7 @@ interface Notice {
 - `tags`는 항상 배열이다.
 - `attachments`는 항상 배열이다.
 - `audienceGroup`, `sourceGroup`, `sourceGroups`는 백엔드에서 계산해 붙인다.
-- `targetAudiences`, `targetExcludes`는 연구 세션이 검수한 라벨 파일(`NOTICE_LABELS_PATH`)에서 원문 URL로 맞춰 붙인다. 게시판 기준 분류인 `audienceGroup`과는 별개다. [적용 대상 라벨](#적용-대상-라벨) 참고.
+- `targetAudiences`, `targetExcludes`는 연구 세션이 검수한 라벨 파일(`NOTICE_LABELS_PATH`)에서 원문 URL로 맞춰 붙인다. 연구 라벨이 없는 새 공지는 크롤링 때 게시판 규칙과 LLM으로 만든 자동 라벨(`NOTICE_AUTO_LABELS_PATH`, [CRAWLING_UPDATE.md](CRAWLING_UPDATE.md#공지-대상-자동-라벨))을 쓴다. 게시판 기준 분류인 `audienceGroup`과는 별개다. [적용 대상 라벨](#적용-대상-라벨) 참고.
 - `id`는 크롤링을 반복해도 바뀌지 않는 고정값이다. 클라이언트는 형식 없는 문자열로 다루고 길이나 형식에 의존하지 않는다.
   - 원본 JSON에 `id`가 있으면 그 값을 쓴다. 크롤러 JSON에는 없다.
   - 없으면 정규화한 원문 URL(`canonicalize_original_url`)의 SHA-256 앞 16자리 hex를 쓴다. 예: `a3f9c2e81b7d4056`
@@ -387,7 +387,7 @@ MVP는 `status`만 반환해도 된다.
 3. `targetAudiences`가 빈 목록이면(모든 학생) 보인다.
 4. 위 표에서 그 `target`이 보는 코드 중 하나라도 `targetAudiences`에 있으면 보인다.
 
-챗봇(`/api/chat`) 검색에는 `target` 필터를 쓰지 않는다.
+챗봇(`/api/chat`, `/api/chat/stream`)은 요청의 `userGroup`을 같은 `target` 값으로 검색 후보에 건다. 답변 프롬프트에는 넣지 않는다.
 
 #### 검색어 매칭
 
@@ -610,9 +610,12 @@ interface ChatRequestBody {
   source?: string;
   category?: string;
   department?: string;
+  userGroup?: string; // 선택. 사용자가 고른 공지 대상. 목록 target과 같은 5개 값
   sessionId?: string; // 선택. 세션 로깅이 켜진 경우에만 사용 (아래 참고)
 }
 ```
+
+`userGroup`은 `학부재학생`, `신입생·편입생`, `일반대학원생`, `특수대학원생`, `교직원·기타` 중 하나다. 주면 챗봇이 찾는 공지 후보(검색과, 검색 결과가 없을 때의 최신 공지)를 [적용 대상 라벨](#적용-대상-라벨) 규칙으로 거른다. 라벨 없는 공지는 거르지 않는다. 답변 프롬프트에는 넣지 않는다. 모르는 값이나 빈 값은 필터 없음으로 보고 400으로 막지 않는다. 세션 로깅이 켜져 있으면 user·assistant 턴 모두 `user_group`에 남는다.
 
 `sessionId`는 선택 필드다. 클라이언트가 대화 시작 시 한 번 발급(예: UUID)해 같은 대화의 매 `/api/chat`·`/api/chat/stream` 요청에 함께 보낸다. 서버에서 `CHAT_LOGGING_ENABLED=true`이고 요청에 `sessionId`가 있을 때만, 평가셋·챗봇 개선용으로 각 턴(사용자 질문 / LLM 답변)을 별도 SQLite 파일(`CHAT_LOG_DB_PATH`, 운영 notice DB와 분리)에 append 저장한다. 저장은 응답 전송과 분리된 백그라운드에서 best-effort로 수행되며, 실패해도 응답에는 영향을 주지 않는다. `sessionId`가 없거나 로깅이 꺼져 있으면 아무것도 저장하지 않으며 응답 형태도 동일하다(비파괴적). 응답 본문에는 로깅 관련 필드가 추가되지 않는다.
 
@@ -977,6 +980,11 @@ BACKEND_CORS_ORIGINS=http://localhost:3000
 | `NOTICE_JSON_PATH`                         | 아니오 | `./data/kau_official_posts.json` | 크롤러 JSON 파일 경로                                                                |
 | `NOTICE_DB_PATH`                           | 아니오 | `./data/kau_notice_hub.db`       | API가 우선 읽는 SQLite DB 경로                                                       |
 | `NOTICE_LABELS_PATH`                       | 아니오 | `./data/notice_labels.jsonl`     | 공지 적용 대상 라벨 JSONL. 없으면 라벨 없이 ingest                                   |
+| `NOTICE_AUTO_LABEL_ENABLED`                | 아니오 | `false`                          | 새 공지 대상 자동 라벨(게시판 규칙 + LLM). compose 기본은 `true`                     |
+| `NOTICE_AUTO_LABELS_PATH`                  | 아니오 | `./data/notice_labels_auto.jsonl` | 자동 라벨 JSONL. 연구 라벨이 없는 공지에만 쓴다                                     |
+| `NOTICE_AUTO_LABEL_MODEL`                  | 아니오 | `gpt-6-luna`                     | 자동 라벨 LLM 모델                                                                   |
+| `NOTICE_AUTO_LABEL_REASONING_EFFORT`       | 아니오 | `none`                           | 추론 모델 effort. 비우면 temperature 0으로 호출(추론 모델이 아닐 때)                  |
+| `NOTICE_AUTO_LABEL_MAX_LLM_CALLS_PER_RUN`  | 아니오 | `100`                            | 수집 1회당 자동 라벨 LLM 호출 상한                                                   |
 | `OPENAI_API_KEY`                           | 아니오 | empty                            | content 보강과 RAG 챗봇 OpenAI 호출에 사용. 없으면 챗봇은 local fallback             |
 | `OPENAI_MODEL`                             | 아니오 | `gpt-4.1-mini`                   | RAG 챗봇과 content 보강 OpenAI 호출 기본 모델                                        |
 | `RAG_ENABLED`                              | 아니오 | `false`                          | `true`이고 API key가 있으면 `/api/chat`이 OpenAI 답변 생성                           |

@@ -7,7 +7,9 @@ import json
 import logging
 import os
 import shutil
+import stat
 import tempfile
+import time
 from dataclasses import dataclass
 from pathlib import Path
 from types import TracebackType
@@ -17,6 +19,13 @@ from app.ingest import ingest_json_snapshot
 from app.notice_auto_label import label_unlabeled_notices
 
 logger = logging.getLogger("app.crawler_scheduler")
+
+# A publish whose process was killed (OOM, container recreate) never reaches its
+# `finally`, leaving a full-size temp snapshot behind. Temp files older than this
+# are treated as orphans. Crawls write their output only at the end, so an
+# in-flight temp file keeps the mtime of its creation; keep this well above the
+# longest crawl.
+STALE_TEMP_SNAPSHOT_MAX_AGE_SECONDS = 6 * 60 * 60
 
 
 @dataclass(frozen=True)
@@ -72,6 +81,9 @@ def publish_crawler_snapshot(settings: Settings) -> CrawlerPublishResult | None:
             logger.info("crawler publish skipped because another crawler is running")
             return None
 
+        # Only while holding the publish lock: no other scheduler publish can be
+        # writing a temp file now, and the age check guards the rest.
+        _remove_stale_temp_snapshots(final_path)
         tmp_path = _prepare_temp_snapshot(final_path)
         try:
             _crawl_all_notices(
@@ -184,6 +196,40 @@ def _prepare_temp_snapshot(final_path: Path) -> Path:
         tmp_path.write_text("[]\n", encoding="utf-8")
 
     return tmp_path
+
+
+def _remove_stale_temp_snapshots(
+    final_path: Path,
+    *,
+    max_age_seconds: float = STALE_TEMP_SNAPSHOT_MAX_AGE_SECONDS,
+) -> None:
+    cutoff = time.time() - max_age_seconds
+    removed_count = 0
+    removed_bytes = 0
+
+    for candidate in final_path.parent.glob(f".{final_path.name}.tmp.*"):
+        try:
+            info = candidate.lstat()
+            # lstat + S_ISREG: never follow a symlink out of the data dir.
+            if not stat.S_ISREG(info.st_mode) or info.st_mtime > cutoff:
+                continue
+            candidate.unlink()
+        except FileNotFoundError:
+            continue
+        except OSError:
+            logger.warning("failed to remove stale temp snapshot: %s", candidate, exc_info=True)
+            continue
+        removed_count += 1
+        removed_bytes += info.st_size
+
+    if removed_count:
+        logger.info(
+            "removed stale temp snapshots: count=%s bytes=%s (%.1f MiB) dir=%s",
+            removed_count,
+            removed_bytes,
+            removed_bytes / (1024 * 1024),
+            final_path.parent,
+        )
 
 
 def _crawl_all_notices(*, max_pages: int, output_path: Path):

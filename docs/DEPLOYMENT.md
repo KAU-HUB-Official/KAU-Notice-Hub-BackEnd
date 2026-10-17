@@ -459,4 +459,52 @@ docker compose logs -f caddy
 | 크롤링 실패 | `docker compose logs api`, 기존 JSON 유지 여부 |
 | CORS 에러 | `BACKEND_CORS_ORIGINS`와 frontend origin |
 | 데이터 미갱신 | `CRAWLER_SCHEDULER_ENABLED`, JSON mtime, SQLite ingest 로그, `NOTICE_DB_PATH` |
+| 디스크 부족 | `df -h /`, `/data`의 `.kau_official_posts.json.tmp.*` 누적 여부. 아래 [`/data` 임시 스냅샷 정리](#data-임시-스냅샷-정리) |
 | Swagger 미노출 | `/docs`, `/openapi.json` 응답 상태 |
+
+## `/data` 임시 스냅샷 정리
+
+크롤러 publish 도중 컨테이너가 강제 종료되면(OOM kill, 배포 시 재생성) `/data/.kau_official_posts.json.tmp.*` 임시 파일이 남는다. 파일 하나가 전체 스냅샷 크기(수십~100MB)라 쌓이면 디스크가 차고, 크롤링·ingest·`docker compose up -d --build`가 실패할 수 있다.
+
+서버 내장 스케줄러는 publish 때마다 6시간 이상 지난 임시 파일을 자동으로 지운다([CRAWLING_UPDATE.md의 남은 임시 파일 정리](./CRAWLING_UPDATE.md#남은-임시-파일-정리)). 아래 절차는 자동 정리가 들어가기 전에 이미 쌓인 파일을 손으로 정리할 때 쓴다. 명령은 서버의 `~/KAU-Notice-Hub-BackEnd`에서 실행한다.
+
+> **배포 순서 주의.** 자동 정리가 포함된 버전을 배포하면 api 기동 직후 첫 publish(`CRAWLER_RUN_ON_STARTUP=true`)에서 6시간 이상 지난 임시 파일이 **백업 없이** 지워진다. 백업이 필요하면 그 배포보다 먼저 아래 1~3단계를 끝낸다.
+
+1. 디스크와 `/data` 사용량을 확인한다.
+
+   ```bash
+   df -h /
+   docker compose exec api du -sh /data
+   ```
+
+2. 하루(1440분) 이상 지난 임시 파일 목록과 합계를 본다. 진행 중인 크롤링의 임시 파일이 섞이지 않도록 `-mmin +1440` 조건을 항상 붙인다.
+
+   ```bash
+   docker compose exec -T api find /data -maxdepth 1 -type f -name '.kau_official_posts.json.tmp.*' -mmin +1440 -printf '%TY-%Tm-%Td %TH:%TM %s %f\n' | sort
+   docker compose exec -T api find /data -maxdepth 1 -type f -name '.kau_official_posts.json.tmp.*' -mmin +1440 -printf '%s\n' | awk '{n++; s+=$1} END {printf "%d files, %.1f GiB\n", n, s/1024/1024/1024}'
+   ```
+
+3. **지우기 전에 압축 백업 여부를 프로젝트 소유자에게 확인한다.** 각 임시 파일은 그 크롤링이 시작된 시점의 live 스냅샷 복사본이라, 날짜별 과거 스냅샷으로 연구에 쓸 수 있다. 단, 결과를 쓰는 도중 끊긴 파일은 JSON이 깨져 있을 수 있다. 백업한다면 서버 디스크를 더 쓰지 않도록 로컬 PC에서 SSH로 바로 받는다(압축에 시간이 걸린다).
+
+   ```bash
+   ssh ubuntu@<LIGHTSAIL_HOST> "cd ~/KAU-Notice-Hub-BackEnd && docker compose exec -T api sh -c 'cd /data && find . -maxdepth 1 -type f -name \".kau_official_posts.json.tmp.*\" -mmin +1440 -print0 | tar --null -T - -czf -'" > kau_tmp_snapshots_$(date +%Y%m%d).tar.gz
+   ```
+
+   받은 파일의 항목 수가 2단계 개수와 같은지 확인한 뒤 다음 단계로 간다.
+
+   ```bash
+   tar -tzf kau_tmp_snapshots_YYYYMMDD.tar.gz | wc -l
+   ```
+
+4. 2단계와 같은 조건으로 지운다. `-print`로 지운 파일 이름이 출력된다.
+
+   ```bash
+   docker compose exec api find /data -maxdepth 1 -type f -name '.kau_official_posts.json.tmp.*' -mmin +1440 -print -delete
+   ```
+
+5. 결과를 확인한다. `kau_official_posts.json`, `kau_notice_hub.db`, `users.db`, `chat_sessions.db`, `*.bak*`는 남아 있어야 한다.
+
+   ```bash
+   df -h /
+   docker compose exec api ls -la /data/
+   ```

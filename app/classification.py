@@ -14,7 +14,7 @@ ALL_SOURCE_GROUPS = "__ALL_SOURCE_GROUPS__"
 DEPARTMENT_AUDIENCE_GROUP = "학부 재학생(학과/전공별)"
 
 AUDIENCE_GROUP_ORDER = [
-    "전 구성원 공통",
+    "공식 홈페이지",
     DEPARTMENT_AUDIENCE_GROUP,
     "신입생·저학년",
     "재학생 비교과·글로벌 프로그램",
@@ -249,7 +249,7 @@ def classify_source_to_audience(source: str | list[str] | None = None) -> str:
         return DEPARTMENT_AUDIENCE_GROUP
 
     if any(item == "한국항공대학교 공식 홈페이지" for item in sources):
-        return "전 구성원 공통"
+        return "공식 홈페이지"
 
     return "그 외"
 
@@ -346,7 +346,7 @@ def classify_notice_source_groups(notice: Notice | dict[str, Any]) -> list[str]:
     audience = classify_notice_audience(notice)
     text = source_text(sources)
 
-    if audience == "전 구성원 공통":
+    if audience == "공식 홈페이지":
         return [classify_common_notice_group(notice)]
 
     if audience == DEPARTMENT_AUDIENCE_GROUP:

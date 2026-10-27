@@ -114,6 +114,12 @@ http://localhost:8000/openapi.json
 | --- | --- | --- |
 | `NOTICE_JSON_PATH` | `/data/kau_official_posts.json` | API 서버가 읽는 전체 공지 JSON 스냅샷 |
 | `NOTICE_DB_PATH` | `/data/kau_notice_hub.db` | API 서버가 우선 읽고 ingest가 atomic 교체하는 SQLite DB |
+| `NOTICE_LABELS_PATH` | `/data/notice_labels.jsonl` | 공지 적용 대상 라벨(연구 세션이 관리). ingest 때마다 원문 URL로 공지에 붙인다. 파일을 바꾸면 다음 ingest(크롤링 주기 또는 api 재시작 후 스키마 불일치 재 ingest)부터 반영된다. 없으면 경고만 남기고 라벨 없이 ingest |
+| `NOTICE_AUTO_LABEL_ENABLED` | `true`(compose 기본) | 연구 라벨이 없는 새 공지에 게시판 규칙 + LLM으로 대상 라벨을 붙인다. LLM 비용이 든다(하루 수십 건). 끄려면 `false` |
+| `NOTICE_AUTO_LABELS_PATH` | `/data/notice_labels_auto.jsonl` | 자동 라벨 파일. 크롤링으로 교체되지 않는다. 지우면 다음 수집 때 다시 라벨링(비용 다시 발생) |
+| `NOTICE_AUTO_LABEL_MODEL` | `gpt-6-luna` | 자동 라벨 LLM 모델 |
+| `NOTICE_AUTO_LABEL_REASONING_EFFORT` | `none` | 추론 모델의 `reasoning.effort`. 추론 모델이 아닌 모델(gpt-4.1-mini 등)로 바꾸면 빈 값으로 둔다 |
+| `NOTICE_AUTO_LABEL_MAX_LLM_CALLS_PER_RUN` | `100` | 한 번 수집할 때 LLM 호출 상한. 남은 공지는 다음 수집 때 |
 | `BACKEND_CORS_ORIGINS` | `https://kau-notice-hub.vercel.app,http://localhost:3000` | 쉼표로 구분한 허용 frontend origin. 배포된 프론트가 별도 origin(Vercel 등)이면 그 origin을 반드시 포함해야 브라우저 직접 호출이 CORS 차단되지 않는다. 프론트와 API가 같은 origin이면 무관 |
 | `BACKEND_PORT` | `8000` | Docker host에 바인딩할 API 포트. compose에서는 `127.0.0.1`에만 바인딩 |
 | `API_DOMAIN` | `api.kau-notice.example.com` 또는 `:80` | Caddy가 받을 host. 도메인이 없으면 `:80` |
@@ -132,7 +138,7 @@ http://localhost:8000/openapi.json
 | `CONTENT_ENRICHMENT_MAX_FILE_BYTES` | `10485760` | 다운로드할 asset 최대 크기 |
 | `CONTENT_ENRICHMENT_MAX_CALLS_PER_RUN` | `50` | crawl 1회당 보강 API 호출 상한 |
 | `CONTENT_ENRICHMENT_ALLOWED_DOMAINS` | (비움) | asset 다운로드 도메인 allowlist. 비우면 공개 IP 호스트 전체 허용(localhost·사설 IP는 차단). 값 지정 시 해당 도메인으로 제한 |
-| `LOG_LEVEL` | `INFO` | 로그 레벨 |
+| `LOG_LEVEL` | `INFO` | `app.*` 로거 레벨. `INFO`면 ingest 결과(`ingest completed`, `notice labels attached`), 크롤러 스케줄러, 챗봇 단계 로그(질문 길이·추출 키워드, 질문 원문은 없음)가 `docker compose logs api`에 나온다. 라이브러리 로그 레벨은 바꾸지 않는다 |
 | `RATE_LIMIT_ENABLED` | `true` | Per-IP 레이트리밋(slowapi 인메모리) 활성화. 끄려면 `false` |
 | `RATE_LIMIT_CHAT` | `15/minute` | `/api/chat`·`/api/chat/stream` IP당 한도. 형식 `<횟수>/<기간>` |
 | `RATE_LIMIT_NOTICES` | `120/minute` | `/api/notices`(목록·상세) IP당 한도 |
@@ -159,6 +165,9 @@ http://localhost:8000/openapi.json
 ```env
 NOTICE_JSON_PATH=./data/kau_official_posts.json
 NOTICE_DB_PATH=./data/kau_notice_hub.db
+NOTICE_LABELS_PATH=./data/notice_labels.jsonl
+NOTICE_AUTO_LABEL_ENABLED=false
+NOTICE_AUTO_LABELS_PATH=./data/notice_labels_auto.jsonl
 BACKEND_CORS_ORIGINS=http://localhost:3000
 OPENAI_API_KEY=
 OPENAI_MODEL=gpt-4.1-mini
@@ -316,6 +325,7 @@ Lightsail 방화벽 기준:
 트리거:
 
 - `main` 브랜치에 push 또는 merge
+- 단, 바뀐 파일이 모두 `docs/` 아래이거나 `.md` 파일이면 배포하지 않는다(`paths-ignore`). 배포는 이미지가 같아도 api 컨테이너를 다시 만들어, 진행 중인 크롤링·자동 라벨링을 끊고 임시 스냅샷 파일을 남긴다. 코드와 문서가 함께 바뀐 push는 배포한다.
 
 실행 내용:
 
@@ -472,4 +482,52 @@ docker compose logs -f caddy
 | 크롤링 실패 | `docker compose logs api`, 기존 JSON 유지 여부 |
 | CORS 에러 | `BACKEND_CORS_ORIGINS`와 frontend origin |
 | 데이터 미갱신 | `CRAWLER_SCHEDULER_ENABLED`, JSON mtime, SQLite ingest 로그, `NOTICE_DB_PATH` |
+| 디스크 부족 | `df -h /`, `/data`의 `.kau_official_posts.json.tmp.*` 누적 여부. 아래 [`/data` 임시 스냅샷 정리](#data-임시-스냅샷-정리) |
 | Swagger 미노출 | `/docs`, `/openapi.json` 응답 상태 |
+
+## `/data` 임시 스냅샷 정리
+
+크롤러 publish 도중 컨테이너가 강제 종료되면(OOM kill, 배포 시 재생성) `/data/.kau_official_posts.json.tmp.*` 임시 파일이 남는다. 파일 하나가 전체 스냅샷 크기(수십~100MB)라 쌓이면 디스크가 차고, 크롤링·ingest·`docker compose up -d --build`가 실패할 수 있다.
+
+서버 내장 스케줄러는 publish 때마다 6시간 이상 지난 임시 파일을 자동으로 지운다([CRAWLING_UPDATE.md의 남은 임시 파일 정리](./CRAWLING_UPDATE.md#남은-임시-파일-정리)). 아래 절차는 자동 정리가 들어가기 전에 이미 쌓인 파일을 손으로 정리할 때 쓴다. 명령은 서버의 `~/KAU-Notice-Hub-BackEnd`에서 실행한다.
+
+> **배포 순서 주의.** 자동 정리가 포함된 버전을 배포하면 api 기동 직후 첫 publish(`CRAWLER_RUN_ON_STARTUP=true`)에서 6시간 이상 지난 임시 파일이 **백업 없이** 지워진다. 백업이 필요하면 그 배포보다 먼저 아래 1~3단계를 끝낸다.
+
+1. 디스크와 `/data` 사용량을 확인한다.
+
+   ```bash
+   df -h /
+   docker compose exec api du -sh /data
+   ```
+
+2. 하루(1440분) 이상 지난 임시 파일 목록과 합계를 본다. 진행 중인 크롤링의 임시 파일이 섞이지 않도록 `-mmin +1440` 조건을 항상 붙인다.
+
+   ```bash
+   docker compose exec -T api find /data -maxdepth 1 -type f -name '.kau_official_posts.json.tmp.*' -mmin +1440 -printf '%TY-%Tm-%Td %TH:%TM %s %f\n' | sort
+   docker compose exec -T api find /data -maxdepth 1 -type f -name '.kau_official_posts.json.tmp.*' -mmin +1440 -printf '%s\n' | awk '{n++; s+=$1} END {printf "%d files, %.1f GiB\n", n, s/1024/1024/1024}'
+   ```
+
+3. **지우기 전에 압축 백업 여부를 프로젝트 소유자에게 확인한다.** 각 임시 파일은 그 크롤링이 시작된 시점의 live 스냅샷 복사본이라, 날짜별 과거 스냅샷으로 연구에 쓸 수 있다. 단, 결과를 쓰는 도중 끊긴 파일은 JSON이 깨져 있을 수 있다. 백업한다면 서버 디스크를 더 쓰지 않도록 로컬 PC에서 SSH로 바로 받는다(압축에 시간이 걸린다).
+
+   ```bash
+   ssh ubuntu@<LIGHTSAIL_HOST> "cd ~/KAU-Notice-Hub-BackEnd && docker compose exec -T api sh -c 'cd /data && find . -maxdepth 1 -type f -name \".kau_official_posts.json.tmp.*\" -mmin +1440 -print0 | tar --null -T - -czf -'" > kau_tmp_snapshots_$(date +%Y%m%d).tar.gz
+   ```
+
+   받은 파일의 항목 수가 2단계 개수와 같은지 확인한 뒤 다음 단계로 간다.
+
+   ```bash
+   tar -tzf kau_tmp_snapshots_YYYYMMDD.tar.gz | wc -l
+   ```
+
+4. 2단계와 같은 조건으로 지운다. `-print`로 지운 파일 이름이 출력된다.
+
+   ```bash
+   docker compose exec api find /data -maxdepth 1 -type f -name '.kau_official_posts.json.tmp.*' -mmin +1440 -print -delete
+   ```
+
+5. 결과를 확인한다. `kau_official_posts.json`, `kau_notice_hub.db`, `users.db`, `chat_sessions.db`, `*.bak*`는 남아 있어야 한다.
+
+   ```bash
+   df -h /
+   docker compose exec api ls -la /data/
+   ```

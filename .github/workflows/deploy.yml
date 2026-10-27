@@ -4,6 +4,11 @@ on:
   push:
     branches:
       - main
+    # 문서만 바뀐 push는 배포하지 않는다. 배포는 api 컨테이너를 다시 만들어 진행 중인
+    # 크롤링·자동 라벨링을 끊는다. 코드와 문서가 함께 바뀌면 그대로 배포한다.
+    paths-ignore:
+      - "docs/**"
+      - "**/*.md"
 
 jobs:
   deploy:

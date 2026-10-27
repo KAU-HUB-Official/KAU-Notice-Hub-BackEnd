@@ -35,7 +35,7 @@ def test_common_homepage_group_uses_category_and_title() -> None:
         category="일반공지",
     )
 
-    assert classify_notice_audience(notice) == "전 구성원 공통"
+    assert classify_notice_audience(notice) == "공식 홈페이지"
     assert classify_notice_source_group(notice) == "학사"
 
 

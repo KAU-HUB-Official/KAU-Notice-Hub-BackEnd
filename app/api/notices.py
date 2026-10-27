@@ -39,6 +39,7 @@ async def list_notices(
     source: str | None = None,
     category: str | None = None,
     department: str | None = None,
+    target: str | None = None,
     page: str | None = Query(default=None),
     pageSize: str | None = Query(default=None),
     service: NoticeService = Depends(get_notice_service),
@@ -52,6 +53,7 @@ async def list_notices(
                 source=source,
                 category=category,
                 department=department,
+                target=target,
                 page=parse_number(page, 1),
                 page_size=parse_number(pageSize, 20),
             )

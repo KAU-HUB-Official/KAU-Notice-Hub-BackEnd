@@ -8,6 +8,7 @@ from fastapi.responses import JSONResponse, StreamingResponse
 from app import chat_log
 from app.chat_service import ask_notice_question_with_trace, stream_notice_question
 from app.config import get_settings
+from app.notice_labels import normalize_target
 from app.dependencies import get_notice_service
 from app.rate_limit import chat_rate_limit, limiter
 from app.repository import NoticeRepositoryError
@@ -34,6 +35,7 @@ def _query_from_body(body: ChatRequestBody) -> NoticeQuery:
         source=body.source,
         category=body.category,
         department=body.department,
+        target=normalize_target(body.userGroup),
     )
 
 
@@ -44,6 +46,7 @@ def _filters_dict(body: ChatRequestBody) -> dict[str, str | None]:
         "source": body.source,
         "category": body.category,
         "department": body.department,
+        "user_group": normalize_target(body.userGroup),
     }
 
 
@@ -109,6 +112,7 @@ async def chat(
             used_fallback=answer.usedFallback,
             model=answer.model,
             retrieval=trace.to_dict(),
+            user_group=normalize_target(body.userGroup),
         )
     return answer
 
@@ -194,6 +198,7 @@ async def chat_stream(
                 used_fallback=used_fallback,
                 model=model,
                 retrieval=retrieval,
+                user_group=normalize_target(body.userGroup),
             )
 
     return StreamingResponse(

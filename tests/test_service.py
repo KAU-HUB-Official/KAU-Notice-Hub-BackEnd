@@ -90,7 +90,7 @@ def test_service_ignores_source_filter_when_audience_does_not_support_it() -> No
     result = asyncio.run(
         service.list_notices(
             NoticeQuery(
-                audience_group="전 구성원 공통",
+                audience_group="공식 홈페이지",
                 source="한국항공대학교 컴퓨터공학과",
             )
         )

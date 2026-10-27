@@ -17,6 +17,7 @@ from app.classification import (
 from app.config import get_settings
 from app.db import SCHEMA_VERSION, connect, initialize_schema, read_schema_version
 from app.normalize import normalize_content_markdown
+from app.notice_labels import normalize_target
 from app.repository import (
     NoticeRepositoryError,
     NoticeSearchQuery,
@@ -119,6 +120,7 @@ def _search(conn: sqlite3.Connection, query: NoticeSearchQuery) -> NoticeSearchR
     source = normalize_filter_value(query.source)
     category = normalize_filter_value(query.category)
     department = normalize_filter_value(query.department)
+    target = normalize_target(query.target)
     source_filter_enabled = should_use_source_filter(query.audience_group)
 
     facets, effective_source_group = _resolve_facets(
@@ -134,6 +136,7 @@ def _search(conn: sqlite3.Connection, query: NoticeSearchQuery) -> NoticeSearchR
         source=source if source_filter_enabled else None,
         category=category,
         department=department,
+        target=target,
     )
 
     page_size = max(1, query.page_size)
@@ -172,6 +175,7 @@ def _build_main_where(
     source: str | None,
     category: str | None,
     department: str | None,
+    target: str | None,
 ) -> tuple[list[str], list[object]]:
     clauses: list[str] = []
     params: list[object] = []
@@ -196,6 +200,15 @@ def _build_main_where(
     if department:
         clauses.append("n.department = ?")
         params.append(department)
+    if target:
+        # 라벨이 없는 공지는 target과 무관하게 보인다. 라벨이 있으면 ingest가
+        # covers()로 미리 계산한 notice_label_targets에 그 target이 있어야 한다.
+        clauses.append(
+            "(NOT EXISTS(SELECT 1 FROM notice_labels l WHERE l.notice_id = n.id) "
+            "OR EXISTS(SELECT 1 FROM notice_label_targets t "
+            "WHERE t.notice_id = n.id AND t.target = ?))"
+        )
+        params.append(target)
     return clauses, params
 
 
@@ -715,8 +728,20 @@ def _rows_to_notices(
         notice_ids,
         "tag",
     )
+    labels_map: dict[str, tuple[list[str], list[str]]] = {}
+    for row in conn.execute(
+        f"SELECT notice_id, audiences_json, excludes_json FROM notice_labels "
+        f"WHERE notice_id IN ({placeholders})",
+        notice_ids,
+    ):
+        labels_map[row["notice_id"]] = (
+            json.loads(row["audiences_json"]),
+            json.loads(row["excludes_json"]),
+        )
     return [
-        _row_to_notice(row, sources_map, source_groups_map, attachments_map, tags_map)
+        _row_to_notice(
+            row, sources_map, source_groups_map, attachments_map, tags_map, labels_map
+        )
         for row in rows
     ]
 
@@ -766,6 +791,7 @@ def _row_to_notice(
     source_groups_map: dict[str, list[str]],
     attachments_map: dict[str, list[NoticeAttachment]],
     tags_map: dict[str, list[str]],
+    labels_map: dict[str, tuple[list[str], list[str]]],
 ) -> Notice:
     notice_id = row["id"]
     sources = sources_map.get(notice_id, [])
@@ -775,6 +801,7 @@ def _row_to_notice(
     # content_markdown is precomputed at ingest; only legacy rows that bypassed
     # ingest (NULL column) need normalizing on read.
     precomputed_markdown = _column_or_none(row, "content_markdown")
+    label = labels_map.get(notice_id)
     content = (
         precomputed_markdown
         if precomputed_markdown is not None
@@ -795,6 +822,8 @@ def _row_to_notice(
         date=row["published_at"],
         tags=tags_map.get(notice_id, []),
         attachments=attachments_map.get(notice_id, []),
+        targetAudiences=label[0] if label else None,
+        targetExcludes=label[1] if label else [],
     )
 
 

@@ -63,15 +63,20 @@ class Settings(BaseSettings):
     user_db_path: Path = Path("./data/users.db")
     # 사용자당 북마크 상한. GET /api/bookmarks/ids 응답 크기도 이 값으로 제한된다.
     bookmark_max_per_user: int = 500
-    # 공개 연락처(부서 전화·이메일·법인계좌)까지 검색 인덱스와 LLM 입력에서
-    # 가릴지 여부. 저장된 공지 본문은 어느 쪽이든 원문 그대로다. 끄면 학번과
-    # 표 성명 셀만 가린다. docs/PRIVACY_MASKING.md 참고.
-    privacy_mask_contacts: bool = True
-    # 사용자에게 렌더되는 공지 본문도 가릴지 여부. 끄면 본문은 원문 그대로 저장되고
-    # 검색 인덱스와 LLM 입력만 가려진다. 제목과 첨부파일은 어느 쪽이든 건드리지
-    # 않는다(제목은 공지 ID 계산에 쓰여 북마크가 끊긴다). 공지 DB는 크롤링마다
-    # 교체되므로 끄면 다음 적재에서 원문으로 돌아온다.
+    # 사용자에게 렌더되는 공지 본문에서도 학번과 이름을 가릴지 여부. 끄면 본문은
+    # 원문 그대로 저장되고 검색 인덱스와 LLM 입력만 가려진다. 제목과 첨부파일은
+    # 어느 쪽이든 건드리지 않는다(URL 없는 공지는 제목으로 ID를 만들어 북마크가
+    # 끊긴다). 공지 DB는 크롤링마다 교체되므로 끄면 다음 적재에서 원문으로 돌아온다.
+    # docs/PRIVACY_MASKING.md 참고.
     privacy_mask_body: bool = True
+    # 공지 속 사람 이름을 NER 모델로 가릴지 여부(app/name_masking.py). 켜져 있는데
+    # 모델 파일이 없으면 이름을 가리지 않고 넘어가는 대신 오류를 낸다.
+    # 모델은 scripts/install_name_model.py로 name_model_dir에 넣는다(docs/PRIVACY_MASKING.md).
+    privacy_mask_names: bool = True
+    name_model_dir: Path = Path("./models/kau-name-ner")
+    # 본문별로 찾은 이름 위치. 크롤링마다 전체를 다시 적재해도 바뀐 본문만 모델을
+    # 돌리도록 공지 DB와 별도 파일에 둔다. 지워도 다음 적재 때 다시 만들어진다.
+    name_mask_cache_path: Path = Path("./data/name_mask_cache.db")
     rate_limit_auth: str = "10/minute"
     rate_limit_bookmarks: str = "120/minute"
 

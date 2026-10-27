@@ -50,8 +50,16 @@ services:
       BOOKMARK_MAX_PER_USER: ${BOOKMARK_MAX_PER_USER:-500}
       RATE_LIMIT_AUTH: ${RATE_LIMIT_AUTH:-10/minute}
       RATE_LIMIT_BOOKMARKS: ${RATE_LIMIT_BOOKMARKS:-120/minute}
+      # 이름 마스킹 모델. 실명으로 학습한 파인튜닝 모델이라 저장소에 없다. 서버의
+      # ./models/kau-name-ner에 scripts/install_name_model.py로 넣고 읽기 전용으로 붙인다.
+      # 켜져 있는데 모델이 없으면 적재가 오류를 낸다(docs/PRIVACY_MASKING.md).
+      PRIVACY_MASK_NAMES: ${PRIVACY_MASK_NAMES:-true}
+      NAME_MODEL_DIR: /models/kau-name-ner
+      # 캐시는 볼륨에 둔다. 컨테이너 밖에 두지 않으면 배포마다 전체 공지를 다시 돌린다(약 12분).
+      NAME_MASK_CACHE_PATH: /data/name_mask_cache.db
     volumes:
       - notice_data:/data
+      - ./models/kau-name-ner:/models/kau-name-ner:ro
     ports:
       - "127.0.0.1:${BACKEND_PORT:-8000}:8000"
     restart: unless-stopped

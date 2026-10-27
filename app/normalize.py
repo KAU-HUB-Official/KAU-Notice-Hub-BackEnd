@@ -484,8 +484,8 @@ def normalize_notice(raw: RawNotice, index: int) -> Notice:
         _first_string(raw, ["content", "body", "text", "description"])
         or "본문 정보가 비어 있습니다."
     )
-    # 렌더되는 본문에서 학번·이름·연락처를 가린다. 제목은 build_notice_id()가
-    # 쓰므로 건드리지 않는다(바꾸면 공지 ID가 변해 북마크가 끊긴다).
+    # 렌더되는 본문에서 학번과 이름을 가린다. 제목은 원문 URL이 없는 공지의 ID에
+    # 쓰이므로 건드리지 않는다(바꾸면 공지 ID가 변해 북마크가 끊긴다).
     content = mask_notice_body(normalize_content_markdown(raw_content))
 
     sources = _first_string_list(raw, ["source", "source_name", "source_type", "board"])

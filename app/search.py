@@ -87,9 +87,9 @@ def extract_search_terms(input_value: str | None = None) -> list[str]:
 
 
 def build_search_text(notice: Notice) -> str:
-    # 검색 인덱스에서만 학번·표 성명 셀을 가린다. 저장된 본문은 원문 그대로다.
-    # 여기가 SQLite 적재(app/ingest.py)와 JSON 폴백 검색이 함께 쓰는 관문이라,
-    # 이 한 곳만 막으면 두 경로 모두 학번으로 사람을 찾을 수 없게 된다.
+    # 검색 인덱스에서 학번과 이름을 가린다. 본문 마스킹(PRIVACY_MASK_BODY)을
+    # 꺼도 인덱스는 여기서 가려진다. SQLite 적재(app/ingest.py)와 JSON 폴백 검색이
+    # 함께 쓰는 관문이라, 이 한 곳만 막으면 두 경로 모두 학번으로 사람을 찾을 수 없다.
     values = [
         mask_personal_identifiers(notice.title),
         mask_personal_identifiers(notice.content),

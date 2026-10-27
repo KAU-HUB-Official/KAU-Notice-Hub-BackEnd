@@ -7,11 +7,14 @@ dependencies = [
   "fastapi>=0.115.0",
   "beautifulsoup4>=4.12.0",
   "markdownify>=0.13.1",
+  "numpy>=1.26",
+  "onnxruntime>=1.20",
   "pydantic>=2.8.0",
   "pydantic-settings>=2.4.0",
   "PyJWT>=2.8.0",
   "requests>=2.32.0",
   "slowapi>=0.1.9",
+  "tokenizers>=0.20",
   "unhwp>=0.2.4",
   "uvicorn[standard]>=0.30.0"
 ]

@@ -371,6 +371,28 @@ cp ../FrontEnd/kau_official_posts.json data/kau_official_posts.json
 
 Docker volume을 미리 채우고 싶다면 crawler tool profile을 한 번 실행하거나, 운영 서버에서 volume 내부에 초기 JSON을 넣는다.
 
+## 이름 마스킹 모델 준비
+
+이름 마스킹 모델은 실명이 든 공지로 파인튜닝해서 저장소에 없다(`.gitignore`의 `models/`).
+`git pull`로는 서버에 가지 않으므로 **배포 전에 한 번** 서버에 직접 넣는다. compose가
+서버의 `./models/kau-name-ner`를 api 컨테이너의 `/models/kau-name-ner`에 읽기 전용으로 붙인다.
+
+```bash
+# 로컬에서 (name_audit/finetuned_v2/model = ner_eval/finetune.py final2 결과)
+scp -r name_audit/finetuned_v2/model <user>@<host>:~/model-upload
+# 서버 프로젝트 루트에서. 평가한 파일과 SHA-256이 같은지 확인하고 넣는다.
+python3 scripts/install_name_model.py ~/model-upload ./models/kau-name-ner
+python3 scripts/install_name_model.py --check ./models/kau-name-ner
+```
+
+모델 없이 배포하면 docker가 빈 폴더를 붙이고, 적재가 `NameModelMissingError`로 실패한다.
+모델을 넣기 전에 배포해야 하면 서버 `.env`에 `PRIVACY_MASK_NAMES=false`를 둔다(학번은 계속 가린다).
+
+배포 후 첫 적재는 전체 공지의 이름을 처음 찾느라 CPU 한 코어로 약 12분 걸린다(그동안은
+이전 DB로 서비스한다). 결과는 볼륨의 `/data/name_mask_cache.db`에 남아 다음 적재부터는
+바뀐 공지만 다시 돌린다. 모델을 바꾸면 캐시 키(`MODEL_VERSION`)가 바뀌어 첫 적재가 다시 전체를
+돌린다. 모델 메모리는 [PRIVACY_MASKING.md](PRIVACY_MASKING.md#서버-자원)를 본다.
+
 ## 크롤러 주기 실행
 
 크롤러는 API 요청 처리 경로에서 실행하지 않고, FastAPI lifespan에서 시작한 백그라운드 task가 주기 실행한다. 기본 Docker Compose 설정은 3시간마다 실행한다.
@@ -392,6 +414,7 @@ docker compose --profile tools run --rm crawler
 5. 서버 `~/.ssh/authorized_keys`에 배포용 SSH public key 추가
 6. GitHub Repository secrets에 `LIGHTSAIL_HOST`, `LIGHTSAIL_USER`, `LIGHTSAIL_SSH_KEY` 등록
 7. 서버 프로젝트 루트에 `.env` 작성
+7-1. 이름 마스킹 모델을 `./models/kau-name-ner`에 넣음(위 "이름 마스킹 모델 준비")
 8. 서버에서 `docker compose --profile proxy up -d --build` 1회 수동 실행
 9. `docker compose ps`에서 `api`가 `127.0.0.1:8000->8000/tcp`, `caddy`가 `80/443`으로 뜨는지 확인
 10. `curl http://localhost:8000/health` 또는 `curl https://api.example.com/health` 확인

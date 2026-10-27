@@ -68,6 +68,8 @@ data/eval/
 # 연구용 원본 수집. 공지 원문에 학번·성명이 섞여 있어 커밋하지 않는다.
 data/research/
 !data/.gitkeep
+# 이름 마스킹 모델. 실명으로 학습해 커밋하지 않고 scripts/install_name_model.py로 넣는다.
+models/
 
 # Local databases
 *.sqlite

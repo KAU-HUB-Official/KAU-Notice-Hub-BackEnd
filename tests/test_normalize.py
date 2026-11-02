@@ -248,6 +248,7 @@ def test_normalize_converts_empty_header_flow_table_to_text() -> None:
 
     assert "| --- |" not in notice.content
     assert "4. 제출절차\n이수확인서 작성 및 성적증명서 발급 → 주임교수 이수 확인 →" in notice.content
+    # 메일은 문의처라 가리지 않는다.
     assert "\n▪ e-mail접수 [jchae@kau.ac.kr](mailto:jchae@kau.ac.kr)" in notice.content
     assert "\n▪ 사무실 접수" in notice.content
     assert "\n별첨 양식 다운로드\n5. 문의 사항" in notice.content

@@ -9,6 +9,7 @@ FastAPI 기반 공지 API 서버다. 크롤러는 전체 스냅샷 JSON을 atomi
 | [AGENTS.md](AGENTS.md) | 에이전트 작업 규칙과 운영 체크리스트 |
 | [docs/PROJECT_STRUCTURE.md](docs/PROJECT_STRUCTURE.md) | 현재 프로젝트 구조와 런타임 흐름 |
 | [docs/API_SPEC.md](docs/API_SPEC.md) | API 계약과 Swagger UI 경로 |
+| [docs/PRIVACY_MASKING.md](docs/PRIVACY_MASKING.md) | 학번·이름 마스킹 기준과 NER 모델 선택 근거 |
 | [docs/CLASSIFICATION.md](docs/CLASSIFICATION.md) | 공지 대분류/중분류/source 필터 기준 |
 | [docs/CRAWLING_UPDATE.md](docs/CRAWLING_UPDATE.md) | 크롤러 JSON 게시 정책 |
 | [docs/RAG_PLAN.md](docs/RAG_PLAN.md) | 공지 기반 RAG 동작 기준 |
@@ -35,6 +36,7 @@ data/            로컬 런타임 JSON/SQLite 저장소 (.gitkeep만 커밋)
 
 ```bash
 python3 -m pip install -e '.[dev]'
+python3 scripts/install_name_model.py <모델 폴더>   # 이름 마스킹 모델 (docs/PRIVACY_MASKING.md)
 uvicorn app.main:app --reload --port 8000
 ```
 

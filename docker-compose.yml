@@ -63,9 +63,11 @@ services:
     ports:
       - "127.0.0.1:${BACKEND_PORT:-8000}:8000"
     restart: unless-stopped
-    # 911MiB Lightsail 호스트 보호: 크롤 ingest 스파이크가 호스트 전체를 흔들지 않도록 상한.
-    # 초과 시 이 컨테이너만 OOM kill되고 restart 정책이 되살린다. (스왑 2G 존재 여부는 free -h로 확인)
-    mem_limit: 750m
+    # 2GB Lightsail 호스트(실측 1.9GiB) 보호: 크롤 ingest 스파이크가 호스트 전체를 흔들지 않도록 상한.
+    # 초과 시 이 컨테이너만 OOM kill되고 restart 정책이 되살린다. 호스트 프로세스와 caddy 몫으로
+    # 약 500MiB를 남긴다. memswap_limit은 RAM+swap 합계라 swap 사용은 600MiB까지만 허용한다.
+    mem_limit: 1400m
+    memswap_limit: 2000m
 
   crawler:
     build:

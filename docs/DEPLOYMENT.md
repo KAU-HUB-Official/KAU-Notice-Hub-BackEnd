@@ -25,7 +25,7 @@
    같은 값을 넣고 api 컨테이너 재기동 + Vercel 재배포. 비워두면 BFF 뒤 모든 사용자가
    레이트리밋 버킷 하나를 공유해서 홍보 당일 429가 쏟아진다.
    확인: 서로 다른 네트워크의 기기 2대로 챗을 연타해 429가 기기별로 따로 걸리는지 본다.
-3. **컨테이너 메모리 상한** — compose의 api `mem_limit: 750m`이 반영된 상태로 배포하고,
+3. **컨테이너 메모리 상한** — compose의 api `mem_limit: 1400m`, `memswap_limit: 2000m`이 반영된 상태로 배포하고,
    서버에서 `free -h`로 swap 2G가 실제 존재하는지 확인한다(위 "메모리 가드" 절 참고).
 4. **HTTPS** — `API_DOMAIN`이 비어 있으면 Caddy가 평문 `:80`으로 서비스한다. 도메인을 준비해
    서버 `.env`에 `API_DOMAIN=<도메인>`을 넣고 caddy를 재기동하면 인증서 발급과 80→443
@@ -35,7 +35,7 @@
 
 ## Lightsail 인스턴스 메모리 가드
 
-운영 인스턴스(Lightsail Mem 911MiB)에서 OOM kill을 막기 위한 두 가지 안전망. **코드 변경과 별개로 1회만 실행**한다.
+운영 인스턴스(Lightsail 2GB 플랜, 실측 Mem 1.9GiB)에서 OOM kill을 막기 위한 두 가지 안전망. 2026-11-03에 1GB 플랜(911MiB)에서 옮겼다. **코드 변경과 별개로 1회만 실행**한다.
 
 ### swap 추가 (D)
 
@@ -55,8 +55,8 @@ API systemd unit (또는 docker-compose의 `mem_limit`/`memswap_limit`)에 다�
 [Service]
 Restart=always
 RestartSec=2
-MemoryHigh=600M
-MemoryMax=750M
+MemoryHigh=1200M
+MemoryMax=1400M
 ```
 
 docker-compose 사용 시 `api` 서비스에 추가:
@@ -65,7 +65,7 @@ docker-compose 사용 시 `api` 서비스에 추가:
 deploy:
   resources:
     limits:
-      memory: 750M
+      memory: 1400M
 ```
 
 ## 배포 후 DB 마이그레이션
@@ -246,7 +246,7 @@ docker compose --profile proxy up -d --build
 
 API 컨테이너는 듀얼코어 호스트에 맞춰 uvicorn 워커 2개(`--workers 2`, `Dockerfile`)로 실행한다. 동시 요청을 두 워커가 나눠 처리해 단일 워커 직렬화를 완화한다.
 
-크롤러 스케줄러는 각 워커의 lifespan에서 시작되지만 **워커 간 singleton**이다. `run_crawler_scheduler`가 `.crawler-scheduler.lock`을 non-blocking으로 잡아 한 워커만 스케줄링을 돌리고, 나머지 워커는 건너뛴다. 실제 게시/ingest는 별도의 `.crawler.lock`으로도 보호되므로 이중 크롤·ingest는 발생하지 않는다. 메모리가 빠듯하면(호스트 ~911MiB) ingest 순간 사용량을 `docker stats`로 확인한다.
+크롤러 스케줄러는 각 워커의 lifespan에서 시작되지만 **워커 간 singleton**이다. `run_crawler_scheduler`가 `.crawler-scheduler.lock`을 non-blocking으로 잡아 한 워커만 스케줄링을 돌리고, 나머지 워커는 건너뛴다. 실제 게시/ingest는 별도의 `.crawler.lock`으로도 보호되므로 이중 크롤·ingest는 발생하지 않는다. 메모리가 빠듯하면(호스트 ~1.9GiB, api 상한 1400MiB) ingest 순간 사용량을 `docker stats`로 확인한다.
 
 ```text
 api

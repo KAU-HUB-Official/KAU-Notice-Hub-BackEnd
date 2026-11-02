@@ -22,6 +22,8 @@ jobs:
           username: ${{ secrets.LIGHTSAIL_USER }}
           key: ${{ secrets.LIGHTSAIL_SSH_KEY }}
           script: |
+            # 한 줄이라도 실패하면 멈춘다. 없으면 git pull이 실패해도 옛 코드로 다시 빌드하고 성공으로 표시된다.
+            set -e
             cd ~/KAU-Notice-Hub-BackEnd
             git pull origin main
             docker compose --profile proxy up -d --build

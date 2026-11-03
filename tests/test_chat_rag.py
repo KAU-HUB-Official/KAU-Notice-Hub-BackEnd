@@ -948,6 +948,56 @@ def test_rerank_prompt_injects_today() -> None:
     assert "공지 검색 보조자" in prompt  # rerank 마커 유지
 
 
+
+def test_rerank_prompt_without_target_keeps_selection_prompt() -> None:
+    from datetime import date
+
+    # 대상이 없는 요청은 평가하지 않았으므로 기존 프롬프트를 그대로 쓴다.
+    assert chat_service._build_rerank_prompt(date(2026, 6, 3)) == chat_service._build_rerank_prompt(
+        date(2026, 6, 3), None
+    )
+    assert "질문자는" not in chat_service._build_rerank_prompt(date(2026, 6, 3))
+
+
+def test_rerank_prompt_with_target_asks_for_order() -> None:
+    from datetime import date
+
+    prompt = chat_service._build_rerank_prompt(date(2026, 6, 3), "일반대학원생")
+    assert "오늘은 2026-06-03" in prompt
+    assert "질문자는 일반대학원생" in prompt
+    assert "순서대로" in prompt  # 고르기만 하지 않고 순위를 매기게 한다
+    assert "공지 검색 보조자" in prompt  # rerank 마커 유지
+
+
+def test_build_rerank_list_shows_audience_only_when_asked() -> None:
+    notice = make_notice("a", "등록 안내").model_copy(update={"targetAudiences": ["학부재학생", "일반대학원생"]})
+    unlabeled = make_notice("b", "등록 안내 2")
+    assert "대상:" not in chat_service.build_rerank_list([notice])
+    lines = chat_service.build_rerank_list([notice, unlabeled], show_audience=True).split("\n")
+    assert lines[2] == "  대상: 학부재학생, 일반대학원생"
+    assert lines[5] == "  대상: 표시 없음"
+
+
+@pytest.mark.anyio
+async def test_rerank_with_target_uses_target_prompt_and_keeps_order(rag_env) -> None:
+    rag_env(enabled=True, api_key="sk-test")
+    candidates = _scholarship_notices(8)
+    seen: dict = {}
+
+    def fake(api_key, model, system_prompt, messages, **_kwargs):
+        seen["system"] = system_prompt
+        seen["user"] = messages[-1]["content"]
+        return "[6, 3]"
+
+    with patch.object(chat_service, "_call_openai_sync", side_effect=fake):
+        selected = await chat_service._rerank_candidates(candidates, "장학금", target="학부재학생")
+
+    assert "질문자는 학부재학생" in seen["system"]
+    assert "대상: 표시 없음" in seen["user"]
+    # 응답 순서가 곧 근거 순위다.
+    assert [notice.id for notice in selected] == ["n5", "n2"]
+
+
 # ---- RetrievalTrace (검색 단계 진단 로그) ----
 
 

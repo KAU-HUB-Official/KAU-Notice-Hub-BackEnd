@@ -998,6 +998,49 @@ async def test_rerank_with_target_uses_target_prompt_and_keeps_order(rag_env) ->
     assert [notice.id for notice in selected] == ["n5", "n2"]
 
 
+
+@pytest.mark.anyio
+async def test_rerank_model_depends_on_target(rag_env, monkeypatch) -> None:
+    rag_env(enabled=True, api_key="sk-test")
+    settings = get_settings()
+    monkeypatch.setattr(settings, "openai_model", "base-model")
+    monkeypatch.setattr(settings, "target_rerank_model", "target-model")
+    monkeypatch.setattr(settings, "target_rerank_reasoning_effort", "none")
+    calls: list[tuple[str, dict]] = []
+
+    def fake(api_key, model, system_prompt, messages, **kwargs):
+        calls.append((model, kwargs))
+        return "[1]"
+
+    with patch.object(chat_service, "_call_openai_sync", side_effect=fake):
+        await chat_service._rerank_candidates(_scholarship_notices(8), "장학금", target="학부재학생")
+        await chat_service._rerank_candidates(_scholarship_notices(8), "장학금")
+
+    # 대상이 있으면 대상 rerank 모델(추론 effort), 없으면 기본 모델 그대로.
+    assert calls[0][0] == "target-model"
+    assert calls[0][1]["reasoning_effort"] == "none"
+    assert calls[1][0] == "base-model"
+    assert calls[1][1]["reasoning_effort"] is None
+
+
+def test_call_openai_sends_effort_instead_of_temperature() -> None:
+    sent: list[dict] = []
+
+    def fake_post(url, **kwargs):
+        sent.append(kwargs["json"])
+        response = MagicMock(status_code=200)
+        response.json.return_value = {"output_text": "[1]"}
+        return response
+
+    with patch.object(chat_service.requests, "post", side_effect=fake_post):
+        chat_service._call_openai_sync("k", "m", "s", [], temperature=0.0, reasoning_effort="none")
+        chat_service._call_openai_sync("k", "m", "s", [], temperature=0.0)
+
+    # 추론 모델은 temperature를 받지 않는다.
+    assert sent[0]["reasoning"] == {"effort": "none"} and "temperature" not in sent[0]
+    assert sent[1]["temperature"] == 0.0 and "reasoning" not in sent[1]
+
+
 # ---- RetrievalTrace (검색 단계 진단 로그) ----
 
 

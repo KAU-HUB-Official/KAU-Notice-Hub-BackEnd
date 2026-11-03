@@ -151,8 +151,9 @@ RERANK_PROMPT_TEMPLATE = "\n".join(
 
 # 질문자 대상(userGroup)이 있을 때 쓰는 rerank 프롬프트. 위 프롬프트는 번호를 고르게만 해서
 # 응답이 늘 오름차순(후보 순서 그대로)이었고, 응답 순서를 근거 순위로 쓰는 코드와 맞지 않았다.
-# 질문자 대상과 후보별 대상 라벨을 주고 관련도 순으로 내게 한다. 510문항 평가에서 1위 정답
-# 84% → 89%(2026-11-03, docs/RAG_EVALUATION.md). 대상이 없는 요청은 평가하지 않아 위 프롬프트를 유지한다.
+# 질문자 대상과 후보별 대상 라벨을 주고 관련도 순으로 내게 한다. 모델은 settings.target_rerank_model.
+# 510문항 평가(2026-11-03)의 1위 정답: 위 프롬프트 + gpt-4.1-mini 84%, 이 프롬프트 + gpt-4.1-mini 89%,
+# 이 프롬프트 + gpt-6-luna 93%. 대상이 없는 요청은 평가하지 않아 위 프롬프트와 openai_model을 유지한다.
 TARGET_RERANK_PROMPT_TEMPLATE = "\n".join(
     [
         "너는 KAU 공지 검색 보조자다. 오늘은 {today}이고, 질문자는 {target}이다.",
@@ -160,7 +161,8 @@ TARGET_RERANK_PROMPT_TEMPLATE = "\n".join(
         "질문에 답하는 데 관련 있는 공지 번호를 질문자에게 가장 맞는 공지부터 순서대로 "
         "JSON 배열로 출력한다. 첫 번호가 1순위 근거다. 예: [7, 2, 5]",
         "제외:",
-        "- 지금 신청할 수 있는지를 묻는데 발췌상 마감일이 오늘 이전인 공지. 마감일이 불분명하면 포함한다.",
+        "- 지금 신청할 수 있는지를 묻는데 발췌상 마감일이 오늘 이전인 공지. "
+        "언제·기간·일정·방법을 묻는 질문은 마감이 지났어도 제외하지 않는다. 마감일이 불분명하면 포함한다.",
         "- 신청·참여를 묻는 질문에서 결과 발표·합격자 공지와 조달(용역·임차·견적) 공지.",
         "순서:",
         "1. 질문이 특정 절차(분할납부, 대출, 연장, 추가 신청 등)를 묻거나 질문자가 그 절차의 "
@@ -346,6 +348,7 @@ def _call_openai_sync(
     system_prompt: str,
     messages: list[dict[str, str]],
     temperature: float | None = None,
+    reasoning_effort: str | None = None,
 ) -> str | None:
     payload = {
         "model": model,
@@ -355,7 +358,10 @@ def _call_openai_sync(
     }
     # triage처럼 결정적이어야 하는 분류 호출은 temperature를 고정한다. 지정하지 않으면
     # Responses API 기본값(1.0)이라 같은 질문도 호출마다 mode/keywords가 흔들린다.
-    if temperature is not None:
+    # 추론 모델은 temperature를 받지 않으므로 reasoning_effort가 있으면 그것만 보낸다.
+    if reasoning_effort:
+        payload["reasoning"] = {"effort": reasoning_effort}
+    elif temperature is not None:
         payload["temperature"] = temperature
     try:
         response = requests.post(
@@ -712,15 +718,17 @@ async def _rerank_candidates(
         ]
     )
     messages = _trim_history(history) + [{"role": "user", "content": user_message}]
+    model = settings.target_rerank_model if target else settings.openai_model
     raw = await asyncio.to_thread(
         _call_openai_sync,
         settings.openai_api_key,
-        settings.openai_model,
+        model,
         _build_rerank_prompt(today, target),
         messages,
         # 후보 선별은 분류 작업이라 매번 같은 결과여야 한다. 기본값(1.0)이면
         # 같은 질문에도 선별이 흔들려 관련 공지가 들쭉날쭉 탈락한다(triage와 동일하게 고정).
         temperature=0.0,
+        reasoning_effort=settings.target_rerank_reasoning_effort if target else None,
     )
     if trace is not None and isinstance(raw, str):
         trace.rerank_raw = raw[:RERANK_RAW_MAX_CHARS]

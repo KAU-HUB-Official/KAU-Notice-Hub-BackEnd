@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 import re
 from dataclasses import dataclass
 from datetime import datetime, timezone
@@ -30,6 +31,11 @@ logger = get_logger("crawler.services.content_enrichment")
 
 EnrichmentPostStatus = Literal["success", "failed", "skipped"]
 BUDGET_EXCEEDED_CODE = "enrichment_call_budget_exceeded"
+MISSING_API_KEY_CODE = "missing_openai_api_key"
+# 같은 자료(이미지·첨부 주소)로 이만큼 연속 실패한 공지는 자료가 바뀔 때까지 다시 보강하지 않는다.
+# 깨진 이미지처럼 다시 해도 실패할 공지를 수집마다 되풀이하지 않게 하고, 학교 서버 일시 오류처럼
+# 한두 번 뒤 풀리는 실패는 다시 시도할 여유를 둔다.
+MAX_FAILED_ATTEMPTS = 3
 
 FALLBACK_CONTENT_PREFIXES = (
     "[이미지 본문]",
@@ -164,7 +170,7 @@ class ContentEnrichmentService:
                 result.attempted += 1
                 self._mark_failed(
                     post,
-                    "missing_openai_api_key",
+                    MISSING_API_KEY_CODE,
                     [],
                     trigger=detect_trigger(post),
                 )
@@ -199,6 +205,14 @@ class ContentEnrichmentService:
         )
 
         enrichment = post.get("content_enrichment")
+        if (
+            isinstance(enrichment, dict)
+            and enrichment.get("status") == "failed"
+            and int(enrichment.get("attempts") or 0) >= MAX_FAILED_ATTEMPTS
+            and enrichment.get("assets_fingerprint") == assets_fingerprint(assets)
+        ):
+            return False
+
         if isinstance(enrichment, dict) and enrichment.get("status") == "success":
             # status=success여도 content에 실제 텍스트가 없으면(과거 refresh가 보강
             # 본문을 원본 이미지로 덮어 desync된 경우) 재보강한다. 텍스트가 있으면 건너뛴다.
@@ -279,10 +293,11 @@ class ContentEnrichmentService:
 
                 errors.append(str(code))
                 logger.warning(
-                    "본문 보강 실패 | 제목=%s | asset=%s | 코드=%s",
+                    "본문 보강 실패 | 제목=%s | asset=%s | 코드=%s | 사유=%s",
                     post.get("title"),
                     safe_asset_log_value(asset.url),
                     code,
+                    safe_asset_log_value(str(exc)),
                 )
                 continue
 
@@ -291,7 +306,7 @@ class ContentEnrichmentService:
             return "failed"
 
         if self.content_generator is None:
-            self._mark_failed(post, "missing_openai_api_key", errors, trigger=trigger)
+            self._mark_failed(post, MISSING_API_KEY_CODE, errors, trigger=trigger)
             return "failed"
 
         if not self._consume_call():
@@ -379,6 +394,18 @@ class ContentEnrichmentService:
         *,
         trigger: str | None = None,
     ) -> None:
+        fingerprint = assets_fingerprint(self.find_supported_assets(post))
+        previous = post.get("content_enrichment")
+        attempts = 0
+        if (
+            isinstance(previous, dict)
+            and previous.get("status") == "failed"
+            and previous.get("assets_fingerprint") == fingerprint
+        ):
+            attempts = int(previous.get("attempts") or 0)
+        # API 키가 없는 것은 자료 탓이 아니라 설정 문제라 연속 실패로 세지 않는다.
+        if error_code != MISSING_API_KEY_CODE:
+            attempts += 1
         post["content_enrichment"] = {
             "enabled": True,
             "status": "failed",
@@ -386,6 +413,8 @@ class ContentEnrichmentService:
             "provider": self.provider_name,
             "error_code": error_code,
             "asset_errors": errors,
+            "assets_fingerprint": fingerprint,
+            "attempts": attempts,
             "generated_at": datetime.now(timezone.utc).isoformat(),
         }
 
@@ -429,6 +458,12 @@ def visible_text_length(content: str) -> int:
     stripped = _MARKDOWN_LINK_RE.sub(r"\1", stripped)
     stripped = _BARE_URL_RE.sub(" ", stripped)
     return len("".join(stripped.split()))
+
+
+def assets_fingerprint(assets: list[ContentAsset]) -> str:
+    """보강에 쓰는 자료 목록의 지문. 공지를 다시 수집해 이미지·첨부가 바뀌면 달라진다."""
+    joined = "\n".join(f"{asset.type}:{asset.url}" for asset in assets)
+    return hashlib.sha256(joined.encode("utf-8")).hexdigest()
 
 
 def safe_asset_log_value(url: str, *, max_length: int = 200) -> str:

@@ -24,6 +24,7 @@ from app.crawler.services.content_asset_downloader import (
     is_safe_asset_url,
 )
 from app.crawler.services.content_enrichment_service import (
+    MAX_FAILED_ATTEMPTS,
     ContentEnrichmentService,
     detect_trigger,
     is_fallback_content,
@@ -756,6 +757,65 @@ def test_content_enrichment_failure_keeps_fallback_content() -> None:
     assert post["content_enrichment"]["asset_errors"] == ["asset_download_failed"]
 
 
+def _failing_image_post() -> dict:
+    return {
+        "title": "깨진 이미지 공지",
+        "content": "[이미지 본문] 텍스트 본문 없음 (이미지 1개)",
+        "attachments": [],
+        "content_assets": [
+            {"type": "inline_image", "name": "poster.png", "url": "https://kau.ac.kr/poster.png", "source": "body"}
+        ],
+    }
+
+
+def test_content_enrichment_stops_retrying_after_repeated_failures_with_same_assets() -> None:
+    post = _failing_image_post()
+    service = make_service(downloader=FailingDownloader())
+
+    for expected in range(1, MAX_FAILED_ATTEMPTS + 1):
+        assert service.should_enrich(post)
+        service.enrich_posts([post])
+        assert post["content_enrichment"]["attempts"] == expected
+
+    assert not service.should_enrich(post)
+    assert service.enrich_posts([post]).skipped == 1
+
+
+def test_content_enrichment_retries_again_when_assets_change() -> None:
+    post = _failing_image_post()
+    service = make_service(downloader=FailingDownloader())
+    for _ in range(MAX_FAILED_ATTEMPTS):
+        service.enrich_posts([post])
+
+    post["content_assets"][0]["url"] = "https://kau.ac.kr/poster-fixed.png"
+
+    assert service.should_enrich(post)
+    service.enrich_posts([post])
+    assert post["content_enrichment"]["attempts"] == 1
+
+
+def test_missing_api_key_failures_do_not_count_as_attempts() -> None:
+    post = _failing_image_post()
+    service = ContentEnrichmentService(
+        enabled=True,
+        min_text_length=30,
+        max_assets_per_notice=3,
+        max_calls_per_run=10,
+        downloader=FakeDownloader(),
+        hwp_extractor=HwpTextExtractor(min_text_length=30),
+        image_extractor=None,
+        content_generator=None,
+        provider_name="fake",
+        model_name="fake-model",
+    )
+
+    for _ in range(MAX_FAILED_ATTEMPTS + 1):
+        service.enrich_posts([post])
+
+    assert post["content_enrichment"]["attempts"] == 0
+    assert service.should_enrich(post)
+
+
 def test_content_enrichment_missing_key_fails_before_download() -> None:
     downloader = FakeDownloader()
     service = ContentEnrichmentService(
@@ -868,3 +928,33 @@ def test_openai_provider_wraps_transport_timeout() -> None:
             min_text_length=1,
         )
     assert excinfo.value.code == "openai_request_failed"
+
+
+def test_openai_provider_error_message_includes_error_type_and_code() -> None:
+    class RejectingResponse:
+        status_code = 400
+
+        def json(self) -> dict:
+            return {"error": {"type": "invalid_request_error", "code": "invalid_image_format", "message": "본문 일부"}}
+
+    class RejectingSession:
+        def post(self, *args, **kwargs) -> RejectingResponse:
+            return RejectingResponse()
+
+    provider = OpenAIContentProvider(
+        api_key="test-key",
+        model="gpt-4.1-mini",
+        session=RejectingSession(),  # type: ignore[arg-type]
+    )
+    downloaded = DownloadedAsset(
+        asset=ContentAsset(type="inline_image", name="poster.png", url="https://kau.ac.kr/poster.png", source="body"),
+        data=b"image",
+        content_type="image/png",
+        sha256="fake",
+    )
+
+    with pytest.raises(OpenAIProviderError) as excinfo:
+        provider.extract_image_text(downloaded, notice_meta={"title": "공지"}, min_text_length=1)
+
+    assert excinfo.value.code == "openai_request_failed"
+    assert str(excinfo.value) == "OpenAI request failed: status=400 type=invalid_request_error code=invalid_image_format"

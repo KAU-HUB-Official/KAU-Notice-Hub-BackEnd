@@ -28,6 +28,19 @@ class OpenAIProviderError(Exception):
         self.code = code
 
 
+def _error_detail(response: requests.Response) -> str:
+    # 실패 원인을 로그로 가릴 수 있게 응답 본문의 error.type·code만 붙인다.
+    # error.message에는 요청 내용 일부가 섞일 수 있어 쓰지 않는다.
+    try:
+        error = response.json().get("error")
+    except (ValueError, AttributeError):
+        return ""
+    if not isinstance(error, dict):
+        return ""
+    parts = [f"{key}={error[key]}" for key in ("type", "code") if error.get(key)]
+    return f" {' '.join(parts)}" if parts else ""
+
+
 class OpenAIContentProvider:
     def __init__(
         self,
@@ -204,7 +217,7 @@ class OpenAIContentProvider:
         if response.status_code >= 400:
             raise OpenAIProviderError(
                 "openai_request_failed",
-                f"OpenAI request failed: status={response.status_code}",
+                f"OpenAI request failed: status={response.status_code}{_error_detail(response)}",
             )
 
         try:

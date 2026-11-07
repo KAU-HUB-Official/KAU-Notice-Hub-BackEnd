@@ -112,6 +112,16 @@ def test_expand_search_terms_maps_exam_colloquial_synonyms() -> None:
     assert "시험" not in expanded_mid
 
 
+def test_expand_search_terms_maps_slang_to_notice_terms() -> None:
+    # 질문에 쓰는 말 → 공지 제목에 쓰는 말 (2026-11-08 평가 실패 사례)
+    assert "생활관" in expand_search_terms(["긱사"])
+    assert "학위수여식" in expand_search_terms(["졸업식"])
+    assert "k-mooc" in expand_search_terms(["kmooc"])
+    assert "졸업인증" in expand_search_terms(["space인증"])
+    # 영문 "space" 단독은 aerospace 등에 걸려 넣지 않았다
+    assert expand_search_terms(["space"]) == ["space"]
+
+
 def test_expand_search_terms_keeps_unrelated_terms_untouched() -> None:
     # 동의어군에 없는 term은 그대로 두고 군 확장을 일으키지 않는다.
     assert expand_search_terms(["수강신청"]) == ["수강신청"]

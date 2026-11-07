@@ -84,7 +84,13 @@
 본문 보강 성공 | 제목=장학금 신청 안내 | trigger=image_only_body | asset수=1 | model=gpt-4.1-mini | confidence=high
 ```
 
-실패 로그는 asset 단위로 남기며, 최종 실패 원인은 게시 JSON의 `content_enrichment.error_code`와 `asset_errors`를 함께 확인한다.
+실패 로그는 asset 단위로 남기며, 최종 실패 원인은 게시 JSON의 `content_enrichment.error_code`와 `asset_errors`를 함께 확인한다. `사유`에는 예외 메시지를 남기고, OpenAI 요청이 4xx·5xx로 실패하면 상태 코드와 응답의 `error.type`·`error.code`가 들어간다(`error.message`는 남기지 않는다).
+
+```text
+본문 보강 실패 | 제목=전공 선택 신청 공고 | asset=data:image/png;base64,<omitted> | 코드=openai_request_failed | 사유=OpenAI request failed: status=400 type=invalid_request_error code=...
+```
+
+같은 asset으로 3번 연속 실패한 공지는 asset이 바뀔 때까지 보강 후보에서 빠진다(`content_enrichment.attempts`). 예전 크롤러가 이미지를 깨뜨려 저장한 공지처럼 원문을 다시 읽어야 고쳐지는 경우는 `scripts/refetch_failed_enrichment.py`로 보강 실패 공지를 지금 크롤러로 다시 읽어 반영한다(기본 미리보기, `--apply`로 반영).
 
 목록 수집 로그 예시:
 

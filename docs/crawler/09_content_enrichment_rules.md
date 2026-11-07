@@ -59,6 +59,7 @@ OpenAI provider는 Responses API를 사용하며, 크롤러 보강 요청에는 
 - `content_enrichment.status=success`인 공지는 다음 수집에서 다시 보강하지 않는다.
 - 공지 1건에 여러 asset이 있으면 실패한 asset을 건너뛰고 남은 asset을 계속 처리한다.
 - 호출 예산이 소진된 후보는 실패가 아니라 `content_enrichment.status=skipped`로 남겨 다음 실행에서 다시 시도한다.
+- 같은 asset 목록으로 3번 연속 실패한 공지(`content_enrichment.attempts >= 3`)는 asset 목록이 바뀔 때까지 다시 보강하지 않는다. 비교는 asset 종류·주소로 만든 `assets_fingerprint`로 한다. `OPENAI_API_KEY`가 없어서 실패한 것은 횟수에 넣지 않는다.
 
 ## 보강 후보 판단
 
@@ -252,7 +253,10 @@ LLM은 반드시 JSON 형태로 응답해야 한다.
     "enabled": true,
     "status": "failed",
     "trigger": "image_only_body",
-    "error_code": "asset_download_failed"
+    "error_code": "no_extracted_text",
+    "asset_errors": ["asset_download_failed"],
+    "assets_fingerprint": "<asset 종류·주소 목록의 sha256>",
+    "attempts": 1
   }
 }
 ```
@@ -330,6 +334,7 @@ data URL의 base64 payload는 로그에 남기지 않고 `<omitted>`로 축약�
 - crawl 1회당 enrichment API 호출 상한을 둔다.
 - 호출 예산이 소진되면 남은 후보는 `status=skipped`, `reason=enrichment_call_budget_exceeded`로 기록하고 다음 실행에서 다시 시도한다.
 - 이미 `content_enrichment.status=success`인 공지는 다시 보강하지 않는다.
+- 같은 asset으로 3번 연속 실패한 공지는 asset이 바뀔 때까지 다시 보강하지 않는다. 깨진 이미지처럼 다시 해도 실패할 공지가 수집마다 호출을 쓰지 않게 한다.
 - `OPENAI_API_KEY`가 없으면 API 호출 없이 실패 metadata만 기록한다.
 
 개인정보/민감정보:

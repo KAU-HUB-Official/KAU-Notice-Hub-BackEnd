@@ -987,6 +987,8 @@ BACKEND_CORS_ORIGINS=http://localhost:3000
 | `NOTICE_AUTO_LABEL_MAX_LLM_CALLS_PER_RUN`  | 아니오 | `100`                            | 수집 1회당 자동 라벨 LLM 호출 상한                                                   |
 | `OPENAI_API_KEY`                           | 아니오 | empty                            | content 보강과 RAG 챗봇 OpenAI 호출에 사용. 없으면 챗봇은 local fallback             |
 | `OPENAI_MODEL`                             | 아니오 | `gpt-4.1-mini`                   | RAG 챗봇과 content 보강 OpenAI 호출 기본 모델                                        |
+| `TARGET_RERANK_MODEL`                      | 아니오 | `gpt-6-luna`                     | 질문자 대상(`userGroup`)이 있는 요청의 rerank 모델. 대상이 없으면 `OPENAI_MODEL`      |
+| `TARGET_RERANK_REASONING_EFFORT`           | 아니오 | `none`                           | 위 모델의 추론 effort. 비우면 temperature 0으로 호출(추론 모델이 아닐 때)             |
 | `RAG_ENABLED`                              | 아니오 | `false`                          | `true`이고 API key가 있으면 `/api/chat`이 OpenAI 답변 생성                           |
 | `RAG_MAX_REFERENCES`                       | 아니오 | `6`                              | rerank 후 응답 references 최대 수(최종 n)                                            |
 | `RAG_CANDIDATE_POOL`                       | 아니오 | `15`                             | rerank 전에 가져올 후보 공지 수. n 이하면 rerank 생략                                |

@@ -88,6 +88,9 @@ TRIAGE_PROMPT = "\n".join(
         "    * 수량 표현: 몇 개, 모두, 전부, 전체, 다 등",
         "    * 성격·메타 표현: 정보, 안내, 관련, 자세히, 상세, 핵심, 요점, 종류 등",
         "- 명사 위주로 1~4개만 추출. 5개 넘기지 않는다.",
+        "- 질문의 동작이 행정 절차를 뜻하면 그 절차 명사를 넣는다(받다→발급, 돌려받다→환불). '마감'·'일정' 같은 일반어로 대신하지 않는다.",
+        "- '3월'처럼 특정 달을 가리키는 말은 남기고 연도는 뺀다.",
+        "- 키워드 하나는 띄어쓰기 없는 한 단어로 쓴다.",
         "- 이전 대화의 지시 대명사('그것', '방금', '그 공지', '아까' 등)는 history의 구체 명사로 풀어 추출.",
         "- history가 있고 질문이 짧거나 모호해도 도메인 외로 단정하지 말고 history의 키워드를 이어 받는다.",
         "",
@@ -109,6 +112,8 @@ TRIAGE_PROMPT = "\n".join(
         '- "공모전 정보 알려줘" → {"mode":"search","keywords":["공모전"]}',
         '- "6개월 이내 대회, 공모전 정보들 모아줘" → {"mode":"search","keywords":["공모전","대회"]}',
         '- "기숙사 입사 신청" → {"mode":"search","keywords":["기숙사","입사"]}',
+        '- "학생증 어디서 받아?" → {"mode":"search","keywords":["학생증","발급"]}',
+        '- "2022년 3월 도서 반납 언제까지야?" → {"mode":"search","keywords":["3월","도서","반납"]}',
         '- history=[공모전 질문/답변], "지금 신청 가능한거 있어?" → {"mode":"search","keywords":["공모전","신청"]}',
         '- history=[장학금 질문/답변], "마감 언제야?" → {"mode":"search","keywords":["장학금","마감"]}',
         '- history=[공지 3개 안내 답변], "더 짧게 정리해줘" → {"mode":"history","keywords":[]}',
@@ -664,11 +669,12 @@ async def _triage_with_openai(
     raw = await asyncio.to_thread(
         _call_openai_sync,
         settings.openai_api_key,
-        settings.openai_model,
+        settings.triage_model,
         TRIAGE_PROMPT,
         messages,
-        # 분류·키워드 추출은 매번 같은 결과여야 한다(라우팅 흔들림 방지).
+        # 분류·키워드 추출 흔들림을 줄인다. 추론 모델은 temperature를 받지 않아 effort만 보낸다.
         temperature=0.0,
+        reasoning_effort=settings.triage_reasoning_effort,
     )
     if trace is not None and isinstance(raw, str):
         trace.triage_raw = raw[:TRIAGE_RAW_MAX_CHARS]

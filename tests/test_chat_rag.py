@@ -275,8 +275,8 @@ async def test_extracted_keywords_drive_search(rag_env) -> None:
 
 
 @pytest.mark.anyio
-async def test_triage_call_pins_temperature_zero(rag_env) -> None:
-    """triage 호출만 temperature=0으로 고정되고, 답변 생성 호출은 영향받지 않는다."""
+async def test_triage_call_uses_triage_model_and_effort(rag_env) -> None:
+    """triage 호출은 triage 모델과 effort를 쓰고, 답변 생성 호출은 영향받지 않는다."""
     rag_env(enabled=True, api_key="sk-test")
     svc = NoticeService(
         MemoryRepository([make_notice("relevant", "수강신청 안내", content="수강신청 일정")])
@@ -286,8 +286,11 @@ async def test_triage_call_pins_temperature_zero(rag_env) -> None:
     with patch.object(chat_service, "_call_openai_sync", side_effect=fake) as mock_call:
         await chat_service.ask_notice_question(svc, "수강신청 알려줘")
 
-    # 첫 호출 = triage → temperature 0.0 고정
-    assert mock_call.call_args_list[0].kwargs.get("temperature") == 0.0
+    # 첫 호출 = triage → 기본 설정의 모델과 effort, 추론 모델이 아니면 쓰일 temperature 0.0
+    triage_call = mock_call.call_args_list[0]
+    assert triage_call.args[1] == "gpt-6-luna"
+    assert triage_call.kwargs.get("reasoning_effort") == "none"
+    assert triage_call.kwargs.get("temperature") == 0.0
     # 마지막 호출 = 답변 생성 → temperature 미지정(기존 동작 보존)
     assert mock_call.call_args_list[-1].kwargs.get("temperature") is None
 
@@ -1184,3 +1187,10 @@ async def test_stream_emits_internal_trace_before_search_completed(
 @pytest.fixture
 def anyio_backend() -> str:
     return "asyncio"
+
+
+def test_triage_prompt_keeps_evaluated_rules() -> None:
+    """평가한 키워드 추출 규칙과 예시가 프롬프트에 들어 있다."""
+    assert "키워드 하나는 띄어쓰기 없는 한 단어로 쓴다." in chat_service.TRIAGE_PROMPT
+    assert "특정 달을 가리키는 말은 남기고 연도는 뺀다." in chat_service.TRIAGE_PROMPT
+    assert '"학생증 어디서 받아?"' in chat_service.TRIAGE_PROMPT

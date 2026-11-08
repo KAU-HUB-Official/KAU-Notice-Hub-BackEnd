@@ -126,3 +126,9 @@ def test_expand_search_terms_keeps_unrelated_terms_untouched() -> None:
     # 동의어군에 없는 term은 그대로 두고 군 확장을 일으키지 않는다.
     assert expand_search_terms(["수강신청"]) == ["수강신청"]
 
+
+
+def test_expand_search_terms_keeps_opposite_terms_apart() -> None:
+    """개강과 종강은 뜻이 달라 서로 넓어지지 않고, 수업기간으로만 이어진다."""
+    assert set(expand_search_terms(["개강"])) == {"개강", "수업기간"}
+    assert set(expand_search_terms(["종강"])) == {"종강", "수업기간"}

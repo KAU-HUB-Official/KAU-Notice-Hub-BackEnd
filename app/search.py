@@ -111,7 +111,7 @@ def compact_search_text(searchable_text: str) -> str:
 # 같은 의미군의 term들. 사용자가 한 표현만 검색해도 다른 표현이 들어간 공지가
 # 매치되도록 SQL candidate 단계에서 OR로 확장된다.
 SYNONYM_GROUPS: tuple[frozenset[str], ...] = (
-    frozenset({"기숙사", "생활관"}),
+    frozenset({"기숙사", "생활관", "긱사"}),
     frozenset({"공모전", "대회", "경진대회", "공모"}),
     frozenset({"장학", "장학금", "장학생"}),
     frozenset({"입시", "입학", "신입생"}),
@@ -128,6 +128,24 @@ SYNONYM_GROUPS: tuple[frozenset[str], ...] = (
     frozenset({"복학", "복학신청"}),
     frozenset({"채용", "모집", "선발"}),
     frozenset({"인턴", "인턴십"}),
+    # 2026-11-08 추가: 질문에 쓰는 말과 공지 제목에 쓰는 말이 다른 경우. 생성 질문 510개·실사용자 질문 156개
+    # 평가에서 후보 15개 밖으로 밀린 사례로 골랐다(PaperWork 노트 25). "space"만 따로 넣으면
+    # aerospace 등 무관한 공지 67건에 걸려 space인증 형태만 넣는다.
+    frozenset({"졸업식", "학위수여식", "학위식"}),
+    frozenset({"졸업인증", "졸업인증제", "space인증", "스페이스", "스페이스인증"}),
+    frozenset({"k-mooc", "kmooc", "mooc", "케이묵", "케이무크"}),
+    frozenset({"드랍", "드롭", "수강취소", "수강철회", "수강신청 취소"}),
+    frozenset({"복전", "복수전공"}),
+    frozenset({"소웨", "소웨과", "소프트웨어학과"}),
+    frozenset({"학사경고", "성적경고", "학점경고"}),
+    frozenset({"교환학생", "파견학생"}),
+    frozenset({"축제", "활공제"}),
+    frozenset({"프린트", "프린터", "출력실"}),
+    frozenset({"와이파이", "wifi", "무선랜", "인터넷 설정"}),
+    # 개강과 종강은 뜻이 달라 묶지 않는다. 날짜가 "수업기간"으로 적힌 공지만 잇는다.
+    # 단어는 처음 맞는 묶음만 쓰므로 "수업기간"으로 물으면 위쪽 묶음의 "개강"으로만 넓어진다.
+    frozenset({"개강", "수업기간"}),
+    frozenset({"종강", "수업기간"}),
 )
 
 

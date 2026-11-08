@@ -125,6 +125,8 @@ http://localhost:8000/openapi.json
 | `API_DOMAIN` | `api.kau-notice.example.com` 또는 `:80` | Caddy가 받을 host. 도메인이 없으면 `:80` |
 | `OPENAI_API_KEY` | `sk-...` | content 보강과 RAG 챗봇이 공유. 값이 비어 있으면 챗봇은 local fallback |
 | `OPENAI_MODEL` | `gpt-4.1-mini` | content 보강과 RAG 챗봇이 공유하는 기본 모델 |
+| `TRIAGE_MODEL` | `gpt-6-luna` | `/api/chat` 분기(키워드 추출) 모델 |
+| `TRIAGE_REASONING_EFFORT` | `none` | 위 모델의 `reasoning.effort`. 추론 모델이 아닌 모델로 바꾸면 빈 값으로 둔다 |
 | `TARGET_RERANK_MODEL` | `gpt-6-luna` | 질문자 대상(`userGroup`)이 있는 요청의 rerank 모델. 대상이 없는 rerank는 `OPENAI_MODEL` |
 | `TARGET_RERANK_REASONING_EFFORT` | `none` | 위 모델의 `reasoning.effort`. 추론 모델이 아닌 모델로 바꾸면 빈 값으로 둔다 |
 | `RAG_ENABLED` | `false` | `true`로 두고 `OPENAI_API_KEY`가 있으면 `/api/chat`이 OpenAI 답변 생성 |
@@ -173,6 +175,8 @@ NOTICE_AUTO_LABELS_PATH=./data/notice_labels_auto.jsonl
 BACKEND_CORS_ORIGINS=http://localhost:3000
 OPENAI_API_KEY=
 OPENAI_MODEL=gpt-4.1-mini
+TRIAGE_MODEL=gpt-6-luna
+TRIAGE_REASONING_EFFORT=none
 TARGET_RERANK_MODEL=gpt-6-luna
 TARGET_RERANK_REASONING_EFFORT=none
 CONTENT_ENRICHMENT_ENABLED=false

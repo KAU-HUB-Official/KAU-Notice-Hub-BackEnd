@@ -23,7 +23,11 @@ class Settings(BaseSettings):
     backend_cors_origins: str = "http://localhost:3000"
     openai_api_key: str | None = None
     openai_model: str = "gpt-4.1-mini"
-    # 질문자 대상(userGroup)이 있는 요청의 rerank 모델. 대상이 없는 rerank, 분기, 답변은 openai_model을 쓴다.
+    # /api/chat 분기(키워드 추출) 모델과 reasoning.effort. effort를 지정하면 temperature 대신 이 값을 보낸다.
+    # 추론 모델이 아닌 모델로 바꾸면 effort를 빈 값으로 둔다.
+    triage_model: str = "gpt-6-luna"
+    triage_reasoning_effort: str | None = "none"
+    # 질문자 대상(userGroup)이 있는 요청의 rerank 모델. 대상이 없는 rerank, 답변은 openai_model을 쓴다.
     target_rerank_model: str = "gpt-6-luna"
     # 위 모델의 reasoning.effort. 지정하면 temperature 대신 이 값을 보낸다. 추론 모델이 아닌 모델로 바꾸면 빈 값으로 둔다.
     target_rerank_reasoning_effort: str | None = "none"

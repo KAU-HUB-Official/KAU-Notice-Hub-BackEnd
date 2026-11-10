@@ -33,7 +33,7 @@ from pathlib import Path
 
 import numpy as np
 
-from app.privacy import MASK_CHAR
+from app.privacy import MASK_CHAR, URL_RE
 
 logger = logging.getLogger(__name__)
 
@@ -61,7 +61,7 @@ _HANGUL_RE = re.compile(r"[가-힣]")
 
 # 모델 입력에서 지울 것. URL 안을 가리면 링크가 깨지고, 마크다운 기호는 이름 판단에
 # 쓸모가 없다. 같은 길이의 공백으로 바꿔 모델이 돌려준 위치를 원문에 그대로 쓴다.
-_URL_RE = re.compile(r"https?://\S+|\]\([^)]*\)|mailto:\S+")
+# URL 패턴은 학번 마스킹과 같은 것(`app.privacy.URL_RE`)을 쓴다.
 _MARKUP_RE = re.compile(r"[|*#`>\[\]]")
 
 
@@ -79,7 +79,7 @@ def prepare_model_input(text: str) -> str:
     def blank(match: re.Match[str]) -> str:
         return " " * len(match.group(0))
 
-    return _MARKUP_RE.sub(blank, _URL_RE.sub(blank, text))
+    return _MARKUP_RE.sub(blank, URL_RE.sub(blank, text))
 
 
 def _strip_punctuation(text: str, start: int, end: int) -> tuple[int, int]:
@@ -98,7 +98,7 @@ def select_name_spans(text: str, scored: list[tuple[NameSpan, float]]) -> list[N
     `**[종](https://...)료**`의 `종 … 료`처럼 링크 앞뒤 글자가 한 구간으로 잡히면
     그 사이 URL까지 가려져 링크가 깨진다.
     """
-    urls = [m.span() for m in _URL_RE.finditer(text)]
+    urls = [m.span() for m in URL_RE.finditer(text)]
     return [
         span
         for span, score in scored

@@ -42,6 +42,32 @@ class TestMaskStudentIds:
         text = "접수기간 2024.11.6.(수)~2024.11.29.(금), 기준일 2023.05.21"
         assert mask_student_ids(text) == text
 
+    def test_링크_주소_속_숫자는_가리지_않는다(self):
+        # 실제 공지의 이미지 주소. 해시 속 `1928475806`이 학번 모양이라 예전에는 가려져 깨졌다.
+        text = (
+            "![](http://college.kau.ac.kr/web/cmm/imageSrc.do?path=9d9f8470"
+            "&physical=27c5e29a2bd01f50067be7da321d4e925402ab71f3d8995d63db1928475806cbd0)"
+        )
+        assert mask_student_ids(text) == text
+
+    def test_주소_파라미터의_학번_모양_숫자도_가리지_않는다(self):
+        for text in (
+            "https://example.com/view?id=2024123456",
+            "[신청](https://kau.ac.kr/bbs?no=2024123456&page=1)",
+        ):
+            assert mask_student_ids(text) == text
+
+    def test_링크_밖의_학번은_그대로_가린다(self):
+        text = "[명단](https://kau.ac.kr/bbs?no=2024123456) 2017999928 홍길동"
+        assert mask_student_ids(text) == (
+            "[명단](https://kau.ac.kr/bbs?no=2024123456) 2017○○○○28 홍길동"
+        )
+
+    def test_학번으로_된_메일_주소는_가린다(self):
+        # 연락처는 남기지만, 메일 주소 자체가 학번이면 학생을 특정하므로 가린다.
+        # 전체 공지에서 2건 나왔다(문의 메일이 `학번@kau.kr`).
+        assert mask_student_ids("문의: 2021999914@kau.kr") == "문의: 2021○○○○14@kau.kr"
+
     def test_멱등이다(self):
         once = mask_student_ids("2017999928")
         assert mask_student_ids(once) == once

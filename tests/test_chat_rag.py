@@ -153,6 +153,25 @@ def test_stream_openai_sync_caps_output_tokens() -> None:
     assert captured["payload"]["stream"] is True
 
 
+def test_stream_openai_sync_sends_reasoning_effort_only_when_given() -> None:
+    """추론 모델 답변은 스트리밍 payload에 reasoning.effort를 싣고, 없으면 싣지 않는다."""
+    payloads: list[dict] = []
+
+    def fake_post(url, headers=None, json=None, timeout=None, stream=None):
+        payloads.append(json)
+        resp = MagicMock()
+        resp.status_code = 200
+        resp.iter_lines.return_value = iter([])
+        return resp
+
+    with patch.object(chat_service.requests, "post", side_effect=fake_post):
+        list(chat_service._stream_openai_sync("sk", "gpt-6-luna", "sys", [], reasoning_effort="none"))
+        list(chat_service._stream_openai_sync("sk", "gpt-4.1-mini", "sys", []))
+    assert payloads[0]["reasoning"] == {"effort": "none"}
+    assert "reasoning" not in payloads[1]
+    assert "temperature" not in payloads[0]
+
+
 class MemoryRepository:
     def __init__(self, notices: list[Notice]) -> None:
         self.notices = notices
@@ -236,7 +255,7 @@ async def test_uses_openai_answer_when_call_succeeds(
         answer = await chat_service.ask_notice_question(service, "수강신청 알려줘")
 
     assert answer.usedFallback is False
-    assert answer.model == "gpt-4.1-mini"
+    assert answer.model == "gpt-6-luna"  # 공지를 찾은 답변은 ANSWER_MODEL(기본 gpt-6-luna)
     assert answer.answer == "LLM 답변입니다."
     assert [reference.id for reference in answer.references] == ["a"]
     # 분기 + 답변. 후보가 rag_max_references 이하라 rerank LLM은 호출되지 않는다.
@@ -530,7 +549,7 @@ async def test_stream_emits_token_deltas_then_completed(
     completed = events[-1]
     assert completed["answer"] == "LLM 답변"  # delta 누적 = 최종 답변
     assert completed["usedFallback"] is False
-    assert completed["model"] == "gpt-4.1-mini"
+    assert completed["model"] == "gpt-6-luna"
 
 
 @pytest.mark.anyio
@@ -1194,3 +1213,43 @@ def test_triage_prompt_keeps_evaluated_rules() -> None:
     assert "키워드 하나는 띄어쓰기 없는 한 단어로 쓴다." in chat_service.TRIAGE_PROMPT
     assert "특정 달을 가리키는 말은 남기고 연도는 뺀다." in chat_service.TRIAGE_PROMPT
     assert '"학생증 어디서 받아?"' in chat_service.TRIAGE_PROMPT
+
+
+def test_answer_prompt_keeps_evaluated_rules() -> None:
+    """test로 확인한 답변 프롬프트(질문자 대상·좁힌 대상 제외·회차 확인) 규칙이 들어 있다."""
+    prompt = chat_service.RAG_SYSTEM_PROMPT_TEMPLATE
+    assert "사용자 메시지의 '질문자 대상'은" in prompt
+    assert "찾은 공지가 모두 질문자에게 해당하지 않는 공지일 때만" in prompt
+    assert "신입생·편입생도 입학한 학기가 지나면 재학생 공지가 적용된다." in prompt
+    assert "'이번 회차 공지는 아직 올라오지 않았다'고 먼저 밝힌다." in prompt
+
+
+def test_build_user_message_puts_asker_target_first() -> None:
+    """답변 사용자 메시지 맨 앞에 질문자 대상을 넣고, 대상이 없으면 '선택 안 함'으로 둔다."""
+    with_target = chat_service._build_user_message("등록 기간?", NoticeQuery(target="신입생·편입생"), "ctx")
+    without = chat_service._build_user_message("등록 기간?", None, "ctx")
+    assert with_target.startswith("질문자 대상:\n신입생·편입생\n\n질문:\n등록 기간?")
+    assert without.startswith("질문자 대상:\n선택 안 함\n\n질문:")
+
+
+@pytest.mark.anyio
+async def test_search_answer_uses_answer_model(service: NoticeService, rag_env, monkeypatch) -> None:
+    """공지를 찾은 답변은 answer_model·effort로 부르고, 응답 model도 그 값이다."""
+    rag_env(enabled=True, api_key="sk-test")
+    settings = get_settings()
+    monkeypatch.setattr(settings, "openai_model", "base-model")
+    monkeypatch.setattr(settings, "answer_model", "answer-model")
+    monkeypatch.setattr(settings, "answer_reasoning_effort", "none")
+    inner = _stub_call(answer="LLM 답변입니다.", extracted=["수강신청"])
+    answer_calls: list[tuple[str, dict]] = []
+
+    def fake(api_key, model, system_prompt, messages, **kwargs):
+        if "공지 안내 도우미" in system_prompt:
+            answer_calls.append((model, kwargs))
+        return inner(api_key, model, system_prompt, messages, **kwargs)
+
+    with patch.object(chat_service, "_call_openai_sync", side_effect=fake):
+        answer = await chat_service.ask_notice_question(service, "수강신청 알려줘")
+
+    assert answer_calls == [("answer-model", {"reasoning_effort": "none"})]
+    assert answer.model == "answer-model"

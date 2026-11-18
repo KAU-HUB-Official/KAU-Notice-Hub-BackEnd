@@ -13,7 +13,10 @@ FastAPI 기반 공지 API 서버다. 크롤러는 전체 스냅샷 JSON을 atomi
 | [docs/CLASSIFICATION.md](docs/CLASSIFICATION.md) | 공지 대분류/중분류/source 필터 기준 |
 | [docs/CRAWLING_UPDATE.md](docs/CRAWLING_UPDATE.md) | 크롤러 JSON 게시 정책 |
 | [docs/RAG_PLAN.md](docs/RAG_PLAN.md) | 공지 기반 RAG 동작 기준 |
+| [docs/RAG_EVALUATION.md](docs/RAG_EVALUATION.md) | 챗봇·검색 품질 측정 방법, 평가 세트, 연구 로그 구간 |
 | [docs/GPT_API_PROMPTS.md](docs/GPT_API_PROMPTS.md) | GPT API 프롬프트 원문과 payload 구조 |
+| [docs/CROSSPOST_MERGE.md](docs/CROSSPOST_MERGE.md) | 여러 게시판에 같은 공지가 올라온 경우 합칠지 판정하는 기준 |
+| [docs/AUTH_BOOKMARK_API.md](docs/AUTH_BOOKMARK_API.md) | 카카오 로그인·북마크 설계 배경과 프론트 연동 메모 |
 | [docs/crawler/README.md](docs/crawler/README.md) | 통합 크롤러 구조와 운영 문서 |
 | [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md) | 로컬 실행, Docker Compose, GitHub Actions 배포 |
 | [docs/ERD.md](docs/ERD.md) | SQLite 스키마와 JSON 원천 모델 |
@@ -22,12 +25,15 @@ FastAPI 기반 공지 API 서버다. 크롤러는 전체 스냅샷 JSON을 atomi
 
 ```text
 app/             FastAPI 앱, service/repository, SQLite ingest, 검색/분류
-app/api/         health, notices, chat router
+app/api/         health, notices, chat, auth, bookmarks router
 app/crawler/     KAU 공지 크롤러 client/parser/service/policy
-scripts/         수동 JSON 스냅샷 publish 스크립트
-tests/           pytest 테스트와 retrieval eval case
-docs/            API, 배포, ERD, RAG, 크롤러 운영 문서
+scripts/         JSON 스냅샷 publish, Markdown·마스킹 점검, 보강 재수집 등 운영 스크립트
+scripts/research/ 연구용 데이터 고정·교차 게시 판정 스크립트
+tests/           pytest 테스트
+tests/eval/      분기 검증·RAGAS 실행기와 평가 세트
+docs/            API, 배포, ERD, RAG, 평가, 마스킹, 크롤러 운영 문서
 data/            로컬 런타임 JSON/SQLite 저장소 (.gitkeep만 커밋)
+models/          이름 마스킹 NER 모델 (커밋 금지, 서버에 직접 둠)
 ```
 
 런타임 기준 흐름은 `NOTICE_JSON_PATH` 전체 스냅샷을 크롤러가 atomic 게시하고, `app/ingest.py`가 같은 데이터를 `NOTICE_DB_PATH` SQLite DB로 atomic 반영하는 구조다. API는 SQLite를 우선 읽고, DB를 만들 수 없을 때 JSON repository로 폴백한다.
@@ -87,7 +93,7 @@ http://localhost:8000/openapi.json
 pytest -q
 ```
 
-GitHub Actions의 `CI / test`는 push와 pull request에서 실행된다. `main` 병합 또는 직접 push 전에 로컬에서도 테스트를 실행한다.
+GitHub Actions의 `CI / test`는 pull request와 `main` push에서 실행된다. 작업 브랜치에 커밋하기 전에 로컬에서도 테스트를 실행한다. 작업 흐름(브랜치 → PR → squash merge)은 [AGENTS.md](AGENTS.md)의 "배포 규칙"을 따른다.
 
 ## Markdown 품질 감사
 
@@ -176,7 +182,7 @@ docker compose up -d --build api
 docker compose --profile proxy up -d --build
 ```
 
-운영 배포는 `main`에 merge 또는 push되면 GitHub Actions가 Lightsail 서버에서 `git pull`과 `docker compose --profile proxy up -d --build`를 실행한다. 외부 공개 포트는 Caddy의 80/443이며, API 8000 포트는 host의 `127.0.0.1`에만 바인딩한다.
+운영 배포는 PR이 `main`에 머지되면 GitHub Actions가 Lightsail 서버에서 `git pull`과 `docker compose --profile proxy up -d --build`를 실행한다. 문서(`docs/**`, `*.md`)만 바뀐 머지는 배포하지 않는다. 외부 공개 포트는 Caddy의 80/443이며, API 8000 포트는 host의 `127.0.0.1`에만 바인딩한다.
 
 Docker Compose 서버 종료:
 

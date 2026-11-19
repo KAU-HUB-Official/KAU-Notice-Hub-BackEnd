@@ -33,17 +33,32 @@ OUT_OF_DOMAIN_ANSWER = (
     "공지 관련 질문을 해주세요."
 )
 
+# 답변 프롬프트. 2026-11-17 연구용 test(미게시 300·게시됨 283문항, Sonnet 판정)로 확인한 "새 수정본"이다.
+# 질문자 대상 기준으로 답하고, 반복 공지는 회차를 비교해 지난 회차를 이번 일정처럼 말하지 않으며,
+# 질문자에게 해당하지 않는 공지는 본문에 대상 제외가 분명하거나 특정 과목·학과 한정일 때만으로 본다.
 RAG_SYSTEM_PROMPT_TEMPLATE = "\n".join(
     [
         "너는 한국항공대학교 공지 안내 도우미다.",
         "오늘 날짜는 {today}이다.",
         "제공된 공지 context만 근거로 한국어로 답한다.",
         "context에 없는 정보는 '공지에 명시되지 않음'이라고 답하고 원문 확인을 안내한다.",
-        "검색된 공지가 질문의 범위와 어긋날 때는 정답인 것처럼 단정하지 않는다. 특히 질문이 "
-        "학교 전체·일반 사안(예: 일반 수강신청 일정, 학사일정, 등록 기간)인데 찾은 공지가 특정 "
-        "과목·학과·대상에만 한정된 공지뿐이면(제목에 '캡스톤디자인', '종합설계', 특정 학과·전공명 등이 "
-        "있는 경우), '질문에 딱 맞는 전체 대상 공지는 아직 올라오지 않은 것 같다'고 먼저 밝힌 뒤, "
-        "찾은 공지는 '참고할 만한 관련 공지'로만 안내한다. 없는 일정을 지어내지 않는다.",
+        "사용자 메시지의 '질문자 대상'은 질문한 사람이 속한 대상(학부재학생, 신입생·편입생, 일반대학원생, "
+        "특수대학원생)이다. 이 대상 기준으로 답한다. 질문자 대상이나 전체 대상에 맞는 공지를 찾았으면 "
+        "다른 대상 공지가 없다는 말을 덧붙이지 않는다.",
+        "검색된 공지가 질문의 범위와 어긋날 때는 정답인 것처럼 단정하지 않는다. 찾은 공지가 모두 질문자에게 "
+        "해당하지 않는 공지일 때만 '질문자에게 맞는 공지는 아직 올라오지 않은 것 같다'고 먼저 밝힌 뒤, "
+        "찾은 공지는 '참고할 만한 관련 공지'로만 안내한다. 질문자에게 해당하지 않는 공지는 본문의 신청·적용 "
+        "대상에서 질문자가 빠진다고 분명히 적힌 공지(예: '3~4학년만 선발', '대학원생 대상')와, 특정 과목 "
+        "수강생이나 특정 학과·전공 학생만을 위한 공지(제목에 '캡스톤디자인', '종합설계' 등이 있는 경우)다. "
+        "제목에 '재학생'이 있거나 학과 게시판에 올라온 공지라도 내용이 전체 학생이나 수강생에게 똑같이 "
+        "적용되면(학사일정, 강의평가, 휴·복학, 수강인원 증원 등) 질문자에게 맞는 공지로 보고 그대로 안내한다. "
+        "신입생·편입생도 입학한 학기가 지나면 재학생 공지가 적용된다. 없는 일정을 지어내지 않는다.",
+        "학기나 해마다 반복되는 공지(수강신청, 등록, 휴·복학, 계절학기, 장학금, 생활관, 시험, 강의평가, "
+        "학위수여식 등)는 회차를 확인한다. 질문이 가리키는 회차(질문에 학기가 없으면 오늘 날짜 기준으로 "
+        "진행 중이거나 다가오는 회차)와 각 공지의 제목·본문에 적힌 학기와 게시일(date)을 비교한다. 찾은 "
+        "공지가 모두 지난 회차(작년이나 지난 학기)이면 '이번 회차 공지는 아직 올라오지 않았다'고 먼저 "
+        "밝힌다. 지난 회차 공지는 '지난 회차(예: 2024학년도 1학기) 기준 참고'라고 밝힐 때만 안내하고, "
+        "그 날짜를 이번 일정처럼 쓰지 않는다.",
         "사용자 질문이 KAU 공지 안내 범위(학사·장학·취업·행사·기숙사·시설 등)에서 벗어나면, "
         "검색된 공지가 있더라도 'KAU 공지 안내만 도와드릴 수 있어요'라고 답하고 답변하지 않는다.",
         "사용자가 '지금', '현재', '이번주', '신청 가능' 같은 시간 한정 표현을 쓰면, "
@@ -300,9 +315,12 @@ def _build_user_message(
             if value:
                 filter_lines.append(f"{label}={value}")
     filter_block = "\n".join(filter_lines) if filter_lines else "(없음)"
+    # 답변 프롬프트가 질문자 대상 기준으로 답하도록 요청 userGroup을 맨 앞에 준다.
+    target = (filters.target if filters is not None else None) or "선택 안 함"
 
     return "\n\n".join(
         [
+            f"질문자 대상:\n{target}",
             f"질문:\n{question}",
             f"적용 필터:\n{filter_block}",
             f"공지 context:\n{context}",
@@ -404,6 +422,7 @@ def _stream_openai_sync(
     model: str,
     system_prompt: str,
     messages: list[dict[str, str]],
+    reasoning_effort: str | None = None,
 ) -> "Iterator[str]":
     """OpenAI Responses API를 stream 모드로 호출해 텍스트 delta를 차례로 yield한다.
 
@@ -418,6 +437,8 @@ def _stream_openai_sync(
         "max_output_tokens": OPENAI_MAX_OUTPUT_TOKENS,
         "input": _build_input_messages(system_prompt, messages),
     }
+    if reasoning_effort:
+        payload["reasoning"] = {"effort": reasoning_effort}
     try:
         response = requests.post(
             OPENAI_RESPONSES_URL,
@@ -855,13 +876,14 @@ async def _generate_with_openai(
     answer = await asyncio.to_thread(
         _call_openai_sync,
         settings.openai_api_key,
-        settings.openai_model,
+        settings.answer_model,
         system_prompt,
         messages,
+        reasoning_effort=settings.answer_reasoning_effort,
     )
     if not answer:
         return None
-    return answer, settings.openai_model
+    return answer, settings.answer_model
 
 
 async def _stream_from_history(
@@ -900,7 +922,11 @@ async def _stream_with_openai(
     )
     async for delta in _aiter_threaded(
         lambda: _stream_openai_sync(
-            settings.openai_api_key, settings.openai_model, system_prompt, messages
+            settings.openai_api_key,
+            settings.answer_model,
+            system_prompt,
+            messages,
+            reasoning_effort=settings.answer_reasoning_effort,
         )
     ):
         yield delta
@@ -1032,10 +1058,12 @@ async def stream_notice_question(
         }
         return
 
-    model = get_settings().openai_model
+    settings = get_settings()
     if mode == "history":
+        model = settings.openai_model
         delta_source = _stream_from_history(normalized_question, history, today)
     else:
+        model = settings.answer_model
         delta_source = _stream_with_openai(
             normalized_question, filters, references_source, history, today
         )

@@ -14,6 +14,7 @@
   - 분기: 검색 직전 LLM 1회로 `search`/`history`/`out_of_domain`을 정한다. `history`는 이전 대화가 쌓인 상태에서 직전 답변을 재가공하는 후속 질문일 때만 선택되며, 새 검색 없이 history만으로 답한다. 이 분기 호출은 `TRIAGE_MODEL`(기본 `gpt-6-luna`, effort `none`)을 쓴다. 이 모델은 temperature를 받지 않아 같은 질문에도 mode/keywords가 호출마다 달라질 수 있다. 추론 모델이 아닌 모델로 바꾸고 effort를 비우면 `temperature=0`으로 호출한다(답변 생성 호출은 영향받지 않음).
   - 후보 검색: `find_relevant_notices()`로 `RAG_CANDIDATE_POOL`(기본 15)개를 넓게 가져온다.
   - rerank: 후보가 `RAG_MAX_REFERENCES`보다 많을 때만 LLM 1회로 제목·게시일(date)·본문 발췌(앞 `RERANK_SNIPPET_CHARS`자)를 보고 관련 공지의 **번호**를 골라 최종 n개로 좁힌다. 후보에는 1부터 번호를 붙여 보여주고 응답도 번호 배열로 받는다. 공지 id(원문 URL 해시 16자리)를 받아쓰게 하면 잘림·오탈자로 후보에 없는 id가 돌아오기 때문이다. 입력에서도 id를 빼 호출당 750자쯤 줄어든다. 발췌의 접수·마감 기간과 오늘 날짜를 근거로, 질문이 현재 신청·참여 가능 여부를 물으면 마감이 지난 공지·결과발표·조달(용역/물품임차) 공지를 제외한다. 후보가 n개 이하면 호출을 생략한다.
+  - 답변: 공지를 찾은 질문은 `ANSWER_MODEL`(기본 `gpt-6-luna`, effort `none`)로 답한다. 사용자 메시지 맨 앞에 질문자 대상(요청 `userGroup`, 없으면 "선택 안 함")을 넣고, 답변 프롬프트가 그 대상 기준으로 답하며 반복 공지는 회차를 비교해 지난 회차를 이번 일정처럼 말하지 않는다. history 분기 답변은 `OPENAI_MODEL`을 쓴다.
 - `POST /api/chat/stream`은 같은 파이프라인을 SSE 이벤트(`search_started`, `search_completed`, `answer_delta`, `answer_completed`)로 반환한다. 답변은 OpenAI Responses API의 스트리밍(`stream=true`)으로 받아 토큰 단위 `answer_delta`로 흘려보낸다.
 - 이미지/HWP 공지는 content enrichment로 `content` 품질을 높일 수 있다.
 
@@ -157,7 +158,7 @@ API 응답은 현재 `ChatAnswer` 그대로 유지한다.
 }
 ```
 
-- OpenAI 호출 성공: `usedFallback=false`, `model=OPENAI_MODEL`
+- OpenAI 호출 성공: `usedFallback=false`, `model`은 공지를 찾은 답변이면 `ANSWER_MODEL`, history 분기면 `OPENAI_MODEL`
 - 그 외 모든 경로: 기존 `fallback_answer` + `usedFallback=true`, `model="local-fallback"`
 
 ## 답변 품질 기준
@@ -225,7 +226,7 @@ prompt를 바꾼 뒤 전후 점수를 비교하는 용도다.
 
 1. `RAG_ENABLED=false`가 기본값이어야 한다.
 2. `RAG_ENABLED=true`라도 `OPENAI_API_KEY`가 없으면 local fallback이어야 한다.
-3. OpenAI 호출 성공 시 `usedFallback=false`, `model=OPENAI_MODEL`을 반환한다.
+3. OpenAI 호출 성공 시 `usedFallback=false`, `model`(공지를 찾은 답변은 `ANSWER_MODEL`, history 분기는 `OPENAI_MODEL`)을 반환한다.
 4. OpenAI 호출 실패, references 0건, 도메인 외 질문은 `usedFallback=true`를 반환한다.
 5. `history`는 최근 10개, 메시지당 500자까지만 prompt에 포함한다.
 6. 후보는 `RAG_CANDIDATE_POOL`개로 가져오고 rerank는 후보가 `RAG_MAX_REFERENCES`를 초과할 때만 LLM을 호출한다.

@@ -13,9 +13,14 @@
 | `app/`                                     | FastAPI 앱, 서비스 계층, repository, schemas, 검색, 크롤러 스케줄러 |
 | `app/crawler/`                             | 내장 KAU 공지 크롤러                                                |
 | `scripts/run_incremental_crawl_publish.sh` | 수동 증분 크롤링 및 atomic JSON 게시 스크립트                       |
+| `scripts/`                                 | 운영 보조 스크립트 (Markdown·마스킹 점검, 본문 보강 재수집, 이름 모델 설치) |
+| `scripts/research/`                        | 교차 게시 판정 등 연구용 데이터 고정·라벨링 스크립트                |
 | `tests/`                                   | Pytest 테스트                                                       |
-| `docs/`                                    | API, 크롤러, 분류, ERD, 배포 문서                                   |
+| `tests/eval/`                              | 분기 검증·RAGAS 실행기와 평가 세트 (`docs/RAG_EVALUATION.md`)       |
+| `docs/`                                    | API, 크롤러, 분류, ERD, 배포, RAG 평가, 마스킹 문서                 |
 | `data/`                                    | 런타임 JSON 스냅샷과 SQLite DB 저장 디렉토리 (커밋 금지)            |
+| `models/`                                  | 이름 마스킹 NER 모델 (서버에 직접 둠, 커밋 금지)                    |
+| `load-tests/k6/`                           | k6 부하 테스트 스크립트                                             |
 | `.github/workflows/ci.yml`                 | 테스트 workflow                                                     |
 | `.github/workflows/deploy.yml`             | Lightsail 배포 workflow                                             |
 | `pyproject.toml`                           | 패키지 메타데이터, 의존성, 빌드 설정                                |
@@ -122,17 +127,19 @@ API는 `NOTICE_JSON_PATH`를 현재 전체 공지 스냅샷으로 읽는다. 증
 
 ## 배포 규칙
 
-`main`은 배포 브랜치이자 기본 작업 브랜치다. **별도 작업 브랜치를 분기하지 않고 `main`에서 직접 작업하고 커밋한다.** feature 브랜치나 PR 흐름은 사용하지 않는다.
+`main`은 배포 브랜치다. **`main`에서 직접 작업하지 않고, 작업마다 브랜치를 만들어 PR로 머지한다.** `main`에 머지되는 순간 자동 배포된다.
 
 기본 흐름:
 
-1. `main`에서 직접 수정한다. 새 브랜치를 분기하지 않는다.
+1. 최신 `main`에서 작업 브랜치를 만든다. 이름은 `<type>/<짧은-설명>` (예: `feat/triage-luna`, `fix/fallback-message`, `docs/research-log-triage-luna`). type은 커밋 메시지 접두어(`feat`, `fix`, `docs`, `chore`, `ci`)와 같다.
 2. 코드 변경이면 로컬에서 `pytest`를 먼저 실행한다.
-3. `main`에 직접 커밋한다.
-4. **push는 사용자가 명시적으로 요청할 때만 수행한다.** 커밋까지는 진행할 수 있으나, push(=자동 배포 트리거)는 사용자가 요청하지 않으면 하지 않는다. "커밋해줘"는 push를 포함하지 않으며, 매번 별도로 push를 요청받아야 한다.
-5. push하면 GitHub Actions가 Lightsail에 자동 배포한다.
+3. 작업 브랜치에 커밋한다. 커밋 메시지는 `<type>(<범위>): <한국어 요약>` 형식을 따른다.
+4. **브랜치 push와 PR 생성은 사용자가 요청할 때만 한다.** "커밋해줘"는 push를 포함하지 않는다.
+5. PR 본문에는 무엇을 왜 바꿨는지, 평가·실험 수치가 있으면 그 수치와 측정 방법, 실행한 검증을 적는다.
+6. **머지는 사용자가 명시적으로 요청할 때만 한다.** 머지는 곧 운영 배포다. 기본은 squash merge이고 PR 번호가 제목 끝에 `(#N)`로 붙는다. 머지한 뒤 작업 브랜치는 지운다.
+7. `main`에 머지되면 GitHub Actions가 Lightsail에 자동 배포한다. 문서만 바뀐 머지는 배포하지 않는다.
 
-개인 운영 프로젝트라 PR 리뷰 없이 `main` 직접 커밋을 기본 워크플로로 한다. 강제 push와 history rewrite는 하지 않는다.
+개인 운영 프로젝트라 별도 리뷰어 승인은 필요 없다. `main`에 직접 커밋하거나 push하지 않는다. 강제 push와 history rewrite는 하지 않는다.
 
 배포 workflow는 Lightsail 서버에 접속해 아래 명령을 실행한다.
 
@@ -181,10 +188,16 @@ private key가 노출되면 새 key로 교체하고, GitHub Secrets를 갱신하
 | -------------------------------------------------------------- | ------------------------------------------ |
 | API 요청/응답 계약                                             | `docs/API_SPEC.md`                         |
 | 챗봇/RAG 흐름, 키워드 추출, 도메인 가드, history, SSE 스트리밍 | `docs/RAG_PLAN.md`, `docs/API_SPEC.md`     |
+| LLM 프롬프트 원문, 모델, payload                               | `docs/GPT_API_PROMPTS.md`                  |
+| 평가 세트, 평가 실행기, 운영 반영에 따른 연구 로그 구간        | `docs/RAG_EVALUATION.md`                   |
 | source group, category, audience 분류                          | `docs/CLASSIFICATION.md`                   |
 | 크롤러 병합, 오래된 공지 삭제, 게시 정책                       | `docs/CRAWLING_UPDATE.md`, `docs/crawler/` |
+| 교차 게시(같은 공지 여러 게시판) 판정                          | `docs/CROSSPOST_MERGE.md`                  |
+| 학번·이름 마스킹 기준, NER 모델                                | `docs/PRIVACY_MASKING.md`                  |
+| 카카오 로그인, 북마크                                          | `docs/AUTH_BOOKMARK_API.md`, `docs/API_SPEC.md` |
 | 배포, 방화벽, Caddy, GitHub Actions, secrets                   | `docs/DEPLOYMENT.md`                       |
 | 저장 JSON 형태, SQLite 스키마, 논리 엔티티                     | `docs/ERD.md`                              |
+| 모듈 추가·이동, 런타임 흐름                                    | `docs/PROJECT_STRUCTURE.md`                |
 | 주요 명령 또는 빠른 시작 변경                                  | `README.md`                                |
 
 사용자가 명시적으로 요구하지 않는 한 제거된 확장 관련 기록이나 계획을 다시 추가하지 않는다.

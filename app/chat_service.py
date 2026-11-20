@@ -458,6 +458,9 @@ def _stream_openai_sync(
         if response.status_code >= 400:
             logger.warning("OpenAI chat stream status %s", response.status_code)
             return
+        # SSE는 항상 UTF-8이다. 응답 헤더가 `text/event-stream`에 charset 없이 오면 requests가
+        # ISO-8859-1로 읽어 한글이 깨지므로(gpt-6-luna 응답에서 간헐적으로 발생) 직접 정한다.
+        response.encoding = "utf-8"
         for raw_line in response.iter_lines(decode_unicode=True):
             if not raw_line or not raw_line.startswith("data:"):
                 continue

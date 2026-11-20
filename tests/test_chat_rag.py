@@ -85,6 +85,32 @@ def test_stream_openai_sync_parses_output_text_deltas() -> None:
     fake_response.close.assert_called_once()
 
 
+def test_stream_openai_sync_decodes_utf8_without_charset_header() -> None:
+    """charset 없는 text/event-stream 응답도 한글 delta를 UTF-8로 읽는다."""
+    import io
+
+    import requests
+
+    body = (
+        'data: {"type": "response.output_text.delta", "delta": "수강신청은 "}\n\n'
+        'data: {"type": "response.output_text.delta", "delta": "2월 10일입니다."}\n\n'
+        "data: [DONE]\n\n"
+    ).encode("utf-8")
+    response = requests.Response()
+    response.status_code = 200
+    response.headers["Content-Type"] = "text/event-stream"
+    response.encoding = requests.utils.get_encoding_from_headers(response.headers)
+    assert response.encoding == "ISO-8859-1"  # 고치기 전에는 이 인코딩으로 읽혀 깨졌다
+    response.raw = io.BytesIO(body)
+
+    with patch.object(chat_service.requests, "post", return_value=response):
+        deltas = list(
+            chat_service._stream_openai_sync("sk-test", "gpt-6-luna", "sys", [])
+        )
+
+    assert deltas == ["수강신청은 ", "2월 10일입니다."]
+
+
 def test_stream_openai_sync_yields_nothing_on_http_error() -> None:
     fake_response = MagicMock()
     fake_response.status_code = 500

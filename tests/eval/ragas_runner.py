@@ -45,6 +45,18 @@ from typing import Any
 
 import yaml
 
+from app.chat_service import (
+    CONTEXT_CONTENT_CHARS,
+    _generate_with_openai,
+    _retrieve_references,
+    truncate,
+)
+from app.config import get_settings
+from app.schemas import Notice
+from app.service import NoticeQuery, NoticeService
+from app.sqlite_repository import SqliteNoticeRepository
+from tests.eval.snapshot import EvalSnapshot, load_snapshot
+
 logger = logging.getLogger(__name__)
 
 
@@ -57,17 +69,6 @@ def _progress(message: str) -> None:
     """
     print(message, file=sys.stderr, flush=True)
 
-from app.chat_service import (
-    CONTEXT_CONTENT_CHARS,
-    _generate_with_openai,
-    _retrieve_references,
-    truncate,
-)
-from app.config import get_settings
-from app.schemas import Notice
-from app.service import NoticeQuery, NoticeService
-from app.sqlite_repository import SqliteNoticeRepository
-from tests.eval.snapshot import EvalSnapshot, load_snapshot
 
 CASES_PATH = Path(__file__).parent / "ragas_cases.yml"
 

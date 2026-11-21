@@ -310,7 +310,7 @@ def normalize_audiences(values: list[str] | tuple[str, ...]) -> tuple[str, ...]:
     (강의평가: "학부재학생 + 대학원 셋 또는 빈 목록"), 사람 검수 라벨과 맞춰 보면 빈 목록 쪽이 더 맞았다.
     """
     present = {value for value in values if value in AUDIENCE_CODES}
-    if ALL_STUDENTS <= present:
+    if present >= ALL_STUDENTS:
         return ()
     return tuple(code for code in AUDIENCE_CODES if code in present)
 

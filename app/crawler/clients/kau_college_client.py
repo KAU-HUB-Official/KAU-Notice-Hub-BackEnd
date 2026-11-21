@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from urllib.parse import urlencode, urljoin
+from urllib.parse import urljoin
 
 from ..clients.base_client import BaseClient
 from ..config import (
@@ -25,23 +25,6 @@ class KAUCollegeClient(BaseClient):
         self.notice_list_url = COLLEGE_NOTICE_LIST_URL
         self.list_api_url = urljoin(self.base_url, "/web/bbs/bbsListApi.gen")
         self.detail_api_url = urljoin(self.base_url, "/web/bbs/bbsViewApi.gen")
-
-    def build_detail_url(
-        self,
-        *,
-        site_flag: str,
-        mnu_id: str,
-        bbs_id: str,
-        ntt_id: str,
-    ) -> str:
-        params = {
-            "siteFlag": site_flag,
-            "mnuId": mnu_id,
-            "bbsId": bbs_id,
-            "nttId": ntt_id,
-            "bbsFlag": "View",
-        }
-        return f"{self.notice_list_url}?{urlencode(params)}"
 
     def fetch_notice_list(
         self,

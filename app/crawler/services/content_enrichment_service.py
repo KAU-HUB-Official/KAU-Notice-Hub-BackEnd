@@ -3,7 +3,7 @@ from __future__ import annotations
 import hashlib
 import re
 from dataclasses import dataclass
-from datetime import datetime, timezone
+from datetime import datetime, UTC
 from typing import Literal, Protocol
 
 from app.config import Settings
@@ -343,7 +343,7 @@ class ContentEnrichmentService:
             "confidence": generated.confidence,
             "warnings": generated.warnings,
             "source_asset_names": generated.source_asset_names,
-            "generated_at": datetime.now(timezone.utc).isoformat(),
+            "generated_at": datetime.now(UTC).isoformat(),
         }
         logger.info(
             "본문 보강 성공 | 제목=%s | trigger=%s | asset수=%s | model=%s | confidence=%s",
@@ -415,7 +415,7 @@ class ContentEnrichmentService:
             "asset_errors": errors,
             "assets_fingerprint": fingerprint,
             "attempts": attempts,
-            "generated_at": datetime.now(timezone.utc).isoformat(),
+            "generated_at": datetime.now(UTC).isoformat(),
         }
 
     def _mark_skipped(
@@ -431,7 +431,7 @@ class ContentEnrichmentService:
             "trigger": trigger or detect_trigger(post),
             "provider": self.provider_name,
             "reason": reason,
-            "skipped_at": datetime.now(timezone.utc).isoformat(),
+            "skipped_at": datetime.now(UTC).isoformat(),
         }
 
 

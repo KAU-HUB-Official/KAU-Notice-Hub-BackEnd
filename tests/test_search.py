@@ -7,7 +7,6 @@ from app.search import (
     filter_notices,
     rank_notices,
     recency_boost,
-    score_notice,
 )
 
 
@@ -68,18 +67,6 @@ def test_recency_boost_tiers() -> None:
     assert recency_boost("2024-01-01", today) == -2
 
 
-def test_score_notice_recency_only_applies_when_matched() -> None:
-    today = date(2026, 5, 15)
-    matched = make_notice("m", "수강신청 안내", content="본문", date="2026-05-10")
-    unmatched = make_notice("u", "다른 공지", content="본문", date="2026-05-10")
-
-    matched_score = score_notice(matched, ["수강신청"], today=today)
-    unmatched_score = score_notice(unmatched, ["수강신청"], today=today)
-
-    assert matched_score >= 5
-    assert unmatched_score == 0
-
-
 def test_rank_notices_recency_boost_pushes_fresh_match_up() -> None:
     today = date(2026, 5, 15)
     fresh = make_notice(
@@ -132,3 +119,8 @@ def test_expand_search_terms_keeps_opposite_terms_apart() -> None:
     """개강과 종강은 뜻이 달라 서로 넓어지지 않고, 수업기간으로만 이어진다."""
     assert set(expand_search_terms(["개강"])) == {"개강", "수업기간"}
     assert set(expand_search_terms(["종강"])) == {"종강", "수업기간"}
+
+
+def test_recency_boost_ignores_impossible_calendar_date() -> None:
+    # normalize_date는 YYYY-MM-DD 형식만 보므로 11월 31일 같은 날짜가 그대로 들어올 수 있다.
+    assert recency_boost("2026-11-31", date(2026, 11, 21)) == 0

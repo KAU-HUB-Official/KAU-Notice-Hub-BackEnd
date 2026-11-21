@@ -59,7 +59,7 @@ nohup.out
 data/*.json
 data/*.tmp
 data/*.tmp.*
-# 실행별 RAGAS 상세 dump는 로컬 전용(요약 이력은 tests/eval/eval_history.csv로 커밋).
+# 실행별 RAGAS 상세 dump는 로컬 전용(요약 이력은 첫 실행 때 생기는 tests/eval/eval_history.csv에 쌓인다).
 data/ragas_runs/
 # 분기 검증 실행 결과도 로컬 전용.
 data/branch_runs/
@@ -69,7 +69,8 @@ data/eval/
 data/research/
 !data/.gitkeep
 # 이름 마스킹 모델. 실명으로 학습해 커밋하지 않고 scripts/install_name_model.py로 넣는다.
-models/
+# 루트만 무시한다(슬래시가 없으면 app/crawler/models/ 코드까지 무시된다).
+/models/
 
 # Local databases
 *.sqlite
@@ -80,6 +81,9 @@ models/
 *.db-shm
 *.sqlite-wal
 *.sqlite-shm
+
+# Node 도구 잔재 (이 저장소는 Python 전용)
+node_modules/
 
 # Docker and OS/editor noise
 .docker/

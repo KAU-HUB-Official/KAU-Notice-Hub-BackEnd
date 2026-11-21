@@ -79,6 +79,7 @@ FastAPI lifespan
 | `app/user_store.py` | 사용자·북마크 SQLite(`USER_DB_PATH`) 저장소. 공지 DB와 분리 |
 | `app/classification.py` | audience/source group/category/source 필터 분류 규칙 |
 | `app/search.py` | 검색어 정규화, 토큰 확장, ranking |
+| `app/schemas.py` | API 요청·응답 Pydantic 모델(공지, 목록, facet, 챗봇, 북마크) |
 | `app/crawler_scheduler.py` | 서버 내장 주기 크롤링, lock, JSON publish, SQLite ingest |
 
 ## 운영 스크립트

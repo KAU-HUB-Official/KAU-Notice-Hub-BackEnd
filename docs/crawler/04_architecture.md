@@ -18,6 +18,7 @@
   - `post_store.py`: 기존 결과 로드
   - `dedup_service.py`: URL/제목 기준 병합
   - `url_normalizer.py`: canonical URL 정규화
+  - `notice_update.py`: 기존 공지 재확인 주기(`RecheckPolicy`)와 변경 반영(`apply_notice_update`)
   - `content_enrichment_service.py`: 이미지/HWP/HWPX 기반 content 보강 오케스트레이션
   - `content_asset_downloader.py`: 보강 대상 asset 안전성 검사와 다운로드
   - `content_extractors/`: HWP/HWPX, OpenAI provider adapter
@@ -27,6 +28,7 @@
   - 공통 `Post` 데이터 모델
 - `app/crawler/utils/`
   - 로깅, JSON 저장
+  - `markdown_converter.py`: 본문 HTML → Markdown 변환
 
 ## 실행 흐름
 

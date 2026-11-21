@@ -124,11 +124,16 @@ http://localhost:8000/openapi.json
 | `BACKEND_PORT` | `8000` | Docker host에 바인딩할 API 포트. compose에서는 `127.0.0.1`에만 바인딩 |
 | `API_DOMAIN` | `api.kau-notice.example.com` 또는 `:80` | Caddy가 받을 host. 도메인이 없으면 `:80` |
 | `OPENAI_API_KEY` | `sk-...` | content 보강과 RAG 챗봇이 공유. 값이 비어 있으면 챗봇은 local fallback |
-| `OPENAI_MODEL` | `gpt-4.1-mini` | content 보강과 RAG 챗봇이 공유하는 기본 모델 |
+| `OPENAI_MODEL` | `gpt-4.1-mini` | RAG 챗봇의 질문자 대상이 없는 rerank, 이전 대화만으로 답하는 답변. content 보강은 `CONTENT_ENRICHMENT_MODEL`을 따로 쓴다 |
+| `ANSWER_MODEL` | `gpt-6-luna` | 공지를 찾은 질문의 답변 생성 모델 |
+| `ANSWER_REASONING_EFFORT` | `none` | 위 모델의 `reasoning.effort`. 추론 모델이 아닌 모델로 바꾸면 빈 값으로 둔다 |
 | `TRIAGE_MODEL` | `gpt-6-luna` | `/api/chat` 분기(키워드 추출) 모델 |
 | `TRIAGE_REASONING_EFFORT` | `none` | 위 모델의 `reasoning.effort`. 추론 모델이 아닌 모델로 바꾸면 빈 값으로 둔다 |
 | `TARGET_RERANK_MODEL` | `gpt-6-luna` | 질문자 대상(`userGroup`)이 있는 요청의 rerank 모델. 대상이 없는 rerank는 `OPENAI_MODEL` |
 | `TARGET_RERANK_REASONING_EFFORT` | `none` | 위 모델의 `reasoning.effort`. 추론 모델이 아닌 모델로 바꾸면 빈 값으로 둔다 |
+
+`ANSWER_*`, `TRIAGE_*`, `TARGET_RERANK_*`는 `docker-compose.yml`의 `api.environment`에 없어서 서버 `.env`에 적어도 컨테이너로 전달되지 않는다. 운영은 `app/config.py` 기본값으로 돈다.
+
 | `RAG_ENABLED` | `false` | `true`로 두고 `OPENAI_API_KEY`가 있으면 `/api/chat`이 OpenAI 답변 생성 |
 | `RAG_MAX_REFERENCES` | `6` | 챗봇이 LLM에 넘기고 응답 `references`로도 노출할 공지 수 |
 | `RAG_QUERY_EXTRACTION_ENABLED` | `true` | RAG_ENABLED일 때 검색 직전 LLM이 질문에서 명사 키워드만 추출해 검색어로 사용 |

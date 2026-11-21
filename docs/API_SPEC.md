@@ -380,7 +380,7 @@ MVP는 `status`만 반환해도 된다.
 | `특수대학원생` | `항공경영대학원생`, `항공우주정책대학원생` |
 | `교직원·기타` | `교직원`, `부속기관교육생`, `외부` |
 
-공지 하나가 `target`에 보이는지는 아래 순서로 정한다. 연구 코드(`noticebench/audience.py`의 `covers`)와 같은 규칙이다.
+공지 하나가 `target`에 보이는지는 아래 순서로 정한다. 연구 코드(이 저장소 밖 `noticebench/audience.py`의 `covers`)와 같은 규칙이다. 구현은 `app/notice_labels.py`의 `covers`.
 
 1. 라벨이 없으면(`targetAudiences: null`) 보인다. 라벨이 없다고 공지가 사라지지 않게 한다.
 2. `target`이 `targetExcludes`에 있으면 보이지 않는다.
@@ -546,7 +546,7 @@ GET /api/notices/notice-001
 MVP 기준:
 
 - `GET /api/notices`와 같은 키워드 검색/필터로 관련 공지를 찾는다.
-- `RAG_ENABLED=true`이고 `OPENAI_API_KEY`가 설정돼 있으면 OpenAI Responses API로 답변을 생성한다 (`usedFallback=false`, `model=OPENAI_MODEL`).
+- `RAG_ENABLED=true`이고 `OPENAI_API_KEY`가 설정돼 있으면 OpenAI Responses API로 답변을 생성한다 (`usedFallback=false`, `model`은 공지를 찾은 질문이면 `ANSWER_MODEL`, 이전 대화만으로 답하면 `OPENAI_MODEL`).
 - `RAG_QUERY_EXTRACTION_ENABLED=true`(기본)이면 검색 직전 분기(triage) LLM이 `search`/`history`/`out_of_domain`을 정하고, `search`면 질문에서 명사 키워드를 뽑아 검색어로 쓴다. 분기가 실패하면 질문 원문을 그대로 검색한다.
 - `history` 분기: 이전 대화가 쌓인 상태에서 직전 답변을 재가공하는 후속 질문("더 짧게", "두 번째 거 제목 뭐였지")이면 새 검색 없이 history만으로 답한다. 이때 `references`는 빈 배열이다. 이전 대화가 없으면 이 분기는 쓰지 않고 검색으로 강등한다.
 - `out_of_domain` 분기: 질문을 공지 도메인 밖으로 판정하면 검색을 skip하고 "KAU 공지 안내만 도와드릴 수 있어요" 안내를 `usedFallback=true`로 돌려준다. SSE에서는 `search_completed`의 `references`가 빈 배열이고 `answer_completed`에 안내 문구가 들어간다. 단 `history`가 비어 있지 않으면 도메인 외로 단정하지 않고 질문 원문으로 검색을 시도한다.
@@ -986,7 +986,9 @@ BACKEND_CORS_ORIGINS=http://localhost:3000
 | `NOTICE_AUTO_LABEL_REASONING_EFFORT`       | 아니오 | `none`                           | 추론 모델 effort. 비우면 temperature 0으로 호출(추론 모델이 아닐 때)                  |
 | `NOTICE_AUTO_LABEL_MAX_LLM_CALLS_PER_RUN`  | 아니오 | `100`                            | 수집 1회당 자동 라벨 LLM 호출 상한                                                   |
 | `OPENAI_API_KEY`                           | 아니오 | empty                            | content 보강과 RAG 챗봇 OpenAI 호출에 사용. 없으면 챗봇은 local fallback             |
-| `OPENAI_MODEL`                             | 아니오 | `gpt-4.1-mini`                   | RAG 챗봇과 content 보강 OpenAI 호출 기본 모델                                        |
+| `OPENAI_MODEL`                             | 아니오 | `gpt-4.1-mini`                   | 질문자 대상이 없는 rerank, 이전 대화만으로 답하는 답변                               |
+| `ANSWER_MODEL`                             | 아니오 | `gpt-6-luna`                     | 공지를 찾은 질문의 답변 생성 모델                                                    |
+| `ANSWER_REASONING_EFFORT`                  | 아니오 | `none`                           | 위 모델의 추론 effort. 비우면 temperature 0으로 호출(추론 모델이 아닐 때)             |
 | `TRIAGE_MODEL`                             | 아니오 | `gpt-6-luna`                     | `/api/chat` 분기(키워드 추출) 모델                                                    |
 | `TRIAGE_REASONING_EFFORT`                  | 아니오 | `none`                           | 위 모델의 추론 effort. 비우면 temperature 0으로 호출(추론 모델이 아닐 때)             |
 | `TARGET_RERANK_MODEL`                      | 아니오 | `gpt-6-luna`                     | 질문자 대상(`userGroup`)이 있는 요청의 rerank 모델. 대상이 없으면 `OPENAI_MODEL`      |

@@ -13,7 +13,7 @@
 | `app/`                                     | FastAPI 앱, 서비스 계층, repository, schemas, 검색, 크롤러 스케줄러 |
 | `app/crawler/`                             | 내장 KAU 공지 크롤러                                                |
 | `scripts/run_incremental_crawl_publish.sh` | 수동 증분 크롤링 및 atomic JSON 게시 스크립트                       |
-| `scripts/`                                 | 운영 보조 스크립트 (Markdown·마스킹 점검, 본문 보강 재수집, 이름 모델 설치) |
+| `scripts/`                                 | 운영 보조 스크립트 (Markdown·마스킹 점검, 본문 보강 재수집, Markdown 재파싱, 섞인 이미지 패치, 이름 모델 설치) |
 | `scripts/research/`                        | 교차 게시 판정 등 연구용 데이터 고정·라벨링 스크립트                |
 | `tests/`                                   | Pytest 테스트                                                       |
 | `tests/eval/`                              | 분기 검증·RAGAS 실행기와 평가 세트 (`docs/RAG_EVALUATION.md`)       |

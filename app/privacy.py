@@ -7,7 +7,8 @@
 - **이름**: 학생·교수·담당자 구분 없이 NER 모델로 가린다(`app/name_masking.py`).
 
 전화번호, 이메일, 계좌번호는 문의처와 납부처라 사용자와 챗봇에게 꼭 필요해서
-남긴다.
+남긴다. 단, 메일 주소 자체가 학번(`2021○○○○14@kau.kr`)이면 학생을 특정하므로
+학번 규칙대로 가린다. 메일이 없어도 공지 내용은 전달된다.
 
 건드리지 않는 것이 있다.
 
@@ -33,6 +34,12 @@ MASK_CHAR = "○"
 # (`발표자 명단(20240614).pdf`)를 학번으로 오인하지 않는다.
 STUDENT_ID_RE = re.compile(r"(?<![\d\-.])((?:19|20)\d{2}\d{6})(?![\d\-.])")
 
+# 링크 주소. 이 안은 학번이든 이름이든 가리지 않는다. 주소 속 숫자를 가리면 링크와
+# 이미지가 깨진다. 실제로 이미지 주소의 해시(`...db1928475806cbd0...`)에 든 10자리가
+# 학번으로 잡혀 링크 2개가 깨진 적이 있다. 앞뒤 글자 조건만으로는 막을 수 없어서
+# 주소 전체를 뺀다. 이름 마스킹(`app/name_masking.py`)도 같은 패턴을 쓴다.
+URL_RE = re.compile(r"https?://\S+|\]\([^)]*\)|mailto:\S+")
+
 STUDENT_ID_HEAD_CHARS = 4
 STUDENT_ID_TAIL_CHARS = 2
 
@@ -46,11 +53,20 @@ def mask_student_ids(text: str) -> str:
     안내문의 예시 학번(`2026123456`, `2011111111`)도 구분하지 않고 가린다. 숫자만
     보고는 예시인지 실제인지 확정할 수 없고, 실제 학번이 우연히 예시처럼 생겼으면
     그대로 노출된다.
+
+    링크 주소(`URL_RE`) 안의 숫자는 학번처럼 생겨도 가리지 않는다. 단 학번으로 된 메일 주소는
+    `mailto:` 링크 안이어도 가린다(메일 링크는 동작하지 않게 되지만 학생을 특정하지 않는 쪽을 택한다).
     """
     if not text:
         return text
+    urls = [m.span() for m in URL_RE.finditer(text)]
 
     def replace(match: re.Match[str]) -> str:
+        start, end = match.span(1)
+        # 메일 주소의 앞부분이 학번이면 링크(`mailto:`, `](mailto:...)`) 안이어도 가린다.
+        is_email = text.startswith("@", end)
+        if not is_email and any(s < end and start < e for s, e in urls):
+            return match.group(0)
         student_id = match.group(1)
         hidden = len(student_id) - STUDENT_ID_HEAD_CHARS - STUDENT_ID_TAIL_CHARS
         return (

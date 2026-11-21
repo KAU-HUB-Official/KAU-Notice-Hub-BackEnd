@@ -180,7 +180,12 @@ def expand_search_terms(terms: list[str]) -> list[str]:
 
 
 def recency_boost(notice_date: str, today: date_cls | None = None) -> int:
-    parsed = datetime.fromisoformat(notice_date).date()
+    # normalize_date는 형식(YYYY-MM-DD)만 보므로 2026-11-31 같은 날짜가 들어올 수 있다.
+    # 읽을 수 없는 날짜는 최신성 가산·감산 없이 0점으로 둔다(to_comparable_date와 같은 처리).
+    try:
+        parsed = datetime.fromisoformat(notice_date).date()
+    except ValueError:
+        return 0
     reference = today or date_cls.today()
     delta_days = (reference - parsed).days
     if delta_days < 0:

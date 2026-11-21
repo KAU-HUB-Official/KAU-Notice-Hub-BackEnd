@@ -278,11 +278,6 @@ def _search_with_query(
     filter_parts = [*where_clauses, candidate_clause]
     where_sql = " WHERE " + " AND ".join(filter_parts)
 
-    total = conn.execute(
-        f"SELECT COUNT(*) FROM notices n{where_sql}",
-        [*params, *candidate_params],
-    ).fetchone()[0]
-
     rows = conn.execute(
         f"""
         SELECT id, title, content, url, category, department,
@@ -306,7 +301,10 @@ def _search_with_query(
     )
 
     ranked = rank_notices(matched, q)
-    total_pages = max(1, ceil(max(total, len(ranked)) / page_size))
+    # total은 실제로 순위를 매긴 결과 수다. 메모리 보호로 최신 SEARCH_CANDIDATE_LIMIT건만
+    # 후보로 읽으므로, SQL COUNT 전체를 total로 주면 상한 뒤쪽 페이지가 빈 목록이 된다.
+    total = len(ranked)
+    total_pages = max(1, ceil(total / page_size))
     current_page = min(max(1, page), total_pages)
     start = (current_page - 1) * page_size
     end = start + page_size

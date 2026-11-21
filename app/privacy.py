@@ -54,7 +54,8 @@ def mask_student_ids(text: str) -> str:
     보고는 예시인지 실제인지 확정할 수 없고, 실제 학번이 우연히 예시처럼 생겼으면
     그대로 노출된다.
 
-    링크 주소(`URL_RE`) 안의 숫자는 학번처럼 생겨도 가리지 않는다.
+    링크 주소(`URL_RE`) 안의 숫자는 학번처럼 생겨도 가리지 않는다. 단 학번으로 된 메일 주소는
+    `mailto:` 링크 안이어도 가린다(메일 링크는 동작하지 않게 되지만 학생을 특정하지 않는 쪽을 택한다).
     """
     if not text:
         return text
@@ -62,7 +63,9 @@ def mask_student_ids(text: str) -> str:
 
     def replace(match: re.Match[str]) -> str:
         start, end = match.span(1)
-        if any(s < end and start < e for s, e in urls):
+        # 메일 주소의 앞부분이 학번이면 링크(`mailto:`, `](mailto:...)`) 안이어도 가린다.
+        is_email = text.startswith("@", end)
+        if not is_email and any(s < end and start < e for s, e in urls):
             return match.group(0)
         student_id = match.group(1)
         hidden = len(student_id) - STUDENT_ID_HEAD_CHARS - STUDENT_ID_TAIL_CHARS

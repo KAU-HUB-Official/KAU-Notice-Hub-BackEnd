@@ -68,6 +68,12 @@ class TestMaskStudentIds:
         # 전체 공지에서 2건 나왔다(문의 메일이 `학번@kau.kr`).
         assert mask_student_ids("문의: 2021999914@kau.kr") == "문의: 2021○○○○14@kau.kr"
 
+    def test_메일_링크_안의_학번_메일_주소도_가린다(self):
+        assert mask_student_ids("[문의](mailto:2021999914@kau.kr)") == (
+            "[문의](mailto:2021○○○○14@kau.kr)"
+        )
+        assert mask_student_ids("mailto:2021999914@kau.kr") == "mailto:2021○○○○14@kau.kr"
+
     def test_멱등이다(self):
         once = mask_student_ids("2017999928")
         assert mask_student_ids(once) == once

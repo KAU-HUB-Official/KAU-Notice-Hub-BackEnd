@@ -95,7 +95,7 @@ def test_stream_openai_sync_decodes_utf8_without_charset_header() -> None:
         'data: {"type": "response.output_text.delta", "delta": "수강신청은 "}\n\n'
         'data: {"type": "response.output_text.delta", "delta": "2월 10일입니다."}\n\n'
         "data: [DONE]\n\n"
-    ).encode("utf-8")
+    ).encode()
     response = requests.Response()
     response.status_code = 200
     response.headers["Content-Type"] = "text/event-stream"

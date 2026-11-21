@@ -221,7 +221,7 @@ class NameSpanCache:
 
     @staticmethod
     def key(text: str) -> str:
-        return hashlib.sha256(f"{MODEL_VERSION}\n{text}".encode("utf-8")).hexdigest()
+        return hashlib.sha256(f"{MODEL_VERSION}\n{text}".encode()).hexdigest()
 
     def get(self, text: str) -> list[NameSpan] | None:
         with self._lock:

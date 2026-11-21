@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import re
-from datetime import datetime, timezone
+from datetime import datetime, UTC
 from urllib.parse import urlencode, urljoin, urlparse
 
 from bs4 import BeautifulSoup
@@ -130,7 +130,7 @@ class KAUAdmissionParser(BaseParser):
             published_at=published_at,
             original_url=detail_url,
             attachments=attachments,
-            crawled_at=datetime.now(timezone.utc).isoformat(),
+            crawled_at=datetime.now(UTC).isoformat(),
         )
 
     def _extract_board_id(self, soup: BeautifulSoup) -> str:
@@ -163,7 +163,7 @@ class KAUAdmissionParser(BaseParser):
         # 작성일은 ul.br_info 에서 "작성일" 라벨 옆 bri_desc 값으로 제공된다.
         for item in soup.select("section.board_read ul.br_info li"):
             label = self.normalize_whitespace(
-                (item.select_one(".bri_tit").get_text(" ", strip=True) if item.select_one(".bri_tit") else "")
+                item.select_one(".bri_tit").get_text(" ", strip=True) if item.select_one(".bri_tit") else ""
             )
             if "작성일" not in label:
                 continue

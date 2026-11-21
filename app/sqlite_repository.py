@@ -15,7 +15,7 @@ from app.classification import (
     should_use_source_filter,
 )
 from app.config import get_settings
-from app.db import SCHEMA_VERSION, connect, initialize_schema, read_schema_version
+from app.db import connect, initialize_schema, read_schema_version
 from app.normalize import normalize_content_markdown
 from app.notice_labels import normalize_target
 from app.repository import (
@@ -26,7 +26,6 @@ from app.repository import (
 from app.schemas import Notice, NoticeAttachment, NoticeFacets
 from app.search import (
     compact,
-    compact_search_text,
     expand_search_terms,
     extract_search_terms,
     normalize_whitespace,
@@ -328,7 +327,7 @@ def _apply_text_filter(
         return notices
 
     matched: list[Notice] = []
-    for notice, row in zip(notices, rows):
+    for notice, row in zip(notices, rows, strict=True):
         searchable = row["searchable_text"] or ""
         compact_searchable = row["searchable_compact"] or ""
 

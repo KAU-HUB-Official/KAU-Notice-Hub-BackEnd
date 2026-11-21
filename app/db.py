@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import contextlib
 import sqlite3
 from pathlib import Path
 
@@ -140,11 +141,9 @@ def _ensure_column(
     existing = {row[1] for row in conn.execute(f"PRAGMA table_info({table})")}
     if column in existing:
         return
-    try:
+    # Lost a race with a concurrent initializer; the column now exists.
+    with contextlib.suppress(sqlite3.OperationalError):
         conn.execute(f"ALTER TABLE {table} ADD COLUMN {column} {decl}")
-    except sqlite3.OperationalError:
-        # Lost a race with a concurrent initializer; the column now exists.
-        pass
 
 
 def initialize_schema(conn: sqlite3.Connection) -> None:

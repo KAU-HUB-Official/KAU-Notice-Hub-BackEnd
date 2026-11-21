@@ -182,13 +182,12 @@ async def _run_once(settings: Settings) -> None:
 
 
 def _prepare_temp_snapshot(final_path: Path) -> Path:
-    tmp_file = tempfile.NamedTemporaryFile(
+    with tempfile.NamedTemporaryFile(
         delete=False,
         dir=final_path.parent,
         prefix=f".{final_path.name}.tmp.",
-    )
-    tmp_path = Path(tmp_file.name)
-    tmp_file.close()
+    ) as tmp_file:
+        tmp_path = Path(tmp_file.name)
 
     if final_path.exists():
         shutil.copyfile(final_path, tmp_path)

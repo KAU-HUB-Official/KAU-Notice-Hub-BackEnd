@@ -6,7 +6,6 @@ import json
 import sqlite3
 import time
 
-import pytest
 from fastapi.testclient import TestClient
 
 from app import chat_log

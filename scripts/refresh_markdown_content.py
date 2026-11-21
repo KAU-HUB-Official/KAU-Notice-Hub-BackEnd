@@ -25,7 +25,7 @@ import os
 import sys
 import time
 from dataclasses import dataclass
-from datetime import datetime, timezone
+from datetime import datetime, UTC
 from pathlib import Path
 from typing import Any
 
@@ -153,7 +153,7 @@ def _refresh_post(
         return False
 
     preserved = apply_refreshed_content(post, new_content)
-    post["crawled_at"] = datetime.now(timezone.utc).isoformat()
+    post["crawled_at"] = datetime.now(UTC).isoformat()
     stats.succeeded += 1
     if preserved:
         stats.preserved_enriched += 1

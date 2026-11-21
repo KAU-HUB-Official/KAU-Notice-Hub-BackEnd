@@ -6,7 +6,8 @@ import logging
 from dataclasses import asdict, dataclass, field
 from datetime import date
 from time import perf_counter
-from typing import Any, AsyncIterator, Callable, Iterator, NamedTuple
+from typing import Any, NamedTuple
+from collections.abc import AsyncIterator, Callable, Iterator
 
 import requests
 
@@ -423,7 +424,7 @@ def _stream_openai_sync(
     system_prompt: str,
     messages: list[dict[str, str]],
     reasoning_effort: str | None = None,
-) -> "Iterator[str]":
+) -> Iterator[str]:
     """OpenAI Responses API를 stream 모드로 호출해 텍스트 delta를 차례로 yield한다.
 
     동기 제너레이터다. `_aiter_threaded`로 async iterator로 감싸 사용한다.
@@ -483,7 +484,7 @@ def _stream_openai_sync(
         response.close()
 
 
-async def _aiter_threaded(make_gen: "Callable[[], Iterator[str]]") -> "AsyncIterator[str]":
+async def _aiter_threaded(make_gen: Callable[[], Iterator[str]]) -> AsyncIterator[str]:
     """블로킹 동기 제너레이터를 워커 스레드에서 돌려 도착 순서대로 async yield한다."""
     queue: asyncio.Queue[Any] = asyncio.Queue()
     loop = asyncio.get_running_loop()
@@ -893,7 +894,7 @@ async def _stream_from_history(
     question: str,
     history: list[ChatMessage] | None = None,
     today: date | None = None,
-) -> "AsyncIterator[str]":
+) -> AsyncIterator[str]:
     """history 분기 답변을 토큰 delta로 스트리밍. 비활성/키 부재면 아무것도 yield하지 않는다."""
     settings = get_settings()
     if not settings.rag_enabled or not settings.openai_api_key:
@@ -914,7 +915,7 @@ async def _stream_with_openai(
     notices: list[Notice],
     history: list[ChatMessage] | None = None,
     today: date | None = None,
-) -> "AsyncIterator[str]":
+) -> AsyncIterator[str]:
     """search 분기 답변을 토큰 delta로 스트리밍. 비활성/키 부재/공지 0건이면 아무것도 yield하지 않는다."""
     settings = get_settings()
     if not settings.rag_enabled or not settings.openai_api_key or not notices:
@@ -1034,7 +1035,7 @@ async def stream_notice_question(
     filters: NoticeQuery | None = None,
     history: list[ChatMessage] | None = None,
     today: date | None = None,
-) -> "AsyncIterator[dict[str, Any]]":
+) -> AsyncIterator[dict[str, Any]]:
     normalized_question = question.strip()
 
     yield {"type": "search_started"}

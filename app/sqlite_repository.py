@@ -15,7 +15,7 @@ from app.classification import (
     should_use_source_filter,
 )
 from app.config import get_settings
-from app.db import SCHEMA_VERSION, connect, initialize_schema, read_schema_version
+from app.db import connect, initialize_schema
 from app.normalize import normalize_content_markdown
 from app.notice_labels import normalize_target
 from app.repository import (
@@ -26,7 +26,6 @@ from app.repository import (
 from app.schemas import Notice, NoticeAttachment, NoticeFacets
 from app.search import (
     compact,
-    compact_search_text,
     expand_search_terms,
     extract_search_terms,
     normalize_whitespace,
@@ -54,16 +53,6 @@ class SqliteNoticeRepository:
         configured = db_path or get_settings().notice_db_path
         self.db_path = Path(configured).expanduser().resolve()
         self._schema_ready = False
-
-    def schema_version(self) -> int:
-        try:
-            conn = connect(self.db_path)
-        except sqlite3.Error:
-            return 0
-        try:
-            return read_schema_version(conn)
-        finally:
-            conn.close()
 
     def _connect(self) -> sqlite3.Connection:
         try:
@@ -168,6 +157,25 @@ def _search(conn: sqlite3.Connection, query: NoticeSearchQuery) -> NoticeSearchR
     )
 
 
+def _append_group_filters(
+    clauses: list[str],
+    params: list[object],
+    *,
+    audience: str | None,
+    source_group: str | None,
+) -> None:
+    """대상 그룹·출처 그룹 조건을 붙인다. 본 검색과 facet 집계가 같은 조건을 쓴다."""
+    if audience:
+        clauses.append("n.audience_group = ?")
+        params.append(audience)
+    if source_group:
+        clauses.append(
+            "EXISTS(SELECT 1 FROM notice_source_groups sg "
+            "WHERE sg.notice_id = n.id AND sg.source_group = ?)"
+        )
+        params.append(source_group)
+
+
 def _build_main_where(
     *,
     audience: str | None,
@@ -179,15 +187,7 @@ def _build_main_where(
 ) -> tuple[list[str], list[object]]:
     clauses: list[str] = []
     params: list[object] = []
-    if audience:
-        clauses.append("n.audience_group = ?")
-        params.append(audience)
-    if source_group:
-        clauses.append(
-            "EXISTS(SELECT 1 FROM notice_source_groups sg "
-            "WHERE sg.notice_id = n.id AND sg.source_group = ?)"
-        )
-        params.append(source_group)
+    _append_group_filters(clauses, params, audience=audience, source_group=source_group)
     if source:
         clauses.append(
             "EXISTS(SELECT 1 FROM notice_sources s "
@@ -275,15 +275,8 @@ def _search_with_query(
     candidate_clause = "(" + " OR ".join(candidate_or_parts) + ")"
 
     # 외부 filter(audience/source_group/...)는 AND, 키워드 매칭은 OR group.
-    filter_parts = list(where_clauses)
-    if candidate_clause:
-        filter_parts.append(candidate_clause)
-    where_sql = (" WHERE " + " AND ".join(filter_parts)) if filter_parts else ""
-
-    total = conn.execute(
-        f"SELECT COUNT(*) FROM notices n{where_sql}",
-        [*params, *candidate_params],
-    ).fetchone()[0]
+    filter_parts = [*where_clauses, candidate_clause]
+    where_sql = " WHERE " + " AND ".join(filter_parts)
 
     rows = conn.execute(
         f"""
@@ -308,7 +301,10 @@ def _search_with_query(
     )
 
     ranked = rank_notices(matched, q)
-    total_pages = max(1, ceil(max(total, len(ranked)) / page_size))
+    # total은 실제로 순위를 매긴 결과 수다. 메모리 보호로 최신 SEARCH_CANDIDATE_LIMIT건만
+    # 후보로 읽으므로, SQL COUNT 전체를 total로 주면 상한 뒤쪽 페이지가 빈 목록이 된다.
+    total = len(ranked)
+    total_pages = max(1, ceil(total / page_size))
     current_page = min(max(1, page), total_pages)
     start = (current_page - 1) * page_size
     end = start + page_size
@@ -328,7 +324,7 @@ def _apply_text_filter(
         return notices
 
     matched: list[Notice] = []
-    for notice, row in zip(notices, rows):
+    for notice, row in zip(notices, rows, strict=True):
         searchable = row["searchable_text"] or ""
         compact_searchable = row["searchable_compact"] or ""
 
@@ -602,15 +598,7 @@ def _query_sources(
     )
     clauses: list[str] = []
     params: list[object] = [_SOURCE_DELIMITER]
-    if audience:
-        clauses.append("n.audience_group = ?")
-        params.append(audience)
-    if source_group:
-        clauses.append(
-            "EXISTS(SELECT 1 FROM notice_source_groups sg "
-            "WHERE sg.notice_id = n.id AND sg.source_group = ?)"
-        )
-        params.append(source_group)
+    _append_group_filters(clauses, params, audience=audience, source_group=source_group)
     if clauses:
         base += " WHERE " + " AND ".join(clauses)
     base += " GROUP BY n.id"
@@ -645,15 +633,7 @@ def _query_categories(
     base = "SELECT n.category FROM notices n"
     clauses: list[str] = ["n.category IS NOT NULL"]
     params: list[object] = []
-    if audience:
-        clauses.append("n.audience_group = ?")
-        params.append(audience)
-    if source_group:
-        clauses.append(
-            "EXISTS(SELECT 1 FROM notice_source_groups sg "
-            "WHERE sg.notice_id = n.id AND sg.source_group = ?)"
-        )
-        params.append(source_group)
+    _append_group_filters(clauses, params, audience=audience, source_group=source_group)
     base += " WHERE " + " AND ".join(clauses)
 
     notices_with_category = [
@@ -676,15 +656,7 @@ def _query_departments(
     base = "SELECT DISTINCT n.department FROM notices n"
     clauses: list[str] = ["n.department IS NOT NULL"]
     params: list[object] = []
-    if audience:
-        clauses.append("n.audience_group = ?")
-        params.append(audience)
-    if source_group:
-        clauses.append(
-            "EXISTS(SELECT 1 FROM notice_source_groups sg "
-            "WHERE sg.notice_id = n.id AND sg.source_group = ?)"
-        )
-        params.append(source_group)
+    _append_group_filters(clauses, params, audience=audience, source_group=source_group)
     base += " WHERE " + " AND ".join(clauses)
     rows = conn.execute(base, params).fetchall()
     return sorted({row[0] for row in rows if row[0]})

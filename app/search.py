@@ -180,7 +180,12 @@ def expand_search_terms(terms: list[str]) -> list[str]:
 
 
 def recency_boost(notice_date: str, today: date_cls | None = None) -> int:
-    parsed = datetime.fromisoformat(notice_date).date()
+    # normalize_date는 형식(YYYY-MM-DD)만 보므로 2026-11-31 같은 날짜가 들어올 수 있다.
+    # 읽을 수 없는 날짜는 최신성 가산·감산 없이 0점으로 둔다(to_comparable_date와 같은 처리).
+    try:
+        parsed = datetime.fromisoformat(notice_date).date()
+    except ValueError:
+        return 0
     reference = today or date_cls.today()
     delta_days = (reference - parsed).days
     if delta_days < 0:
@@ -194,38 +199,6 @@ def recency_boost(notice_date: str, today: date_cls | None = None) -> int:
     if delta_days > 365:
         return -2
     return 0
-
-
-def score_notice(notice: Notice, terms: list[str], today: date_cls | None = None) -> int:
-    if not terms:
-        return 0
-
-    title = notice.title.lower()
-    content = notice.content.lower()
-    source = (normalize_facet_value(notice.source) or "").lower()
-    category = (normalize_facet_value(notice.category) or "").lower()
-    tags = " ".join(notice.tags).lower()
-    full_text = build_search_text(notice)
-
-    score = 0
-    for term in terms:
-        if term not in full_text:
-            continue
-
-        score += 1
-        if term in title:
-            score += 7
-        if term in tags:
-            score += 3
-        if term in source or term in category:
-            score += 2
-        if term in content:
-            score += 1
-
-    if score > 0 and notice.date:
-        score += recency_boost(notice.date, today)
-
-    return score
 
 
 def filter_notices(

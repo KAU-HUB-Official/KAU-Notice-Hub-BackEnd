@@ -145,21 +145,6 @@ def normalize_filter_value(value: Any) -> str | None:
     return normalized
 
 
-def normalize_filter_values(value: Any) -> list[str]:
-    raw_values = value if isinstance(value, list) else [value]
-    normalized_values: list[str] = []
-    for item in raw_values:
-        if not isinstance(item, str):
-            continue
-
-        for part in item.split(","):
-            normalized = normalize_filter_value(part)
-            if normalized:
-                normalized_values.append(normalized)
-
-    return unique_preserve_order(normalized_values)
-
-
 def should_use_source_filter(audience_group: str | None = None) -> bool:
     normalized_audience = normalize_filter_value(audience_group)
     return normalized_audience in {
@@ -526,10 +511,3 @@ def get_clean_categories(notices: list[Notice]) -> list[str]:
         return []
 
     return cleaned[:12]
-
-
-def format_source_label(source: str) -> str:
-    normalized = normalize_whitespace(source)
-    compacted = re.sub(r"^한국항공대학교\s*", "", normalized)
-    return compacted or normalized
-

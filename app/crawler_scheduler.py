@@ -182,13 +182,12 @@ async def _run_once(settings: Settings) -> None:
 
 
 def _prepare_temp_snapshot(final_path: Path) -> Path:
-    tmp_file = tempfile.NamedTemporaryFile(
+    with tempfile.NamedTemporaryFile(
         delete=False,
         dir=final_path.parent,
         prefix=f".{final_path.name}.tmp.",
-    )
-    tmp_path = Path(tmp_file.name)
-    tmp_file.close()
+    ) as tmp_file:
+        tmp_path = Path(tmp_file.name)
 
     if final_path.exists():
         shutil.copyfile(final_path, tmp_path)
@@ -267,6 +266,7 @@ def _validate_snapshot(
             if isinstance(old_data, list):
                 old_count = _count_retain_baseline_records(old_data)
         except Exception:
+            logger.warning("could not read previous snapshot; retain-ratio check skipped", exc_info=True)
             old_count = 0
 
     if old_count > 0 and next_count < old_count * min_retain_ratio:

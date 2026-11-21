@@ -84,6 +84,25 @@ def test_sqlite_repository_get_by_id_missing(populated_db: Path) -> None:
     assert notice is None
 
 
+def test_keyword_search_survives_notice_with_impossible_date(tmp_path: Path) -> None:
+    """달력에 없는 날짜(11월 31일)가 하나 섞여 있어도 키워드 검색이 죽지 않는다."""
+    json_path = tmp_path / "notices.json"
+    db_path = tmp_path / "notices.db"
+    _write_json(
+        json_path,
+        [
+            {"id": "bad", "title": "장학 안내", "content": "본문", "published_at": "2026-11-31"},
+            {"id": "ok", "title": "장학 신청", "content": "본문", "published_at": "2026-11-20"},
+        ],
+    )
+    ingest_json_snapshot(json_path=json_path, db_path=db_path)
+
+    result = asyncio.run(SqliteNoticeRepository(db_path).search(NoticeSearchQuery(q="장학")))
+
+    assert sorted(n.id for n in result.items) == ["bad", "ok"]
+    assert result.total == 2
+
+
 def test_sqlite_repository_normalizes_legacy_html_content_on_read(tmp_path: Path) -> None:
     db_path = tmp_path / "legacy.db"
     conn = connect(db_path)
@@ -400,3 +419,39 @@ def test_schema_creates_expected_tables(populated_db: Path) -> None:
         ).fetchall()
     names = {row[0] for row in rows}
     assert {"notices", "notice_sources", "notice_attachments", "notice_tags"}.issubset(names)
+
+
+def test_keyword_search_total_matches_reachable_pages(tmp_path: Path, monkeypatch) -> None:
+    """후보 상한을 넘는 검색어도 total(=페이지 수 기준)과 실제로 열 수 있는 페이지가 맞는다.
+
+    상한(SEARCH_CANDIDATE_LIMIT)보다 많은 공지가 걸리면 최신 상한 건수만 순위를 매긴다.
+    전에는 total이 SQL COUNT 전체라 뒤쪽 페이지가 빈 목록인데 페이지 수는 그대로 나왔다.
+    """
+    import app.sqlite_repository as repo_module
+
+    monkeypatch.setattr(repo_module, "SEARCH_CANDIDATE_LIMIT", 5)
+    json_path = tmp_path / "notices.json"
+    db_path = tmp_path / "notices.db"
+    _write_json(
+        json_path,
+        [
+            {
+                "id": f"n-{i}",
+                "title": f"장학 안내 {i}",
+                "content": "본문",
+                "published_at": f"2026-11-{i + 1:02d}",
+            }
+            for i in range(8)
+        ],
+    )
+    ingest_json_snapshot(json_path=json_path, db_path=db_path)
+    repository = SqliteNoticeRepository(db_path)
+
+    def page(n: int):
+        return asyncio.run(repository.search(NoticeSearchQuery(q="장학", page=n, page_size=2)))
+
+    first = page(1)
+    assert first.total == 5
+    seen = [n.id for p in range(1, 4) for n in page(p).items]
+    assert len(seen) == 5
+    assert len(set(seen)) == 5

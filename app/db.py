@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import contextlib
 import sqlite3
 from pathlib import Path
 
@@ -118,7 +119,7 @@ def connect(db_path: str | Path) -> sqlite3.Connection:
     #
     # Connections are short-lived (one per request, see SqliteNoticeRepository),
     # so values are kept modest to stay well within the deployment memory budget
-    # (Lightsail ~911MiB, MemoryMax 750M; see docs/DEPLOYMENT.md). mmap_size is
+    # (Lightsail 2GB, compose mem_limit 1400m; see docs/DEPLOYMENT.md). mmap_size is
     # sized to cover the whole DB (~24MB today) with headroom; mmap pages are
     # shared read-only across connections via the OS page cache, so the resident
     # cost is bounded by the file size, not multiplied per connection.
@@ -140,11 +141,9 @@ def _ensure_column(
     existing = {row[1] for row in conn.execute(f"PRAGMA table_info({table})")}
     if column in existing:
         return
-    try:
+    # Lost a race with a concurrent initializer; the column now exists.
+    with contextlib.suppress(sqlite3.OperationalError):
         conn.execute(f"ALTER TABLE {table} ADD COLUMN {column} {decl}")
-    except sqlite3.OperationalError:
-        # Lost a race with a concurrent initializer; the column now exists.
-        pass
 
 
 def initialize_schema(conn: sqlite3.Connection) -> None:

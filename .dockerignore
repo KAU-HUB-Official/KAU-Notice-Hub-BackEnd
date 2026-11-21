@@ -14,3 +14,11 @@ id_ed25519*
 docs
 tests
 data/*.json
+# 빌드 컨텍스트에서 제외 (Dockerfile은 pyproject.toml, app, scripts만 복사한다)
+.git
+data
+models
+notes
+node_modules
+load-tests
+*.egg-info

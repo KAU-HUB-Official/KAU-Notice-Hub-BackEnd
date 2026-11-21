@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from urllib.parse import urlencode, urljoin
+from urllib.parse import urlencode
 
 from ..clients.base_client import BaseClient
 from ..config import (
@@ -31,10 +31,6 @@ class KAULibraryClient(BaseClient):
 
     def fetch_notice_list(self, page: int = 1) -> str | None:
         return self.get(self.build_notice_list_url(page), referer=self.notice_list_url)
-
-    def build_notice_detail_url(self, sb_no: str) -> str:
-        params = {"sb_no": sb_no}
-        return urljoin(self.base_url, f"/sb/default_notice_view.mir?{urlencode(params)}")
 
     def fetch_notice_detail(self, detail_url: str) -> str | None:
         return self.get(detail_url, referer=self.notice_list_url)

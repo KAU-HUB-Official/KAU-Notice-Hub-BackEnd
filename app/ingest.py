@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import contextlib
 import json
 import logging
 import os
@@ -15,7 +16,7 @@ from app.classification import (
     normalize_facet_value,
 )
 from app.db import connect, initialize_schema
-from app.normalize import normalize_notice
+from app.normalize import assign_unique_id, normalize_notice
 from app.notice_labels import TARGETS, covers, label_url_key, load_notice_labels
 from app.schemas import Notice
 from app.search import build_search_text, compact_search_text
@@ -82,7 +83,7 @@ def ingest_json_snapshot(
         )
         return IngestResult(db_path=final_db, total_notices=len(notices))
     except Exception:
-        with _suppress_missing():
+        with contextlib.suppress(FileNotFoundError):
             tmp_db.unlink()
         raise
 
@@ -97,11 +98,7 @@ def _load_classified_notices(json_path: Path) -> list[_ClassifiedNotice]:
     for index, item in enumerate(raw):
         if not isinstance(item, dict):
             continue
-        notice = normalize_notice(item, index)
-        current = used_ids.get(notice.id, 0)
-        used_ids[notice.id] = current + 1
-        if current > 0:
-            notice = notice.model_copy(update={"id": f"{notice.id}-{current + 1}"})
+        notice = assign_unique_id(normalize_notice(item, index), used_ids)
 
         audience_group = classify_notice_audience(notice)
         source_groups = classify_notice_source_groups(notice)
@@ -295,11 +292,3 @@ def _write_labels(
         len(items) - len(label_rows),
         len(labels) - len(used_keys),
     )
-
-
-class _suppress_missing:
-    def __enter__(self) -> None:
-        return None
-
-    def __exit__(self, exc_type, exc, tb) -> bool:
-        return exc_type is not None and issubclass(exc_type, FileNotFoundError)

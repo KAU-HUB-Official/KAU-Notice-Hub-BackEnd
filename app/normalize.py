@@ -517,3 +517,12 @@ def normalize_notice(raw: RawNotice, index: int) -> Notice:
         tags=normalize_tags(raw, sources, categories),
         attachments=normalize_attachments(raw.get("attachments")),
     )
+
+
+def assign_unique_id(notice: Notice, used_ids: dict[str, int]) -> Notice:
+    """같은 id가 다시 나오면 `-2`, `-3`… 접미사를 붙인다. used_ids는 호출자가 이어서 넘긴다."""
+    current = used_ids.get(notice.id, 0)
+    used_ids[notice.id] = current + 1
+    if current > 0:
+        return notice.model_copy(update={"id": f"{notice.id}-{current + 1}"})
+    return notice

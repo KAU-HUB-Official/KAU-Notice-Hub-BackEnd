@@ -8,7 +8,8 @@ import sys
 from collections import Counter, defaultdict
 from dataclasses import asdict, dataclass
 from pathlib import Path
-from typing import Any, Iterable
+from typing import Any
+from collections.abc import Iterable
 
 
 SEVERITY_RANK = {"P0": 0, "P1": 1, "P2": 2}

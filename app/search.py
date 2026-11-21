@@ -196,38 +196,6 @@ def recency_boost(notice_date: str, today: date_cls | None = None) -> int:
     return 0
 
 
-def score_notice(notice: Notice, terms: list[str], today: date_cls | None = None) -> int:
-    if not terms:
-        return 0
-
-    title = notice.title.lower()
-    content = notice.content.lower()
-    source = (normalize_facet_value(notice.source) or "").lower()
-    category = (normalize_facet_value(notice.category) or "").lower()
-    tags = " ".join(notice.tags).lower()
-    full_text = build_search_text(notice)
-
-    score = 0
-    for term in terms:
-        if term not in full_text:
-            continue
-
-        score += 1
-        if term in title:
-            score += 7
-        if term in tags:
-            score += 3
-        if term in source or term in category:
-            score += 2
-        if term in content:
-            score += 1
-
-    if score > 0 and notice.date:
-        score += recency_boost(notice.date, today)
-
-    return score
-
-
 def filter_notices(
     notices: list[Notice],
     *,

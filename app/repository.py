@@ -48,7 +48,6 @@ class NoticeRepository(Protocol):
 
 @dataclass
 class CacheEntry:
-    file_path: Path
     mtime_ns: int
     notices: list[Notice]
 
@@ -109,7 +108,6 @@ class JsonNoticeRepository:
             raise NoticeRepositoryError(f"공지 JSON 파일을 정규화할 수 없습니다: {self.file_path}") from exc
 
         self._cache = CacheEntry(
-            file_path=self.file_path,
             mtime_ns=file_stat.st_mtime_ns,
             notices=notices,
         )

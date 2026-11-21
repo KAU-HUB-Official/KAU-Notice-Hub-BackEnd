@@ -33,19 +33,9 @@ class KAUOfficialClient(BaseClient):
         }
         return f"{list_url}?{urlencode(params)}"
 
-    def build_notice_list_url(self, page: int = 1) -> str:
-        return self.build_board_list_url(list_url=self.notice_list_url, code="s1101", page=page)
-
     def fetch_board_list(self, *, list_url: str, code: str, page: int = 1) -> str | None:
         page_url = self.build_board_list_url(list_url=list_url, code=code, page=page)
         return self.get(page_url, referer=list_url)
 
     def fetch_detail(self, detail_url: str, *, referer: str | None = None) -> str | None:
         return self.get(detail_url, referer=referer or self.notice_list_url)
-
-    # Backward compatibility
-    def fetch_notice_list(self, page: int = 1) -> str | None:
-        return self.fetch_board_list(list_url=self.notice_list_url, code="s1101", page=page)
-
-    def fetch_notice_detail(self, detail_url: str) -> str | None:
-        return self.fetch_detail(detail_url, referer=self.notice_list_url)

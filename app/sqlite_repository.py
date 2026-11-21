@@ -15,7 +15,7 @@ from app.classification import (
     should_use_source_filter,
 )
 from app.config import get_settings
-from app.db import connect, initialize_schema, read_schema_version
+from app.db import connect, initialize_schema
 from app.normalize import normalize_content_markdown
 from app.notice_labels import normalize_target
 from app.repository import (
@@ -53,16 +53,6 @@ class SqliteNoticeRepository:
         configured = db_path or get_settings().notice_db_path
         self.db_path = Path(configured).expanduser().resolve()
         self._schema_ready = False
-
-    def schema_version(self) -> int:
-        try:
-            conn = connect(self.db_path)
-        except sqlite3.Error:
-            return 0
-        try:
-            return read_schema_version(conn)
-        finally:
-            conn.close()
 
     def _connect(self) -> sqlite3.Connection:
         try:
@@ -274,10 +264,8 @@ def _search_with_query(
     candidate_clause = "(" + " OR ".join(candidate_or_parts) + ")"
 
     # 외부 filter(audience/source_group/...)는 AND, 키워드 매칭은 OR group.
-    filter_parts = list(where_clauses)
-    if candidate_clause:
-        filter_parts.append(candidate_clause)
-    where_sql = (" WHERE " + " AND ".join(filter_parts)) if filter_parts else ""
+    filter_parts = [*where_clauses, candidate_clause]
+    where_sql = " WHERE " + " AND ".join(filter_parts)
 
     total = conn.execute(
         f"SELECT COUNT(*) FROM notices n{where_sql}",

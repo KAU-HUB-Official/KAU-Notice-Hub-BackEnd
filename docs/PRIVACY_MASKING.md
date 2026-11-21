@@ -29,15 +29,17 @@
 | `app/chat_service.py` `build_context()` | RAG 답변 컨텍스트 |
 | `app/chat_service.py` `build_rerank_list()` | rerank 입력 |
 | `app/chat_service.py` `fallback_answer()` | LLM 미사용 시 노출되는 발췌 |
+| `app/notice_auto_label.py` `build_llm_input()` | 공지 대상 자동 라벨 LLM 입력(제목·본문·첨부 이름). 3000자로 자르기 전에 가린다 |
 
 모두 `mask_personal_identifiers()`를 거친다. 학번을 먼저 가리고 이름을 가린다.
 
 ### 건드리지 않는 것
 
-- **제목**: 원문 URL이 없는 공지는 `build_notice_id()`가 제목으로 ID를 만든다.
+- **제목**(화면·저장값): 원문 URL이 없는 공지는 `build_notice_id()`가 제목으로 ID를 만든다.
   제목을 바꾸면 그 공지의 ID가 변해 사용자가 저장한 북마크가 끊긴다.
 - **첨부파일**: 파일명과 URL을 그대로 둔다. PDF·HWP·이미지 안의 명단은 텍스트
   마스킹이 닿지 않으므로 여전히 노출된다.
+- 위 두 가지는 화면과 저장값 기준이다. OpenAI로 보내는 자동 라벨 입력에서는 제목과 첨부 이름도 가린다.
 
 ## 학번
 
@@ -247,6 +249,9 @@ python scripts/install_name_model.py --check                           # 들어 
   아니라서 일부 단어가 가려지고, 가려진 단어로는 검색되지 않는다.
 - 평가 공지는 50건이라 수치의 폭이 크다. 이름 한 곳이 1%포인트 가까이 움직인다.
 - 영문으로만 쓴 이름은 가리지 않는다.
+- 학번 바로 뒤에 `.`이 오면(예: 첨부 이름 `홍길동_2021123456.pdf`) 소수·버전 번호와 구분하려고 학번으로 보지 않는다.
+- 2026-10-15~11-21 사이 자동 라벨 LLM 입력은 마스킹 없이 나갔다(LLM 라벨 297건, 그중 학번이 든 입력 1건). 2026-11-21부터 가린다.
+  가린 입력과 원문 입력으로 각각 라벨을 다시 매겨 보니 입력이 달라지는 36건 중 34건이 같았다. 같은 원문을 다시 불러도 3건이 저장 라벨과 달라, 나머지 2건은 LLM 자체 흔들림 범위로 본다.
 - 교수·담당자 이름도 가리므로, 공지에서 누구에게 문의할지는 이름 대신 부서와
   연락처로 찾아야 한다.
 
@@ -257,6 +262,7 @@ python scripts/install_name_model.py --check                           # 들어 
 | `tests/test_privacy.py` | 학번, 연락처를 남기는지, 본문·검색 인덱스·공지 ID |
 | `tests/test_name_masking.py` | 이름 구간 처리, 캐시, 설정. 실제 모델 테스트(학번 뒤 `선발`·`예비`, 여러 행 표 머리글 등)는 모델 파일이 있을 때만 돈다 |
 | `tests/test_privacy_pipeline.py` | JSON 적재 → 공지 목록·상세·검색 API, 챗봇 LLM 입력(`build_context`, `build_rerank_list`, `fallback_answer`)이 가려지는지 |
+| `tests/test_notice_auto_label.py` | 자동 라벨 LLM 입력의 제목·본문·첨부 이름에서 학번·이름이 가려지는지 |
 
 전체 공지를 실제로 가려 보고 점검하려면:
 

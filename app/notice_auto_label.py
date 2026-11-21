@@ -27,6 +27,7 @@ from typing import Any
 import requests
 
 from app.notice_labels import FRESHMEN, label_url_key, load_notice_labels
+from app.privacy import mask_personal_identifiers
 
 logger = logging.getLogger("app.notice_auto_label")
 
@@ -287,17 +288,19 @@ class NoticeForLabel:
 
 
 def build_llm_input(notice: NoticeForLabel) -> str:
-    body = clean_markdown(notice.body).strip()
+    # OpenAI로 나가는 글은 챗봇 LLM 입력과 같이 학번·이름을 가린다(docs/PRIVACY_MASKING.md).
+    # 자르기 전에 가려야 잘린 경계에 걸친 학번이 남지 않는다.
+    body = mask_personal_identifiers(clean_markdown(notice.body).strip())
     if len(body) > LLM_BODY_MAX_CHARS:
         body = body[:LLM_BODY_MAX_CHARS] + "\n(본문 잘림)"
     board = " ".join(part for part in (notice.board_name, f"({notice.board})" if notice.board else None) if part)
     lines = [
         f"게시판: {board or '알 수 없음'}",
         f"게시일: {notice.date or '알 수 없음'}",
-        f"제목: {notice.title}",
+        f"제목: {mask_personal_identifiers(notice.title)}",
     ]
     if notice.attachment_names:
-        lines.append("첨부: " + ", ".join(notice.attachment_names))
+        lines.append("첨부: " + mask_personal_identifiers(", ".join(notice.attachment_names)))
     lines.append("본문:")
     lines.append(body or "(본문 없음)")
     return "\n".join(lines)

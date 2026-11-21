@@ -504,7 +504,7 @@ user 텍스트 (`build_llm_input`):
 {Markdown 기호를 걷어낸 본문, 3000자 초과 시 잘라 "(본문 잘림)"}
 ```
 
-본문은 학번·이름 마스킹을 거치지 않고 크롤링 스냅샷 원문을 쓴다.
+제목·본문·첨부 이름은 `mask_personal_identifiers()`로 학번·이름을 가린 뒤 보낸다(`docs/PRIVACY_MASKING.md`). 본문은 가린 다음 3000자로 자른다.
 
 응답 형식(`LLM_SCHEMA`, strict json_schema):
 

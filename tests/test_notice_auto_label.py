@@ -15,6 +15,7 @@ from app.notice_auto_label import (
     normalize_audiences,
 )
 from app.sqlite_repository import SqliteNoticeRepository
+from tests.fakes import FakeFinder
 
 
 def _post(seq: int, board: str | None, title: str, content: str = "본문") -> dict:
@@ -173,6 +174,29 @@ def test_label_with_llm_truncates_long_body(fake_openai) -> None:
     assert "가" * notice_auto_label.LLM_BODY_MAX_CHARS + "\n(본문 잘림)" in text
     assert "가" * (notice_auto_label.LLM_BODY_MAX_CHARS + 1) not in text
 
+
+def test_label_with_llm_masks_student_ids_and_names(fake_openai, masking_on) -> None:
+    """OpenAI로 보내는 제목·본문·첨부 이름에서 학번과 이름을 가린다(챗봇 LLM 입력과 같은 마스킹)."""
+    masking_on(FakeFinder("홍길동"))
+    fake_openai["response"] = _FakeResponse(
+        200, _openai_payload({"audiences": [], "excludes": [], "reason": ""})
+    )
+    notice = NoticeForLabel(
+        url="https://kau.ac.kr/a.php?seq=1",
+        board="general_notice",
+        board_name="일반공지",
+        title="홍길동 장학생 선발",
+        body="선발자: 홍길동(2021123456)",
+        date="2026-10-14",
+        attachment_names=("홍길동 선발 명단.pdf",),
+    )
+
+    label_with_llm(notice, api_key="k", model="m")
+
+    text = fake_openai["calls"][0]["json"]["input"][0]["content"][0]["text"]
+    assert "2021123456" not in text
+    assert "홍길동" not in text
+    assert "장학생 선발" in text
 
 def test_reasoning_model_payload_sends_effort_instead_of_temperature() -> None:
     reasoning = notice_auto_label.build_llm_payload(_notice(), model="gpt-6-luna", reasoning_effort="none")

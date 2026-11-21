@@ -37,12 +37,6 @@ class BaseParser(ABC):
         return re.sub(r"[ \t]+", " ", text).strip()
 
     @staticmethod
-    def normalize_newlines(text: str) -> str:
-        text = text.replace("\r", "")
-        text = re.sub(r"\n{3,}", "\n\n", text)
-        return text.strip()
-
-    @staticmethod
     def render_content_markdown(
         content_node: Tag | None,
         *,

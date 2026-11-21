@@ -84,7 +84,7 @@ async def list_bookmarks(
         )
 
     return BookmarkListResult(
-        items=[_to_bookmark(record, notice) for record, notice in zip(records, notices)],
+        items=[_to_bookmark(record, notice) for record, notice in zip(records, notices, strict=True)],
         total=total,
         page=current_page,
         pageSize=page_size,

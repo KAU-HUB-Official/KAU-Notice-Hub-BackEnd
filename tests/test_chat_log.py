@@ -4,9 +4,7 @@ from __future__ import annotations
 
 import json
 import sqlite3
-import time
 
-import pytest
 from fastapi.testclient import TestClient
 
 from app import chat_log
@@ -17,6 +15,7 @@ from app.repository import NoticeSearchQuery, NoticeSearchResult
 from app.schemas import Notice
 from app.service import NoticeService
 from app.service_pipeline import legacy_search
+from tests.fakes import wait_for_chat_rows
 
 
 # ---------- 단위: chat_log 모듈 ----------
@@ -205,16 +204,6 @@ def test_chat_logs_user_and_assistant_turn(tmp_path, monkeypatch) -> None:
     assert "latency_ms" in retrieval
 
 
-def _wait_for_rows(db, session_id: str, count: int, timeout: float = 3.0) -> list:
-    """스트림 경로의 저장은 백그라운드 태스크라 잠시 기다렸다 읽는다."""
-    deadline = time.monotonic() + timeout
-    rows = chat_log.read_session_messages(db, session_id)
-    while len(rows) < count and time.monotonic() < deadline:
-        time.sleep(0.02)
-        rows = chat_log.read_session_messages(db, session_id)
-    return rows
-
-
 def test_chat_stream_logs_turn_with_retrieval_trace(tmp_path, monkeypatch) -> None:
     """스트림 경로도 assistant 턴에 trace를 남기고, SSE로는 내부 이벤트를 보내지 않는다."""
     settings = get_settings()
@@ -230,7 +219,7 @@ def test_chat_stream_logs_turn_with_retrieval_trace(tmp_path, monkeypatch) -> No
             )
             assert res.status_code == 200
             body = res.text
-            rows = _wait_for_rows(db, "sess-stream", 2)
+            rows = wait_for_chat_rows(db, "sess-stream", 2)
     finally:
         app.dependency_overrides.clear()
 

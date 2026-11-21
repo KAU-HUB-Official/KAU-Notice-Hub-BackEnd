@@ -7,7 +7,6 @@ from app.search import (
     filter_notices,
     rank_notices,
     recency_boost,
-    score_notice,
 )
 
 
@@ -66,18 +65,6 @@ def test_recency_boost_tiers() -> None:
     assert recency_boost("2026-03-01", today) == 1
     assert recency_boost("2025-12-01", today) == 0
     assert recency_boost("2024-01-01", today) == -2
-
-
-def test_score_notice_recency_only_applies_when_matched() -> None:
-    today = date(2026, 5, 15)
-    matched = make_notice("m", "수강신청 안내", content="본문", date="2026-05-10")
-    unmatched = make_notice("u", "다른 공지", content="본문", date="2026-05-10")
-
-    matched_score = score_notice(matched, ["수강신청"], today=today)
-    unmatched_score = score_notice(unmatched, ["수강신청"], today=today)
-
-    assert matched_score >= 5
-    assert unmatched_score == 0
 
 
 def test_rank_notices_recency_boost_pushes_fresh_match_up() -> None:

@@ -3,6 +3,19 @@ from __future__ import annotations
 from urllib.parse import parse_qs, parse_qsl, urlencode, urlparse, urlunparse
 
 
+def _compact_php_read_url(scheme: str, netloc: str, path: str, raw_query: str) -> str | None:
+    """PHP 게시판 상세 URL(mode=read&seq=N)에서 code/mode/seq만 남긴다. 상세 URL이 아니면 None."""
+    query = parse_qs(raw_query, keep_blank_values=True)
+    if "mode" not in query or "seq" not in query:
+        return None
+    compact_query: dict[str, str] = {}
+    if query.get("code"):
+        compact_query["code"] = query["code"][-1]
+    compact_query["mode"] = query["mode"][-1]
+    compact_query["seq"] = query["seq"][-1]
+    return urlunparse((scheme, netloc, path, "", urlencode(compact_query), ""))
+
+
 def canonicalize_original_url(url: str) -> str:
     try:
         parsed = urlparse(url)
@@ -18,15 +31,9 @@ def canonicalize_original_url(url: str) -> str:
     #   /kaulife/{board}.php?...&code=sXXXX&page=..&mode=read&seq=NNNN
     # 여기서 중복에 영향 없는 page/searchkey/searchvalue는 제거한다.
     if host.endswith("kau.ac.kr") and path.startswith("/kaulife/") and path.endswith(".php"):
-        query = parse_qs(parsed.query, keep_blank_values=True)
-        if "mode" in query and "seq" in query:
-            compact_query: dict[str, str] = {}
-            if query.get("code"):
-                compact_query["code"] = query["code"][-1]
-            compact_query["mode"] = query["mode"][-1]
-            compact_query["seq"] = query["seq"][-1]
-            normalized_query = urlencode(compact_query)
-            return urlunparse((scheme, netloc, path, "", normalized_query, ""))
+        compact = _compact_php_read_url(scheme, netloc, path, parsed.query)
+        if compact is not None:
+            return compact
 
     # 대학일자리센터 상세 URL:
     #   /ko/community/notice/view/{id}?p=1
@@ -57,29 +64,17 @@ def canonicalize_original_url(url: str) -> str:
     #   /info/info_011.php?...&code=s2101&page=..&mode=read&seq=NNNN
     # 중복에 영향 없는 page/search 파라미터를 제거한다.
     if host.endswith("research.kau.ac.kr") and path.startswith("/info/") and path.endswith(".php"):
-        query = parse_qs(parsed.query, keep_blank_values=True)
-        if "mode" in query and "seq" in query:
-            compact_query: dict[str, str] = {}
-            if query.get("code"):
-                compact_query["code"] = query["code"][-1]
-            compact_query["mode"] = query["mode"][-1]
-            compact_query["seq"] = query["seq"][-1]
-            normalized_query = urlencode(compact_query)
-            return urlunparse((scheme, netloc, path, "", normalized_query, ""))
+        compact = _compact_php_read_url(scheme, netloc, path, parsed.query)
+        if compact is not None:
+            return compact
 
     # ctl.kau.ac.kr 공지 상세 URL:
     #   /notice/list.php?...&code=s1101&page=..&mode=read&seq=NNNN
     # 중복에 영향 없는 page/search 파라미터를 제거한다.
     if host.endswith("ctl.kau.ac.kr") and path.endswith("/notice/list.php"):
-        query = parse_qs(parsed.query, keep_blank_values=True)
-        if "mode" in query and "seq" in query:
-            compact_query: dict[str, str] = {}
-            if query.get("code"):
-                compact_query["code"] = query["code"][-1]
-            compact_query["mode"] = query["mode"][-1]
-            compact_query["seq"] = query["seq"][-1]
-            normalized_query = urlencode(compact_query)
-            return urlunparse((scheme, netloc, path, "", normalized_query, ""))
+        compact = _compact_php_read_url(scheme, netloc, path, parsed.query)
+        if compact is not None:
+            return compact
 
     # lib.kau.ac.kr 공지 상세 URL:
     #   /sb/default_notice_view.mir?sb_no=NNNN[&...]
@@ -95,15 +90,9 @@ def canonicalize_original_url(url: str) -> str:
     #   /info/notice_02.php?...&code=s1102&page=..&mode=read&seq=NNNN
     # 중복에 영향 없는 page/search 파라미터를 제거한다.
     if host.endswith("ftc.kau.ac.kr") and path.startswith("/info/") and path.endswith(".php"):
-        query = parse_qs(parsed.query, keep_blank_values=True)
-        if "mode" in query and "seq" in query:
-            compact_query: dict[str, str] = {}
-            if query.get("code"):
-                compact_query["code"] = query["code"][-1]
-            compact_query["mode"] = query["mode"][-1]
-            compact_query["seq"] = query["seq"][-1]
-            normalized_query = urlencode(compact_query)
-            return urlunparse((scheme, netloc, path, "", normalized_query, ""))
+        compact = _compact_php_read_url(scheme, netloc, path, parsed.query)
+        if compact is not None:
+            return compact
 
     # fsc/grad/gradbus/카드형 학과 계열 공지 상세 URL:
     #   /info/info_01.php?...&code=s1101&page=..&mode=read&seq=NNNN
@@ -130,15 +119,9 @@ def canonicalize_original_url(url: str) -> str:
         "sw.kau.ac.kr",
         "ave.kau.ac.kr",
     } and path.endswith(".php"):
-        query = parse_qs(parsed.query, keep_blank_values=True)
-        if "mode" in query and "seq" in query:
-            compact_query: dict[str, str] = {}
-            if query.get("code"):
-                compact_query["code"] = query["code"][-1]
-            compact_query["mode"] = query["mode"][-1]
-            compact_query["seq"] = query["seq"][-1]
-            normalized_query = urlencode(compact_query)
-            return urlunparse((scheme, netloc, path, "", normalized_query, ""))
+        compact = _compact_php_read_url(scheme, netloc, path, parsed.query)
+        if compact is not None:
+            return compact
 
     # lms.kau.ac.kr ubboard 상세 URL:
     #   /mod/ubboard/article.php?id=55398&bwid=NNNN

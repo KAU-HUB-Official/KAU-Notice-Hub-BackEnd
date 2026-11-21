@@ -1,15 +1,11 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from math import ceil
 
-from app.classification import (
-    classify_notice_audience,
-    classify_notice_source_group,
-    classify_notice_source_groups,
-)
 from app.repository import NoticeRepository, NoticeSearchQuery
 from app.schemas import Notice, NoticeListResult
+from app.service_pipeline import enrich_notice_groups
 
 
 @dataclass(frozen=True)
@@ -80,13 +76,7 @@ class NoticeService:
         notice = await self.repository.get_by_id(notice_id)
         if notice is None or notice.audienceGroup is not None:
             return notice
-        return notice.model_copy(
-            update={
-                "audienceGroup": classify_notice_audience(notice),
-                "sourceGroup": classify_notice_source_group(notice),
-                "sourceGroups": classify_notice_source_groups(notice),
-            }
-        )
+        return enrich_notice_groups(notice)
 
     async def find_relevant_notices(
         self,
@@ -96,35 +86,12 @@ class NoticeService:
         fallback_to_latest: bool = True,
     ) -> list[Notice]:
         base = filters or NoticeQuery()
-        search = await self.list_notices(
-            NoticeQuery(
-                q=question,
-                audience_group=base.audience_group,
-                source_group=base.source_group,
-                source=base.source,
-                category=base.category,
-                department=base.department,
-                target=base.target,
-                page=1,
-                page_size=limit,
-            )
-        )
+        search = await self.list_notices(replace(base, q=question, page=1, page_size=limit))
         if search.items:
             return search.items
 
         if not fallback_to_latest:
             return []
 
-        latest = await self.list_notices(
-            NoticeQuery(
-                audience_group=base.audience_group,
-                source_group=base.source_group,
-                source=base.source,
-                category=base.category,
-                department=base.department,
-                target=base.target,
-                page=1,
-                page_size=limit,
-            )
-        )
+        latest = await self.list_notices(replace(base, q=None, page=1, page_size=limit))
         return latest.items

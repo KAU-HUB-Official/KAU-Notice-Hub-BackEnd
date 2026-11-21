@@ -6,7 +6,8 @@ import logging
 from dataclasses import asdict, dataclass, field
 from datetime import date
 from time import perf_counter
-from typing import Any, AsyncIterator, Callable, Iterator, NamedTuple
+from typing import Any, NamedTuple
+from collections.abc import AsyncIterator, Callable, Iterator
 
 import requests
 
@@ -423,7 +424,7 @@ def _stream_openai_sync(
     system_prompt: str,
     messages: list[dict[str, str]],
     reasoning_effort: str | None = None,
-) -> "Iterator[str]":
+) -> Iterator[str]:
     """OpenAI Responses API를 stream 모드로 호출해 텍스트 delta를 차례로 yield한다.
 
     동기 제너레이터다. `_aiter_threaded`로 async iterator로 감싸 사용한다.
@@ -483,7 +484,7 @@ def _stream_openai_sync(
         response.close()
 
 
-async def _aiter_threaded(make_gen: "Callable[[], Iterator[str]]") -> "AsyncIterator[str]":
+async def _aiter_threaded(make_gen: Callable[[], Iterator[str]]) -> AsyncIterator[str]:
     """블로킹 동기 제너레이터를 워커 스레드에서 돌려 도착 순서대로 async yield한다."""
     queue: asyncio.Queue[Any] = asyncio.Queue()
     loop = asyncio.get_running_loop()
@@ -509,6 +510,16 @@ async def _aiter_threaded(make_gen: "Callable[[], Iterator[str]]") -> "AsyncIter
 _STREAM_DONE = object()
 
 
+def _strip_code_fence(raw: str) -> str:
+    """LLM 응답을 감싼 ``` 코드블록 줄을 벗긴다."""
+    cleaned = raw.strip()
+    if cleaned.startswith("```"):
+        lines = cleaned.split("\n")
+        if len(lines) >= 3:
+            cleaned = "\n".join(lines[1:-1]).strip()
+    return cleaned
+
+
 def _parse_keyword_list(raw: str) -> list[str] | None:
     """LLM 응답을 키워드 list로 파싱.
 
@@ -516,11 +527,7 @@ def _parse_keyword_list(raw: str) -> list[str] | None:
     - 빈 배열 `[]` → 빈 list (도메인 외 명시 신호)
     - 파싱 실패/형식 위반 → None (추출 자체 실패)
     """
-    cleaned = raw.strip()
-    if cleaned.startswith("```"):
-        lines = cleaned.split("\n")
-        if len(lines) >= 3:
-            cleaned = "\n".join(lines[1:-1]).strip()
+    cleaned = _strip_code_fence(raw)
 
     start = cleaned.find("[")
     end = cleaned.rfind("]")
@@ -607,7 +614,7 @@ def _record_rerank(
     trace.rerank_called = called
     trace.rerank_outcome = outcome
     if selected_ids is not None:
-        # by_id에 없는 id도 그대로 보존해 LLM 환각 id를 진단할 수 있게 한다.
+        # 후보에 없는 id도 그대로 보존해 LLM 환각 id를 진단할 수 있게 한다.
         trace.rerank_selected_ids = list(selected_ids)
 
 
@@ -620,11 +627,7 @@ def _parse_triage(raw: str, has_history: bool) -> Triage | None:
     - 파싱 실패 → None (호출자는 질문 원문으로 검색하는 legacy 경로로 폴백)
     - has_history=False면 history 모드는 search로 강등한다.
     """
-    cleaned = raw.strip()
-    if cleaned.startswith("```"):
-        lines = cleaned.split("\n")
-        if len(lines) >= 3:
-            cleaned = "\n".join(lines[1:-1]).strip()
+    cleaned = _strip_code_fence(raw)
 
     start = cleaned.find("{")
     end = cleaned.rfind("}")
@@ -893,7 +896,7 @@ async def _stream_from_history(
     question: str,
     history: list[ChatMessage] | None = None,
     today: date | None = None,
-) -> "AsyncIterator[str]":
+) -> AsyncIterator[str]:
     """history 분기 답변을 토큰 delta로 스트리밍. 비활성/키 부재면 아무것도 yield하지 않는다."""
     settings = get_settings()
     if not settings.rag_enabled or not settings.openai_api_key:
@@ -914,7 +917,7 @@ async def _stream_with_openai(
     notices: list[Notice],
     history: list[ChatMessage] | None = None,
     today: date | None = None,
-) -> "AsyncIterator[str]":
+) -> AsyncIterator[str]:
     """search 분기 답변을 토큰 delta로 스트리밍. 비활성/키 부재/공지 0건이면 아무것도 yield하지 않는다."""
     settings = get_settings()
     if not settings.rag_enabled or not settings.openai_api_key or not notices:
@@ -945,7 +948,7 @@ async def _retrieve_references(
     """검색 결과 + 분기(mode) + 단계별 trace를 반환한다.
 
     mode 값:
-    - "search": 후보를 candidate_pool개로 넓게 가져온 뒤 제목·게시일만으로
+    - "search": 후보를 candidate_pool개로 넓게 가져온 뒤 제목·게시일·본문 앞부분으로
       rerank해 최대 rag_max_references개로 좁힌 결과를 함께 반환한다.
     - "history": 새 검색 없이 이전 대화만으로 답해야 하는 경우. notices는 비어 있다.
     - "out_of_domain": KAU 공지와 무관한 질문. notices는 비어 있다.
@@ -985,9 +988,10 @@ async def _retrieve_references(
             search_query = " ".join(triage.keywords)
             use_keyword_fallback = False
             logger.info(
-                "rag_keywords_extracted question_len=%d keywords=%s",
+                # 키워드는 질문에서 뽑혀 학번·이름이 섞일 수 있어 개수만 남긴다(원문은 chat_log trace).
+                "rag_keywords_extracted question_len=%d keyword_count=%d",
                 len(normalized_question),
-                triage.keywords,
+                len(triage.keywords),
             )
         else:
             # search 모드인데 키워드가 비어 있으면(예: history 대화 중) 원문으로 검색.
@@ -1034,7 +1038,7 @@ async def stream_notice_question(
     filters: NoticeQuery | None = None,
     history: list[ChatMessage] | None = None,
     today: date | None = None,
-) -> "AsyncIterator[dict[str, Any]]":
+) -> AsyncIterator[dict[str, Any]]:
     normalized_question = question.strip()
 
     yield {"type": "search_started"}

@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import re
-from datetime import datetime, timezone
+from datetime import datetime, UTC
 from urllib.parse import urlencode, urljoin, urlparse
 
 from bs4 import BeautifulSoup
@@ -121,7 +121,7 @@ class KAULibraryParser(BaseParser):
             published_at=published_at,
             original_url=detail_url,
             attachments=attachments,
-            crawled_at=datetime.now(timezone.utc).isoformat(),
+            crawled_at=datetime.now(UTC).isoformat(),
         )
 
     def _extract_title(self, soup: BeautifulSoup) -> str:

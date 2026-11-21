@@ -5,7 +5,6 @@ from __future__ import annotations
 import asyncio
 import json
 import sqlite3
-import time
 from pathlib import Path
 
 import pytest
@@ -20,6 +19,7 @@ from app.repository import NoticeSearchQuery, NoticeSearchResult
 from app.schemas import NoticeFacets
 from app.service import NoticeQuery, NoticeService
 from app.sqlite_repository import SqliteNoticeRepository
+from tests.fakes import wait_for_chat_rows
 
 
 def _notice(notice_id: str, title: str, seq: int) -> dict:
@@ -116,15 +116,6 @@ def test_chat_logs_user_group_and_trace_target(chat_env) -> None:
     assert json.loads(rows[1]["retrieval_json"])["target"] == "학부재학생"
 
 
-def _wait_for_rows(db: Path, session_id: str, count: int, timeout: float = 3.0) -> list:
-    deadline = time.monotonic() + timeout
-    rows = chat_log.read_session_messages(db, session_id)
-    while len(rows) < count and time.monotonic() < deadline:
-        time.sleep(0.02)
-        rows = chat_log.read_session_messages(db, session_id)
-    return rows
-
-
 def test_chat_stream_filters_and_logs_user_group(chat_env) -> None:
     with TestClient(app) as client:
         res = client.post(
@@ -132,7 +123,7 @@ def test_chat_stream_filters_and_logs_user_group(chat_env) -> None:
             json={"question": "장학금 신청", "userGroup": "일반대학원생", "sessionId": "s-stream"},
         )
         assert res.status_code == 200
-        rows = _wait_for_rows(chat_env, "s-stream", 2)
+        rows = wait_for_chat_rows(chat_env, "s-stream", 2)
 
     completed = [
         json.loads(line[len("data: ") :])

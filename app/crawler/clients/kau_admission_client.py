@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from urllib.parse import urlencode, urljoin
+from urllib.parse import urlencode
 
 from ..clients.base_client import BaseClient
 from ..config import (
@@ -58,22 +58,6 @@ class KAUAdmissionClient(BaseClient):
             page=page,
         )
         return self.get(page_url, referer=list_url)
-
-    def build_detail_url(
-        self,
-        *,
-        list_url: str,
-        board_id: str,
-        board_idx: str,
-        page: int = 1,
-    ) -> str:
-        detail_base = urljoin(list_url, "noticeView.asp")
-        params = {
-            "p_board_id": board_id,
-            "p_board_idx": board_idx,
-            "page": page,
-        }
-        return f"{detail_base}?{urlencode(params)}"
 
     def fetch_notice_detail(self, detail_url: str, *, referer: str | None = None) -> str | None:
         return self.get(detail_url, referer=referer or self.notice_list_url)

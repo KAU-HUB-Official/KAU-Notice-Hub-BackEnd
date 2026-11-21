@@ -266,6 +266,7 @@ def _validate_snapshot(
             if isinstance(old_data, list):
                 old_count = _count_retain_baseline_records(old_data)
         except Exception:
+            logger.warning("could not read previous snapshot; retain-ratio check skipped", exc_info=True)
             old_count = 0
 
     if old_count > 0 and next_count < old_count * min_retain_ratio:

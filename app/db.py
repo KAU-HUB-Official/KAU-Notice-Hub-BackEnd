@@ -119,7 +119,7 @@ def connect(db_path: str | Path) -> sqlite3.Connection:
     #
     # Connections are short-lived (one per request, see SqliteNoticeRepository),
     # so values are kept modest to stay well within the deployment memory budget
-    # (Lightsail ~911MiB, MemoryMax 750M; see docs/DEPLOYMENT.md). mmap_size is
+    # (Lightsail 2GB, compose mem_limit 1400m; see docs/DEPLOYMENT.md). mmap_size is
     # sized to cover the whole DB (~24MB today) with headroom; mmap pages are
     # shared read-only across connections via the OS page cache, so the resident
     # cost is bounded by the file size, not multiplied per connection.

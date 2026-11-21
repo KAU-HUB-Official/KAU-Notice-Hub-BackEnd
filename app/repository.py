@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import logging
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Protocol
@@ -8,6 +9,8 @@ from typing import Protocol
 from app.config import get_settings
 from app.normalize import assign_unique_id, normalize_notice
 from app.schemas import Notice, NoticeFacets
+
+logger = logging.getLogger(__name__)
 
 
 class NoticeRepositoryError(RuntimeError):
@@ -99,6 +102,7 @@ class JsonNoticeRepository:
                 notices.append(assign_unique_id(normalize_notice(item, index), used_ids))
         except Exception as exc:
             if self._cache:
+                logger.warning("notice JSON normalize failed; serving previous cache: %s", exc)
                 return self._cache
             raise NoticeRepositoryError(f"공지 JSON 파일을 정규화할 수 없습니다: {self.file_path}") from exc
 

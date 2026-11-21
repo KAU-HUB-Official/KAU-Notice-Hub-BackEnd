@@ -614,7 +614,7 @@ def _record_rerank(
     trace.rerank_called = called
     trace.rerank_outcome = outcome
     if selected_ids is not None:
-        # by_id에 없는 id도 그대로 보존해 LLM 환각 id를 진단할 수 있게 한다.
+        # 후보에 없는 id도 그대로 보존해 LLM 환각 id를 진단할 수 있게 한다.
         trace.rerank_selected_ids = list(selected_ids)
 
 
@@ -948,7 +948,7 @@ async def _retrieve_references(
     """검색 결과 + 분기(mode) + 단계별 trace를 반환한다.
 
     mode 값:
-    - "search": 후보를 candidate_pool개로 넓게 가져온 뒤 제목·게시일만으로
+    - "search": 후보를 candidate_pool개로 넓게 가져온 뒤 제목·게시일·본문 앞부분으로
       rerank해 최대 rag_max_references개로 좁힌 결과를 함께 반환한다.
     - "history": 새 검색 없이 이전 대화만으로 답해야 하는 경우. notices는 비어 있다.
     - "out_of_domain": KAU 공지와 무관한 질문. notices는 비어 있다.
@@ -988,9 +988,10 @@ async def _retrieve_references(
             search_query = " ".join(triage.keywords)
             use_keyword_fallback = False
             logger.info(
-                "rag_keywords_extracted question_len=%d keywords=%s",
+                # 키워드는 질문에서 뽑혀 학번·이름이 섞일 수 있어 개수만 남긴다(원문은 chat_log trace).
+                "rag_keywords_extracted question_len=%d keyword_count=%d",
                 len(normalized_question),
-                triage.keywords,
+                len(triage.keywords),
             )
         else:
             # search 모드인데 키워드가 비어 있으면(예: history 대화 중) 원문으로 검색.

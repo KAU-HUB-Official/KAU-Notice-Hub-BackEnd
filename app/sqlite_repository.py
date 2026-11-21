@@ -157,6 +157,25 @@ def _search(conn: sqlite3.Connection, query: NoticeSearchQuery) -> NoticeSearchR
     )
 
 
+def _append_group_filters(
+    clauses: list[str],
+    params: list[object],
+    *,
+    audience: str | None,
+    source_group: str | None,
+) -> None:
+    """대상 그룹·출처 그룹 조건을 붙인다. 본 검색과 facet 집계가 같은 조건을 쓴다."""
+    if audience:
+        clauses.append("n.audience_group = ?")
+        params.append(audience)
+    if source_group:
+        clauses.append(
+            "EXISTS(SELECT 1 FROM notice_source_groups sg "
+            "WHERE sg.notice_id = n.id AND sg.source_group = ?)"
+        )
+        params.append(source_group)
+
+
 def _build_main_where(
     *,
     audience: str | None,
@@ -168,15 +187,7 @@ def _build_main_where(
 ) -> tuple[list[str], list[object]]:
     clauses: list[str] = []
     params: list[object] = []
-    if audience:
-        clauses.append("n.audience_group = ?")
-        params.append(audience)
-    if source_group:
-        clauses.append(
-            "EXISTS(SELECT 1 FROM notice_source_groups sg "
-            "WHERE sg.notice_id = n.id AND sg.source_group = ?)"
-        )
-        params.append(source_group)
+    _append_group_filters(clauses, params, audience=audience, source_group=source_group)
     if source:
         clauses.append(
             "EXISTS(SELECT 1 FROM notice_sources s "
@@ -589,15 +600,7 @@ def _query_sources(
     )
     clauses: list[str] = []
     params: list[object] = [_SOURCE_DELIMITER]
-    if audience:
-        clauses.append("n.audience_group = ?")
-        params.append(audience)
-    if source_group:
-        clauses.append(
-            "EXISTS(SELECT 1 FROM notice_source_groups sg "
-            "WHERE sg.notice_id = n.id AND sg.source_group = ?)"
-        )
-        params.append(source_group)
+    _append_group_filters(clauses, params, audience=audience, source_group=source_group)
     if clauses:
         base += " WHERE " + " AND ".join(clauses)
     base += " GROUP BY n.id"
@@ -632,15 +635,7 @@ def _query_categories(
     base = "SELECT n.category FROM notices n"
     clauses: list[str] = ["n.category IS NOT NULL"]
     params: list[object] = []
-    if audience:
-        clauses.append("n.audience_group = ?")
-        params.append(audience)
-    if source_group:
-        clauses.append(
-            "EXISTS(SELECT 1 FROM notice_source_groups sg "
-            "WHERE sg.notice_id = n.id AND sg.source_group = ?)"
-        )
-        params.append(source_group)
+    _append_group_filters(clauses, params, audience=audience, source_group=source_group)
     base += " WHERE " + " AND ".join(clauses)
 
     notices_with_category = [
@@ -663,15 +658,7 @@ def _query_departments(
     base = "SELECT DISTINCT n.department FROM notices n"
     clauses: list[str] = ["n.department IS NOT NULL"]
     params: list[object] = []
-    if audience:
-        clauses.append("n.audience_group = ?")
-        params.append(audience)
-    if source_group:
-        clauses.append(
-            "EXISTS(SELECT 1 FROM notice_source_groups sg "
-            "WHERE sg.notice_id = n.id AND sg.source_group = ?)"
-        )
-        params.append(source_group)
+    _append_group_filters(clauses, params, audience=audience, source_group=source_group)
     base += " WHERE " + " AND ".join(clauses)
     rows = conn.execute(base, params).fetchall()
     return sorted({row[0] for row in rows if row[0]})

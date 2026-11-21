@@ -510,6 +510,16 @@ async def _aiter_threaded(make_gen: Callable[[], Iterator[str]]) -> AsyncIterato
 _STREAM_DONE = object()
 
 
+def _strip_code_fence(raw: str) -> str:
+    """LLM 응답을 감싼 ``` 코드블록 줄을 벗긴다."""
+    cleaned = raw.strip()
+    if cleaned.startswith("```"):
+        lines = cleaned.split("\n")
+        if len(lines) >= 3:
+            cleaned = "\n".join(lines[1:-1]).strip()
+    return cleaned
+
+
 def _parse_keyword_list(raw: str) -> list[str] | None:
     """LLM 응답을 키워드 list로 파싱.
 
@@ -517,11 +527,7 @@ def _parse_keyword_list(raw: str) -> list[str] | None:
     - 빈 배열 `[]` → 빈 list (도메인 외 명시 신호)
     - 파싱 실패/형식 위반 → None (추출 자체 실패)
     """
-    cleaned = raw.strip()
-    if cleaned.startswith("```"):
-        lines = cleaned.split("\n")
-        if len(lines) >= 3:
-            cleaned = "\n".join(lines[1:-1]).strip()
+    cleaned = _strip_code_fence(raw)
 
     start = cleaned.find("[")
     end = cleaned.rfind("]")
@@ -621,11 +627,7 @@ def _parse_triage(raw: str, has_history: bool) -> Triage | None:
     - 파싱 실패 → None (호출자는 질문 원문으로 검색하는 legacy 경로로 폴백)
     - has_history=False면 history 모드는 search로 강등한다.
     """
-    cleaned = raw.strip()
-    if cleaned.startswith("```"):
-        lines = cleaned.split("\n")
-        if len(lines) >= 3:
-            cleaned = "\n".join(lines[1:-1]).strip()
+    cleaned = _strip_code_fence(raw)
 
     start = cleaned.find("{")
     end = cleaned.rfind("}")

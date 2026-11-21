@@ -6,7 +6,7 @@ from pathlib import Path
 from typing import Protocol
 
 from app.config import get_settings
-from app.normalize import normalize_notice
+from app.normalize import assign_unique_id, normalize_notice
 from app.schemas import Notice, NoticeFacets
 
 
@@ -96,12 +96,7 @@ class JsonNoticeRepository:
                 if not isinstance(item, dict):
                     continue
 
-                notice = normalize_notice(item, index)
-                current = used_ids.get(notice.id, 0)
-                used_ids[notice.id] = current + 1
-                if current > 0:
-                    notice = notice.model_copy(update={"id": f"{notice.id}-{current + 1}"})
-                notices.append(notice)
+                notices.append(assign_unique_id(normalize_notice(item, index), used_ids))
         except Exception as exc:
             if self._cache:
                 return self._cache

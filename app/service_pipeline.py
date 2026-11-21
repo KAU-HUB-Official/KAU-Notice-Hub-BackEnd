@@ -23,7 +23,8 @@ from app.schemas import Notice, NoticeFacets
 from app.search import filter_notices, rank_notices
 
 
-def _enrich(notice: Notice) -> Notice:
+def enrich_notice_groups(notice: Notice) -> Notice:
+    """대상·출처 그룹을 분류해 채운다."""
     return notice.model_copy(
         update={
             "audienceGroup": classify_notice_audience(notice),
@@ -73,7 +74,7 @@ def legacy_search(notices: list[Notice], query: NoticeSearchQuery) -> NoticeSear
     start = (current_page - 1) * page_size
     end = start + page_size
 
-    items = [_enrich(item.notice) for item in ranked[start:end]]
+    items = [enrich_notice_groups(item.notice) for item in ranked[start:end]]
     return NoticeSearchResult(
         items=items,
         total=total,

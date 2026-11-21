@@ -84,6 +84,25 @@ def test_sqlite_repository_get_by_id_missing(populated_db: Path) -> None:
     assert notice is None
 
 
+def test_keyword_search_survives_notice_with_impossible_date(tmp_path: Path) -> None:
+    """달력에 없는 날짜(11월 31일)가 하나 섞여 있어도 키워드 검색이 죽지 않는다."""
+    json_path = tmp_path / "notices.json"
+    db_path = tmp_path / "notices.db"
+    _write_json(
+        json_path,
+        [
+            {"id": "bad", "title": "장학 안내", "content": "본문", "published_at": "2026-11-31"},
+            {"id": "ok", "title": "장학 신청", "content": "본문", "published_at": "2026-11-20"},
+        ],
+    )
+    ingest_json_snapshot(json_path=json_path, db_path=db_path)
+
+    result = asyncio.run(SqliteNoticeRepository(db_path).search(NoticeSearchQuery(q="장학")))
+
+    assert sorted(n.id for n in result.items) == ["bad", "ok"]
+    assert result.total == 2
+
+
 def test_sqlite_repository_normalizes_legacy_html_content_on_read(tmp_path: Path) -> None:
     db_path = tmp_path / "legacy.db"
     conn = connect(db_path)

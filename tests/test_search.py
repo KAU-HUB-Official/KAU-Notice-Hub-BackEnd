@@ -119,3 +119,8 @@ def test_expand_search_terms_keeps_opposite_terms_apart() -> None:
     """개강과 종강은 뜻이 달라 서로 넓어지지 않고, 수업기간으로만 이어진다."""
     assert set(expand_search_terms(["개강"])) == {"개강", "수업기간"}
     assert set(expand_search_terms(["종강"])) == {"종강", "수업기간"}
+
+
+def test_recency_boost_ignores_impossible_calendar_date() -> None:
+    # normalize_date는 YYYY-MM-DD 형식만 보므로 11월 31일 같은 날짜가 그대로 들어올 수 있다.
+    assert recency_boost("2026-11-31", date(2026, 11, 21)) == 0

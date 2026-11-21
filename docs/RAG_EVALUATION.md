@@ -121,7 +121,7 @@ RAG_ENABLED=true OPENAI_API_KEY=... \
   `after.json`), 빈 문자열이면 저장하지 않는다.
 - **요약 이력**: `tests/eval/eval_history.csv`. 실행 1회가 한 행이며 `run_ts`,
   `judge_model`, `scored`, `skipped`, 지표별 평균과 채점 성공 수(`<지표>_n`), 상세 파일
-  경로를 담는다. git으로 추적해 변경 전후를 비교한다.
+  경로를 담는다. 첫 실행 때 생기며 아직 커밋된 적은 없다. 변경 전후를 비교하려면 이 파일을 커밋해 둔다.
 
 ## 변경 전후 비교 (핵심 용도)
 
@@ -201,6 +201,6 @@ RAGAS 셋([ragas_cases.yml](../tests/eval/ragas_cases.yml))은 실사용 말투�
 | --- | --- |
 | RAGAS 평가셋(자연어 질문) | `tests/eval/ragas_cases.yml` |
 | RAGAS 평가 runner | `tests/eval/ragas_runner.py` |
-| RAGAS 요약 이력 | `tests/eval/eval_history.csv` (실행 시 append) |
+| RAGAS 요약 이력 | `tests/eval/eval_history.csv` (실행 시 append, 첫 실행 때 생김) |
 | 평가 데이터 스냅샷 | `tests/eval/snapshot.py`, `data/eval/<이름>/` (git 제외) |
 | 평가 의존성 | `pyproject.toml`의 `eval` extra |

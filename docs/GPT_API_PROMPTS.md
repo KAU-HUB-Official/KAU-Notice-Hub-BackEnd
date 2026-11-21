@@ -4,12 +4,13 @@
 
 이 문서는 백엔드가 OpenAI Responses API(`https://api.openai.com/v1/responses`)에 전달하는 프롬프트와 메시지 형태를 한 곳에 정리한다.
 
-대상 코드는 아래 두 영역이다.
+대상 코드는 아래 세 영역이다.
 
 | 영역 | 파일 |
 | --- | --- |
 | `/api/chat` RAG 분기(triage)/rerank/답변 생성 | `app/chat_service.py` |
 | 크롤러 이미지 텍스트 추출/content 보강 | `app/crawler/services/content_extractors/openai_provider.py` |
+| 새 공지 적용 대상 자동 라벨 | `app/notice_auto_label.py` |
 
 로컬 fallback 답변(`fallback_answer`, `OUT_OF_DOMAIN_ANSWER`)은 GPT API에 전달되지 않으므로 이 문서의 프롬프트 목록에서는 제외한다.
 
@@ -29,9 +30,11 @@
 
 | 환경변수 | 기본값 | 사용처 |
 | --- | --- | --- |
-| `OPENAI_MODEL` | `gpt-4.1-mini` | `/api/chat` 질문자 대상이 없는 rerank, 답변 생성 |
+| `OPENAI_MODEL` | `gpt-4.1-mini` | `/api/chat` 질문자 대상이 없는 rerank, history 분기 답변(이전 대화만으로 답함) |
 | `TRIAGE_MODEL` | `gpt-6-luna` | `/api/chat` 분기(키워드 추출) |
 | `TRIAGE_REASONING_EFFORT` | `none` | 위 모델의 `reasoning.effort`(temperature 대신 보냄). 추론 모델이 아니면 비운다 |
+| `ANSWER_MODEL` | `gpt-6-luna` | `/api/chat` 공지를 찾은 질문(search 분기)의 답변 생성 |
+| `ANSWER_REASONING_EFFORT` | `none` | 위 모델의 `reasoning.effort`(temperature 대신 보냄). 추론 모델이 아니면 비운다 |
 | `TARGET_RERANK_MODEL` | `gpt-6-luna` | 질문자 대상(`userGroup`)이 있는 rerank |
 | `TARGET_RERANK_REASONING_EFFORT` | `none` | 위 모델의 `reasoning.effort`(temperature 대신 보냄). 추론 모델이 아니면 비운다 |
 | `RAG_ENABLED` | `false` | `/api/chat` OpenAI 분기·rerank·답변 활성화 |
@@ -41,6 +44,10 @@
 | `CONTENT_ENRICHMENT_MODEL` | `gpt-4.1-mini` | 크롤러 이미지 텍스트 추출, content 생성 |
 | `CONTENT_ENRICHMENT_FALLBACK_MODEL` | `gpt-5.5` | 이미지 텍스트가 최소 길이보다 짧을 때 재시도 |
 | `CONTENT_ENRICHMENT_IMAGE_DETAIL` | `high` | 이미지 입력 detail |
+| `NOTICE_AUTO_LABEL_MODEL` | `gpt-6-luna` | 새 공지 적용 대상 자동 라벨 |
+| `NOTICE_AUTO_LABEL_REASONING_EFFORT` | `none` | 위 모델의 `reasoning.effort`(temperature 대신 보냄). 추론 모델이 아니면 비운다 |
+
+운영 컨테이너에는 `docker-compose.yml`의 `api.environment`에 적힌 키만 전달된다. 위 표에서 `TRIAGE_*`, `ANSWER_*`, `TARGET_RERANK_*`는 compose에 없어서 운영에서는 항상 `app/config.py` 기본값으로 동작한다.
 
 ## 호출 목록
 
@@ -52,6 +59,7 @@
 | RAG history 답변 | 분기 mode=`history` (이전 대화 존재) | `system` + history + 검색 생략 안내 user 메시지 | 한국어 plain text 답변 |
 | 이미지 텍스트 추출 | 크롤러 content enrichment 후보에 이미지 asset 존재 | `user` 텍스트 + `input_image` | 이미지 내 한국어 텍스트 |
 | 공지 content 생성 | 이미지/HWP/HWPX에서 추출 텍스트 확보 | `user` 텍스트 | JSON object |
+| 공지 대상 자동 라벨 | `NOTICE_AUTO_LABEL_ENABLED=true`, 연구 라벨이 없는 새 공지 중 게시판 규칙으로 정할 수 없는 것 | `instructions` + `user` 텍스트 | JSON object `{audiences, excludes, reason}` |
 
 ## 1. RAG 분기(triage)
 
@@ -241,6 +249,7 @@ system 프롬프트 원문, 질문자 대상이 있을 때(`{target}`에는 `use
 
 - `app/chat_service.py`의 `RAG_SYSTEM_PROMPT_TEMPLATE`
 - 호출 함수: `_generate_with_openai()`
+- 모델: 공지를 찾은 질문은 `ANSWER_MODEL`(+ `ANSWER_REASONING_EFFORT`), history 분기 답변은 `OPENAI_MODEL`
 
 메시지 구성:
 
@@ -455,12 +464,66 @@ JSON schema:
 - `confidence`가 `high`, `medium`, `low` 중 하나가 아니면 `medium`으로 보정한다.
 - JSON 파싱 실패 또는 객체가 아닌 응답은 `llm_json_parse_failed`로 처리한다.
 
+## 5. 공지 대상 자동 라벨
+
+구현 위치:
+
+- `app/notice_auto_label.py`의 `LLM_INSTRUCTIONS`, `LLM_SCHEMA`
+- 규칙 판정: `decide()`, 입력 생성: `build_llm_input()`, payload: `build_llm_payload()`, 호출: `label_with_llm()`
+
+크롤링 publish 뒤 ingest 전에, 연구 라벨이 없는 공지에만 붙인다. 먼저 `decide()`가 게시판 규칙으로 정할 수 있으면 LLM을 부르지 않는다. 학교 전체 게시판이거나, 학과 게시판인데 제목·본문에 다른 대상을 가리키는 말이 있을 때만 LLM을 부른다. 한 번 수집에 부르는 횟수 상한은 `NOTICE_AUTO_LABEL_MAX_LLM_CALLS_PER_RUN`(기본 100)이다.
+
+payload:
+
+```json
+{
+  "model": "{NOTICE_AUTO_LABEL_MODEL}",
+  "store": false,
+  "max_output_tokens": 2000,
+  "instructions": "{LLM_INSTRUCTIONS}",
+  "input": [
+    { "role": "user", "content": [{ "type": "input_text", "text": "{build_llm_input}" }] }
+  ],
+  "text": { "format": "{LLM_SCHEMA}" },
+  "reasoning": { "effort": "{NOTICE_AUTO_LABEL_REASONING_EFFORT}" }
+}
+```
+
+effort를 비우면 `reasoning` 대신 `"temperature": 0`을 보내고 `max_output_tokens`는 300이다.
+
+`LLM_INSTRUCTIONS`는 대상 코드 8개(학부재학생, 신입생·편입생, 일반대학원생, 항공경영대학원생, 항공우주정책대학원생, 부속기관교육생, 교직원, 외부)의 정의, 판정 규칙 9개, 자주 틀리는 경우, excludes 기준으로 되어 있다. 원문은 코드 상수를 본다.
+
+user 텍스트 (`build_llm_input`):
+
+```text
+게시판: {board_name} ({board})
+게시일: {date}
+제목: {title}
+첨부: {attachment names}   (첨부가 있을 때만)
+본문:
+{Markdown 기호를 걷어낸 본문, 3000자 초과 시 잘라 "(본문 잘림)"}
+```
+
+본문은 학번·이름 마스킹을 거치지 않고 크롤링 스냅샷 원문을 쓴다.
+
+응답 형식(`LLM_SCHEMA`, strict json_schema):
+
+```json
+{
+  "audiences": ["학부재학생"],
+  "excludes": [],
+  "reason": "판단 근거 한 문장"
+}
+```
+
+응답 처리: `audiences`는 `normalize_audiences()`로 정해진 순서·중복 없이 정리하고, 학부재학생과 대학원 셋이 모두 있으면 빈 목록(모두)으로 바꾼다.
+
 ## 변경 시 확인할 테스트
 
 프롬프트, 메시지 role, history 전달, 출력 파싱 정책을 바꾸면 아래 테스트를 함께 확인한다.
 
 ```bash
-pytest tests/test_chat_rag.py tests/test_content_enrichment.py
+pytest tests/test_chat_rag.py tests/test_content_enrichment.py tests/test_notice_auto_label.py
 ```
 
 문서만 수정한 경우에도 최소 확인으로 아래를 실행한다.

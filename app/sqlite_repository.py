@@ -244,6 +244,15 @@ def _paginate_no_query(
     return _rows_to_notices(conn, rows), total
 
 
+_LIKE_ESCAPE_CLAUSE = "ESCAPE '\\'"
+
+
+def _like_contains(text: str) -> str:
+    """LIKE '%text%' 패턴. text 안의 \\, %, _는 escape해 글자 그대로 찾는다."""
+    escaped = text.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+    return f"%{escaped}%"
+
+
 def _search_with_query(
     conn: sqlite3.Connection,
     *,
@@ -259,18 +268,20 @@ def _search_with_query(
 
     # phrase + 각 term을 OR로 합친다. 이전엔 AND여서 본문에 phrase가 그대로 등장하지
     # 않으면 결과가 0건이 되는 P0 버그가 있었다.
+    # 검색어의 %·_는 글자 그대로 찾는다(_like_contains). 와일드카드로 두면 상관없는 최신 공지가
+    # 후보 상한을 채워 그 글자가 실제로 든 공지가 빠진다.
     candidate_or_parts: list[str] = [
-        "n.searchable_text LIKE ?",
-        "n.searchable_compact LIKE ?",
+        f"n.searchable_text LIKE ? {_LIKE_ESCAPE_CLAUSE}",
+        f"n.searchable_compact LIKE ? {_LIKE_ESCAPE_CLAUSE}",
     ]
     candidate_params: list[object] = [
-        f"%{normalized}%",
-        f"%{compact_query}%",
+        _like_contains(normalized),
+        _like_contains(compact_query),
     ]
     for term in terms:
-        candidate_or_parts.append("n.searchable_text LIKE ?")
-        candidate_or_parts.append("n.searchable_compact LIKE ?")
-        candidate_params.extend([f"%{term}%", f"%{compact(term)}%"])
+        candidate_or_parts.append(f"n.searchable_text LIKE ? {_LIKE_ESCAPE_CLAUSE}")
+        candidate_or_parts.append(f"n.searchable_compact LIKE ? {_LIKE_ESCAPE_CLAUSE}")
+        candidate_params.extend([_like_contains(term), _like_contains(compact(term))])
 
     candidate_clause = "(" + " OR ".join(candidate_or_parts) + ")"
 

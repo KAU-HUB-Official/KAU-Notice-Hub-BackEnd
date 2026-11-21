@@ -103,6 +103,39 @@ def test_keyword_search_survives_notice_with_impossible_date(tmp_path: Path) -> 
     assert result.total == 2
 
 
+@pytest.mark.parametrize(
+    ("q", "literal_title", "lookalike_titles"),
+    [
+        ("%", "참가비 50% 할인", ["참가비 할인 안내", "할인 행사 안내"]),
+        ("a_b", "a_b 과제 안내", ["a1b 과제 안내", "axb 과제 안내"]),
+    ],
+)
+def test_keyword_search_treats_like_wildcards_literally(
+    tmp_path: Path, monkeypatch, q: str, literal_title: str, lookalike_titles: list[str]
+) -> None:
+    """검색어의 %·_를 SQL 와일드카드가 아니라 글자 그대로 찾는다.
+
+    와일드카드로 해석되면 상관없는 최신 공지가 후보 상한을 채워, 실제로 그 글자가 든
+    오래된 공지가 결과에서 빠진다.
+    """
+    import app.sqlite_repository as repo_module
+
+    monkeypatch.setattr(repo_module, "SEARCH_CANDIDATE_LIMIT", 2)
+    json_path = tmp_path / "notices.json"
+    db_path = tmp_path / "notices.db"
+    notices = [{"id": "literal", "title": literal_title, "content": "본문", "published_at": "2026-01-01"}]
+    notices += [
+        {"id": f"look-{i}", "title": title, "content": "본문", "published_at": f"2026-11-0{i + 1}"}
+        for i, title in enumerate(lookalike_titles)
+    ]
+    _write_json(json_path, notices)
+    ingest_json_snapshot(json_path=json_path, db_path=db_path)
+
+    result = asyncio.run(SqliteNoticeRepository(db_path).search(NoticeSearchQuery(q=q)))
+
+    assert [n.id for n in result.items] == ["literal"]
+    assert result.total == 1
+
 def test_sqlite_repository_normalizes_legacy_html_content_on_read(tmp_path: Path) -> None:
     db_path = tmp_path / "legacy.db"
     conn = connect(db_path)
